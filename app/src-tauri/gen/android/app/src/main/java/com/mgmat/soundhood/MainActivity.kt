@@ -8,12 +8,28 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.graphics.Color
+import android.view.View
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Edge-to-edge is forced on Android 15+, which draws the web UI under the status bar and the
+    // gesture bar. Pad the content by the system bars instead, on a dark background, light icons.
+    val root = findViewById<View>(android.R.id.content)
+    window.decorView.setBackgroundColor(Color.parseColor("#0f0f0f"))
+    WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = false
+    WindowCompat.getInsetsController(window, root).isAppearanceLightNavigationBars = false
+    ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+      val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+      v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      insets
+    }
     // Let the webview finish loading the UI before bouncing to the system permission screen —
     // if the app goes to the background mid-load, Android throttles its requests and the page stays blank.
     Handler(Looper.getMainLooper()).postDelayed({ requestAllFilesAccessIfNeeded() }, 2500)

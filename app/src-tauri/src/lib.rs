@@ -801,6 +801,14 @@ async fn ytdlp_download_audio(app: AppHandle, args: YtDlpArgs) -> Result<(), Str
 }
 
 /// "windows" | "linux" | "macos" | "android" | "ios" — lets the UI adapt (paths, layout, what is available).
+/// Whole file as bytes, for the player on platforms where the direct file URL is refused
+/// by the webview (Android). Returned as a raw IPC response, not JSON.
+#[tauri::command]
+fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+  let bytes = std::fs::read(&path).map_err(|e| format!("{}: {}", path, e))?;
+  Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 fn platform() -> String {
   std::env::consts::OS.to_string()
@@ -825,7 +833,8 @@ pub fn run() {
       playlist_create,
       playlist_delete,
       playlists_from_folders,
-      platform
+      platform,
+      read_file_bytes
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

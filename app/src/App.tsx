@@ -92,6 +92,53 @@ function ShuffleIcon({ on }: { on: boolean }) {
   );
 }
 
+function PlayIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M8 5.5v13c0 .8.9 1.3 1.6.9l10-6.5c.6-.4.6-1.3 0-1.7l-10-6.5C8.9 4.2 8 4.7 8 5.5z" />
+    </svg>
+  );
+}
+function PauseIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="5" width="4" height="14" rx="1.2" />
+      <rect x="14" y="5" width="4" height="14" rx="1.2" />
+    </svg>
+  );
+}
+function PrevIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="5" y="5" width="2.6" height="14" rx="1" />
+      <path d="M19 6.2v11.6c0 .8-.9 1.3-1.6.9L9.3 13c-.6-.4-.6-1.4 0-1.8l8.1-5.8c.7-.5 1.6 0 1.6.8z" />
+    </svg>
+  );
+}
+function NextIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M5 6.2v11.6c0 .8.9 1.3 1.6.9l8.1-5.7c.6-.4.6-1.4 0-1.8L6.6 5.4C5.9 4.9 5 5.4 5 6.2z" />
+      <rect x="16.4" y="5" width="2.6" height="14" rx="1" />
+    </svg>
+  );
+}
+function ChevronIcon({ dir, size = 18 }: { dir: "left" | "down"; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {dir === "left" ? <path d="M15 5l-7 7 7 7" /> : <path d="M5 9l7 7 7-7" />}
+    </svg>
+  );
+}
+function GearIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+    </svg>
+  );
+}
+
 function PencilIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -797,11 +844,73 @@ export default function App() {
     setCurrentName(displayName(t.name));
     setCurrentPlaylist(t.playlist || "(root)");
 
+    // Any failure to load/decode the file is otherwise silent (nothing plays, no message):
+    // surface it in the status pill, with the media error code.
+    audio.onerror = () => {
+      const code = audio.error?.code;
+      const why = code === 1 ? "aborted" : code === 2 ? "network/read error" : code === 3 ? "decode error" : code === 4 ? "format not supported / file not reachable" : "unknown";
+      setIsPlaying(false);
+      setStatus(`Can't play "${displayName(t.name)}": ${why}`);
+    };
     audio.onloadedmetadata = () => {
       setDuration(audio.duration || 0);
       setProgress(0);
-      audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     };
+    // play() is called right inside the tap/click (a "user gesture") — phones refuse playback
+    // started later from a callback. It simply waits for enough data, then starts.
+    audio
+      .play()
+      .then(() => setIsPlaying(true))
+      .catch((e) => {
+        setIsPlaying(false);
+        // The direct file URL was refused (seen on Android): pull the file through the same
+        // channel as a plain download and hand the bytes to the player instead.
+        playViaBlob(t, src, String(e?.message || e));
+      });
+  }
+
+  const blobUrlRef = useRef<string>("");
+  function mimeFor(path: string): string {
+    const ext = path.toLowerCase().split(".").pop() || "";
+    return ext === "m4a" || ext === "mp4" ? "audio/mp4"
+      : ext === "mp3" ? "audio/mpeg"
+      : ext === "flac" ? "audio/flac"
+      : ext === "ogg" || ext === "oga" ? "audio/ogg"
+      : ext === "opus" ? "audio/ogg"
+      : ext === "wav" ? "audio/wav"
+      : ext === "aac" ? "audio/aac"
+      : "audio/*";
+  }
+  async function playViaBlob(t: Track, src: string, firstError: string) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setStatus("Loading…");
+    try {
+      let buf: ArrayBuffer;
+      try {
+        const r = await fetch(src);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        buf = await r.arrayBuffer();
+      } catch {
+        // The file URL is not reachable from the page at all: ask Rust for the bytes.
+        buf = await invoke<ArrayBuffer>("read_file_bytes", { path: t.path });
+      }
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+      const url = URL.createObjectURL(new Blob([buf], { type: mimeFor(t.path) }));
+      blobUrlRef.current = url;
+      audio.onerror = () => {
+        setIsPlaying(false);
+        setStatus(`Can't decode "${displayName(t.name)}" (${(buf.byteLength / 1e6).toFixed(1)} MB, error ${audio.error?.code ?? "?"})`);
+      };
+      audio.src = url;
+      audio.load();
+      await audio.play();
+      setIsPlaying(true);
+      setStatus(`Playing (${(buf.byteLength / 1e6).toFixed(1)} MB)`);
+    } catch (e: any) {
+      setIsPlaying(false);
+      setStatus(`Can't play "${displayName(t.name)}": ${e?.message || e} · first: ${firstError}`);
+    }
   }
 
   // Move any track into another playlist folder. If it is the one playing, the player
@@ -1059,6 +1168,42 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredTracks, currentIndex, shuffle]);
+
+  // Lock screen / headset / notification controls (Media Session API). The phone shows the song
+  // and artist and routes play/pause/next/previous/seek back into the app; same on desktop.
+  useEffect(() => {
+    const ms = (navigator as any).mediaSession as MediaSession | undefined;
+    if (!ms) return;
+    try {
+      ms.metadata = new MediaMetadata({
+        title: currentName || "Soundhood",
+        artist: currentTrack?.artist || "",
+        album: currentPlaylist || "",
+      });
+      ms.playbackState = currentPath ? (isPlaying ? "playing" : "paused") : "none";
+    } catch { /* older webview */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentName, currentPath, currentPlaylist, isPlaying, currentTrack?.artist]);
+  useEffect(() => {
+    const ms = (navigator as any).mediaSession as MediaSession | undefined;
+    if (!ms) return;
+    const set = (a: MediaSessionAction, h: MediaSessionActionHandler | null) => { try { ms.setActionHandler(a, h); } catch { /* unsupported action */ } };
+    set("play", () => { const a = audioRef.current; if (a && a.src) a.play().then(() => setIsPlaying(true)).catch(() => {}); });
+    set("pause", () => { const a = audioRef.current; if (a) { a.pause(); setIsPlaying(false); } });
+    set("previoustrack", () => playPrev());
+    set("nexttrack", () => playNext());
+    set("seekto", (d) => { const a = audioRef.current; if (a && typeof d.seekTime === "number") { a.currentTime = d.seekTime; setProgress(a.currentTime); } });
+    set("seekbackward", (d) => { const a = audioRef.current; if (a) a.currentTime = Math.max(0, a.currentTime - (d.seekOffset || 10)); });
+    set("seekforward", (d) => { const a = audioRef.current; if (a) a.currentTime = Math.min(a.duration || 0, a.currentTime + (d.seekOffset || 10)); });
+    return () => { for (const a of ["play", "pause", "previoustrack", "nexttrack", "seekto", "seekbackward", "seekforward"] as MediaSessionAction[]) set(a, null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredTracks, currentIndex, shuffle]);
+  useEffect(() => {
+    const ms = (navigator as any).mediaSession as MediaSession | undefined;
+    const a = audioRef.current;
+    if (!ms || !a || !duration || !isFinite(duration)) return;
+    try { ms.setPositionState({ duration, playbackRate: a.playbackRate || 1, position: Math.min(progress, duration) }); } catch { /* ignore */ }
+  }, [duration, progress]);
 
   // yt-dlp listeners (robust against React StrictMode + HMR)
   useEffect(() => {
@@ -1511,7 +1656,9 @@ export default function App() {
           display:grid;
           place-items:center;
           cursor:pointer;
+          padding: 0;
         }
+        .circle svg{ display:block; }
         /* The timeline always keeps a usable width; it never gets crushed by its neighbours. */
         .timeline{
           flex: 1 1 260px;
@@ -1631,8 +1778,8 @@ export default function App() {
         <div className="brand">
           <div>Soundhood</div>
           {isMobile ? (
-            <button className={`btn ${mSettings ? "primaryBtn" : ""}`} onClick={() => setMSettings((v) => !v)} title="Library folder · rescan">
-              ⚙
+            <button className={`iconBtn ${mSettings ? "primaryBtn" : ""}`} onClick={() => setMSettings((v) => !v)} title="Library folder · rescan">
+              <GearIcon />
             </button>
           ) : (
             <button className="btn" onClick={importFolder}>Import</button>
@@ -1869,7 +2016,7 @@ export default function App() {
         <div className="panel">
           <div className="panelHeader headerRow">
             {isMobile ? (
-              <button className="iconBtn small" onClick={() => setMScreen("browse")} title="Back">‹</button>
+              <button className="iconBtn small" onClick={() => setMScreen("browse")} title="Back"><ChevronIcon dir="left" size={16} /></button>
             ) : null}
             <span className="headerTitle">
               {plView ? (
@@ -2045,9 +2192,9 @@ export default function App() {
         </div>
 
         <div className="controls">
-          <button className="circle" onClick={playPrev} title="Previous">⏮</button>
-          <button className="circle" onClick={togglePlay} title="Play/Pause">{isPlaying ? "⏸" : "▶"}</button>
-          <button className="circle" onClick={playNext} title="Next">⏭</button>
+          <button className="circle" onClick={playPrev} title="Previous"><PrevIcon /></button>
+          <button className="circle" onClick={togglePlay} title="Play/Pause">{isPlaying ? <PauseIcon /> : <PlayIcon />}</button>
+          <button className="circle" onClick={playNext} title="Next"><NextIcon /></button>
         </div>
 
         <div className="timeline">
@@ -2107,8 +2254,8 @@ export default function App() {
                 <div className="npTitle">{currentName}</div>
                 <div className="npSub">{currentTrack?.artist || currentPlaylist || ""}</div>
               </div>
-              <button className="circle" onClick={(e) => { e.stopPropagation(); togglePlay(); }} title="Play/Pause">{isPlaying ? "⏸" : "▶"}</button>
-              <button className="circle" onClick={(e) => { e.stopPropagation(); playNext(); }} title="Next">⏭</button>
+              <button className="circle" onClick={(e) => { e.stopPropagation(); togglePlay(); }} title="Play/Pause">{isPlaying ? <PauseIcon /> : <PlayIcon />}</button>
+              <button className="circle" onClick={(e) => { e.stopPropagation(); playNext(); }} title="Next"><NextIcon /></button>
             </div>
           ) : null}
           {currentPath ? (
@@ -2126,7 +2273,7 @@ export default function App() {
       {isMobile && mScreen === "player" ? (
         <div className="mPlayer">
           <div className="mPlayerTop">
-            <button className="iconBtn" onClick={() => setMScreen("tracks")} title="Back to the list">⌄</button>
+            <button className="iconBtn" onClick={() => setMScreen("tracks")} title="Back to the list"><ChevronIcon dir="down" /></button>
             <div className="dimText mPlayerFrom">{currentPlaylist || "All tracks"}</div>
             <div className="dimText">{currentIndex >= 0 ? `${currentIndex + 1}/${shownCount}` : `0/${shownCount}`}</div>
           </div>
@@ -2161,9 +2308,9 @@ export default function App() {
             >
               <ShuffleIcon on={shuffle} />
             </button>
-            <button className="circle" onClick={playPrev} title="Previous">⏮</button>
-            <button className="circle big" onClick={togglePlay} title="Play/Pause">{isPlaying ? "⏸" : "▶"}</button>
-            <button className="circle" onClick={playNext} title="Next">⏭</button>
+            <button className="circle" onClick={playPrev} title="Previous"><PrevIcon size={22} /></button>
+            <button className="circle big" onClick={togglePlay} title="Play/Pause">{isPlaying ? <PauseIcon size={28} /> : <PlayIcon size={28} />}</button>
+            <button className="circle" onClick={playNext} title="Next"><NextIcon size={22} /></button>
             <span className="shuffleBtn" style={{ visibility: "hidden" }} />
           </div>
           {currentPath ? (
