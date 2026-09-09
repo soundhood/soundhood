@@ -1,11 +1,12 @@
-# Music-Hood
+# Soundhood
 
-A local-first, folder-based music player for Windows/Linux with an optional YouTube audio capture helper.
+A local-first music player and user-invoked downloader for desktop (Windows/Linux) and, in progress, Android.
+Your folders are the library; playlists are small text files; no cloud, no accounts, no DRM, no telemetry.
 
 ## What this is
-- A desktop app that treats your folders as the source of truth.
-- Fast library scan, great search, playlists as files, no cloud dependency.
-- Optional helper: one-click YouTube (yt-dlp) audio extraction into your library.
+- A player that treats your own files as the source of truth.
+- Playlists as plain `.m3u8` files (a song can be in many), artists from tags, folders as storage.
+- An optional helper: paste a YouTube URL, pick a folder and playlists, get a tagged audio file (yt-dlp + ffmpeg).
 
 ## What this is NOT
 - A streaming service.
@@ -16,15 +17,12 @@ A local-first, folder-based music player for Windows/Linux with an optional YouT
 - Local-first by default
 - Privacy by design
 - Transparent file structure
-- Cross-platform parity (Win + Linux)
+- Cross-platform parity (desktop + phone)
 
 ## Docs
-- docs/PROJECT.md
-- docs/UX_MAPPING.md
-- docs/SCREENS.md
-- docs/SHORTCUTS.md
-- docs/FOLDER_RULES.md
+- PROJECT.md
+- docs/
 - LEGAL.md
 
 ## Status
-Early scaffolding: requirements, UX mapping, and build plan.
+Desktop app working (Tauri v2 · React · Rust). Android build in progress. Code name in paths and crates: `music-hood`.

@@ -667,18 +667,18 @@ fn find_bin_by_prefix(dir: &Path, prefix: &str) -> Option<PathBuf> {
 }
 
 #[cfg(desktop)]
-fn sidecar_bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
-  // Dev: binaries are in src-tauri/bin
+fn sidecar_bin_dir(_app: &AppHandle) -> Result<PathBuf, String> {
+  // Dev: the vendored binaries live in src-tauri/bin (with target-triple names).
   if cfg!(debug_assertions) {
     return Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin"));
   }
-
-  // Release: binaries are in resources/bin
-  let res = app
-    .path()
-    .resource_dir()
-    .map_err(|e| format!("Failed to get resource dir: {e}"))?;
-  Ok(res.join("bin"))
+  // Release / installed app: Tauri places sidecars NEXT TO the executable, triple stripped
+  // (yt-dlp.exe, deno.exe). Not resources/bin — that was the January assumption.
+  let exe = std::env::current_exe().map_err(|e| format!("Cannot locate the app executable: {e}"))?;
+  exe
+    .parent()
+    .map(|p| p.to_path_buf())
+    .ok_or_else(|| "App executable has no parent folder".to_string())
 }
 
 #[cfg(mobile)]
@@ -719,7 +719,7 @@ async fn ytdlp_download_audio(app: AppHandle, args: YtDlpArgs) -> Result<(), Str
 
   // Wire yt-dlp to the bundled Deno runtime (fixes the “No supported JavaScript runtime” warning).
   let bin_dir = sidecar_bin_dir(&app)?;
-  let deno_path = find_bin_by_prefix(&bin_dir, "deno-")
+  let deno_path = find_bin_by_prefix(&bin_dir, "deno")
     .ok_or_else(|| format!("Could not find bundled deno in: {}", bin_dir.display()))?;
   let js_runtime_arg = format!("deno:{}", deno_path.to_string_lossy());
 

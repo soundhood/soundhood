@@ -1513,7 +1513,7 @@ export default function App() {
 
       <div className="topbar">
         <div className="brand">
-          <div>music-hood</div>
+          <div>Soundhood</div>
           {isMobile ? (
             <>
               <input

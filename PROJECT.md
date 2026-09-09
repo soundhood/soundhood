@@ -1,11 +1,11 @@
-# Music-Hood
+# Soundhood
 
 ## One-line
-A local-first desktop music player inspired by Musicolet, with optional personal media ingestion.
+A local-first music player inspired by Musicolet, with optional personal media ingestion — desktop first, phone second, one library.
 
 ## Core principles
 - Local-first
-- Folder-based
+- Playlists as files, folders as storage, identity in tags
 - No accounts, no telemetry
 - Keyboard-first
 - Transparent tooling
