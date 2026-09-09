@@ -28,6 +28,8 @@ tauri-plugin-store = "2"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-clipboard-manager = "2.3.2"
 tauri-plugin-shell = "2"
+# Soundhood's own mobile plugin: yt-dlp on the phone (no-op on desktop, which has the sidecar)
+tauri-plugin-soundhood-ytdl = { path = "plugins/soundhood-ytdl" }
 # tag reading (title/artist/duration) for the library scan; rayon parallelises it
 lofty = "0.22"
 rayon = "1"

@@ -18,6 +18,7 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application
+        android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.soundhood"
@@ -33,6 +34,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!-- Soundhood: appears in the Android share sheet for links/text (YouTube tab in Brave -> Soundhood) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
 

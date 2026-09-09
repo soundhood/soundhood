@@ -1,0 +1,15 @@
+[package]
+name = "tauri-plugin-soundhood-ytdl"
+version = "0.1.0"
+edition = "2021"
+description = "Soundhood: yt-dlp on the phone (youtubedl-android) behind a Tauri mobile plugin"
+links = "tauri-plugin-soundhood-ytdl"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2" }
+thiserror = "1"

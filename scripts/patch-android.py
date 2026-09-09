@@ -40,6 +40,18 @@ if "MANAGE_EXTERNAL_STORAGE" not in s:
 else:
     print("manifest: already patched")
 
+# 1b. share sheet target (SEND text/plain) on MainActivity
+s = open(p, encoding="utf-8").read()
+if "android.intent.action.SEND" not in s:
+    anchor2 = '                <!-- AndroidTV support -->\n                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />\n            </intent-filter>\n'
+    if anchor2 not in s:
+        sys.exit("manifest launcher intent-filter not found — patch the share intent-filter by hand")
+    s = s.replace(anchor2, anchor2 + '            <!-- Soundhood: appears in the Android share sheet for links/text (YouTube tab in Brave -> Soundhood) -->\n            <intent-filter>\n                <action android:name="android.intent.action.SEND" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <data android:mimeType="text/plain" />\n            </intent-filter>\n', 1)
+    open(p, "w", encoding="utf-8", newline="").write(s)
+    print("manifest: share intent-filter added")
+else:
+    print("manifest: share intent-filter already present")
+
 # 2. MainActivity: ask for All-files access once
 mas = glob.glob(os.path.join(main, "java", "com", "*", "*", "MainActivity.kt"))
 if not mas:
@@ -58,6 +70,9 @@ import android.os.Looper
 import android.provider.Settings
 import android.graphics.Color
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
+import org.json.JSONObject
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -81,6 +96,47 @@ class MainActivity : TauriActivity() {{
     // Let the webview finish loading the UI before bouncing to the system permission screen —
     // if the app goes to the background mid-load, Android throttles its requests and the page stays blank.
     Handler(Looper.getMainLooper()).postDelayed({{ requestAllFilesAccessIfNeeded() }}, 2500)
+    handleShare(intent)
+  }}
+
+  override fun onNewIntent(intent: Intent) {{
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleShare(intent)
+  }}
+
+  // Share sheet: another app (Brave, YouTube) sends us text/a link. Hand it to the web UI as
+  // window.__soundhoodShare(text); retried until the page is up (cold start).
+  private var pendingShare: String? = null
+  private fun handleShare(intent: Intent?) {{
+    if (intent == null || intent.action != Intent.ACTION_SEND) return
+    val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+    intent.action = null
+    pendingShare = text
+    deliverShare(0)
+  }}
+  private fun deliverShare(attempt: Int) {{
+    val text = pendingShare ?: return
+    val wv = findWebView(findViewById(android.R.id.content))
+    if (wv == null) {{
+      if (attempt < 60) Handler(Looper.getMainLooper()).postDelayed({{ deliverShare(attempt + 1) }}, 500)
+      return
+    }}
+    val js = "(function(){{ if (window.__soundhoodShare) {{ window.__soundhoodShare(" + JSONObject.quote(text) + "); return 'ok'; }} return 'no'; }})()"
+    wv.evaluateJavascript(js) {{ result ->
+      if (result != null && result.contains("ok")) pendingShare = null
+      else if (attempt < 60) Handler(Looper.getMainLooper()).postDelayed({{ deliverShare(attempt + 1) }}, 500)
+    }}
+  }}
+  private fun findWebView(v: View?): WebView? {{
+    if (v is WebView) return v
+    if (v is ViewGroup) {{
+      for (i in 0 until v.childCount) {{
+        val r = findWebView(v.getChildAt(i))
+        if (r != null) return r
+      }}
+    }}
+    return null
   }}
 
   // Soundhood reads and writes the user's own Music folder tree directly (playlists are files in it).
@@ -110,3 +166,24 @@ if t2 != t:
     print("strings: app name set to Soundhood")
 else:
     print("strings: ok")
+
+# 4. youtubedl-android needs the native libs extracted to disk (python/ffmpeg are executables)
+p = os.path.join(main, "AndroidManifest.xml")
+s = open(p, encoding="utf-8").read()
+if "extractNativeLibs" not in s:
+    s = s.replace("    <application\n", "    <application\n        android:extractNativeLibs=\"true\"\n", 1)
+    open(p, "w", encoding="utf-8", newline="").write(s)
+    print("manifest: extractNativeLibs added")
+else:
+    print("manifest: extractNativeLibs ok")
+p = os.path.join(main, "..", "..", "build.gradle.kts")
+s = open(p, encoding="utf-8").read()
+if "useLegacyPackaging" not in s:
+    anchor3 = "    buildFeatures {\n        buildConfig = true\n    }\n"
+    if anchor3 not in s:
+        sys.exit("build.gradle.kts buildFeatures block not found — add packaging { jniLibs { useLegacyPackaging = true } } by hand")
+    s = s.replace(anchor3, anchor3 + "    // youtubedl-android runs python/ffmpeg as executables: the .so files must exist on disk, not stay inside the APK\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n", 1)
+    open(p, "w", encoding="utf-8", newline="").write(s)
+    print("gradle: useLegacyPackaging added")
+else:
+    print("gradle: useLegacyPackaging ok")

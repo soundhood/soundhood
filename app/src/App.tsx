@@ -1,9 +1,9 @@
 import { Store } from "@tauri-apps/plugin-store";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, addPluginListener } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 type Track = {
@@ -50,6 +50,18 @@ const NEW_FOLDER_SENTINEL = "__new__";
 const KEY_VOLUME = "volume";
 const KEY_SORT = "sort";
 const KEY_DOWNLOAD_PLAYLISTS = "download_playlists";
+// Links shared into the app (phone share sheet) waiting to be downloaded — the phone has no downloader yet.
+const KEY_SHARE_QUEUE = "share_queue";
+type QueuedLink = { url: string; added: number; target?: string; playlists?: string[] };
+/** A pure playlist link (list= without a specific video) downloads every entry. */
+function isPlaylistLink(url: string): boolean {
+  return /[?&]list=/.test(url) && !/[?&]v=/.test(url) && !/youtu\.be\//.test(url);
+}
+type PhoneDownloadResult = { exitCode: number; files: string[]; log: string };
+function firstUrl(text: string): string {
+  const m = text.match(/https?:\/\/[^\s<>"']+/);
+  return m ? m[0] : "";
+}
 
 // Track-list sort orders. "natural" = playlist order inside a playlist, filename order elsewhere.
 const SORT_MODES = ["Natural order", "Title A→Z", "Title Z→A", "Artist A→Z", "Longest first", "Shortest first"] as const;
@@ -369,6 +381,86 @@ export default function App() {
   // On a touchscreen a tap plays; "Select" switches taps to ticking rows for bulk playlist edits.
   const [mSelectMode, setMSelectMode] = useState<boolean>(false);
   const [mSettings, setMSettings] = useState<boolean>(false);
+  // Height of the phone's bottom block (mini player + tabs + gesture bar) — the full-screen player
+  // stops above it instead of guessing a fixed number.
+  const [shareQueue, setShareQueue] = useState<QueuedLink[]>([]);
+  const [sharedLink, setSharedLink] = useState<string>("");
+  async function saveQueue(next: QueuedLink[]) {
+    setShareQueue(next);
+    try {
+      const store = await storePromise;
+      await store.set(KEY_SHARE_QUEUE, next);
+      await store.save();
+    } catch { /* non-fatal */ }
+    // Also as a file inside the library, so it travels with the Music folder (phone ⇄ PC).
+    const lib = folderRef.current;
+    if (lib) {
+      try { await invoke("queue_write", { libraryDir: lib, json: JSON.stringify({ version: 1, links: next }, null, 2) }); } catch { /* non-fatal */ }
+    }
+  }
+  async function loadQueueFromLibrary(lib: string) {
+    try {
+      const text = await invoke<string>("queue_read", { libraryDir: lib });
+      if (!text) return;
+      const parsed = JSON.parse(text);
+      const links: QueuedLink[] = Array.isArray(parsed?.links) ? parsed.links.filter((q: any) => q && typeof q.url === "string") : [];
+      // Union with what this device already knows (a stale copy must not drop links added elsewhere).
+      const known = new Set(links.map((q) => q.url));
+      const merged = [...links, ...shareQueueRef.current.filter((q) => !known.has(q.url))].sort((a, b) => (b.added || 0) - (a.added || 0));
+      setShareQueue(merged);
+    } catch { /* no queue file yet */ }
+  }
+  const shareQueueRef = useRef<QueuedLink[]>([]);
+  shareQueueRef.current = shareQueue;
+  const [queueInput, setQueueInput] = useState<string>("");
+  // A link arrives (share sheet / paste): ask where it should land, then queue it with that choice.
+  const [queueDraft, setQueueDraft] = useState<{ url: string; target: string; playlists: string[] } | null>(null);
+  function queueLink(text: string): boolean {
+    const url = firstUrl(String(text || ""));
+    if (!url) { setStatus("No link found in that text"); return false; }
+    setQueueDraft({ url, target: dlTarget || DEFAULT_DOWNLOAD_TARGET, playlists: dlPlaylistsRef.current });
+    return true;
+  }
+  function confirmQueueDraft(downloadNow: boolean) {
+    const d = queueDraft;
+    if (!d) return;
+    const item: QueuedLink = { url: d.url, added: Date.now(), target: d.target, playlists: d.playlists };
+    const cur = shareQueueRef.current.filter((q) => q.url !== d.url);
+    saveQueue([item, ...cur]);
+    setSharedLink(d.url);
+    setQueueDraft(null);
+    if (isMobile) setMSettings(true);
+    if (downloadNow && !dlBusy) {
+      queueRunRef.current = [];
+      startDownload(item.url, item.target || DEFAULT_DOWNLOAD_TARGET, item.playlists || [], item);
+    } else {
+      setStatus("Link queued");
+    }
+  }
+  const queueLinkRef = useRef(queueLink);
+  queueLinkRef.current = queueLink;
+  useEffect(() => {
+    // Called by MainActivity.kt when another app shares text/a link into Soundhood.
+    (window as any).__soundhoodShare = (text: string) => queueLinkRef.current(text);
+    return () => { delete (window as any).__soundhoodShare; };
+  }, []);
+  async function pasteLink() {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (t && queueLink(t)) return;
+    } catch { /* clipboard not readable here */ }
+    setStatus("Paste the link into the box");
+  }
+  const mBottomRef = useRef<HTMLDivElement | null>(null);
+  const [mBottomH, setMBottomH] = useState<number>(80);
+  useEffect(() => {
+    const el = mBottomRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setMBottomH(el.getBoundingClientRect().height));
+    ro.observe(el);
+    setMBottomH(el.getBoundingClientRect().height);
+    return () => ro.disconnect();
+  }, [isMobile, currentPath, mScreen]);
   const goTracks = () => { if (isMobile) setMScreen("tracks"); };
   function toggleRow(t: Track) {
     setSelectedPaths((prev) => {
@@ -411,7 +503,10 @@ export default function App() {
   useEffect(() => {
     dlPlaylistsRef.current = dlPlaylists;
   }, [dlPlaylists]);
-  const lastDownloadRef = useRef<string>("");
+  const lastDownloadRef = useRef<string[]>([]);
+  // Destination of the download in flight: the bar's choices, or a queued link's own.
+  const activeDlRef = useRef<{ target: string; playlists: string[]; queued: QueuedLink | null }>({ target: DEFAULT_DOWNLOAD_TARGET, playlists: [], queued: null });
+  const queueRunRef = useRef<QueuedLink[]>([]);
 
   async function chooseDlPlaylists(next: string[]) {
     setDlPlaylists(next);
@@ -428,6 +523,8 @@ export default function App() {
   const folderRef = useRef<string>("");
   useEffect(() => {
     folderRef.current = folder;
+    if (folder) loadQueueFromLibrary(folder);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder]);
 
   // Folders offered as download targets: every existing playlist folder + the default.
@@ -811,25 +908,188 @@ export default function App() {
   async function startManualDownload() {
     const url = downloadUrl.trim();
     if (!url || dlBusy) return;
+    await startDownload(url, dlTarget, dlPlaylistsRef.current, null);
+  }
 
+  async function startDownload(url: string, target: string, playlists: string[], queued: QueuedLink | null): Promise<boolean> {
     // Never download "somewhere": without a Music root there is no playlist to land in.
     const lib = folderRef.current || "";
     if (!lib) {
       setDlLogs("[error] Pick your Music folder first (Import) — downloads land in a playlist folder under it.\n");
-      return;
+      return false;
     }
-
+    const folderName = target || DEFAULT_DOWNLOAD_TARGET;
+    activeDlRef.current = { target: folderName, playlists, queued };
     setDlBusy(true);
-    setDlLogs("");
-
+    setDlLogs(queued ? `[soundhood] queued link → ${folderName}${playlists.length ? " + " + playlists.join(", ") : ""}\n` : "");
+    const playlist = isPlaylistLink(url);
+    if (isMobile) {
+      // Phone: yt-dlp lives inside the app (soundhood-ytdl plugin); the result comes back directly.
+      const sep = lib.includes("\\") ? "\\" : "/";
+      const outDir = `${lib.replace(/[\\/]+$/, "")}${sep}${folderName}`;
+      setStatus("Downloading…");
+      const id = `dl-${Date.now()}`;
+      dlIdRef.current = id;
+      try {
+        const res = await invoke<PhoneDownloadResult>("plugin:soundhood-ytdl|download", {
+          args: { url, outDir, playlist, id },
+        });
+        setDlLogs((prev) => prev + `\n[done] exit code: ${res.exitCode}\n`);
+        await finishDownload(res.exitCode, res.files || []);
+        return res.exitCode === 0;
+      } catch (err) {
+        setDlBusy(false);
+        setDlLogs((prev) => prev + `\n[error] ${String(err)}\n`);
+        setStatus(`Download failed: ${String(err).split("\n")[0].slice(0, 120)}`);
+        if (queued) { activeDlRef.current = { ...activeDlRef.current, queued: null }; queueRunRef.current = []; }
+        return false;
+      }
+    }
     try {
       await invoke("ytdlp_download_audio", {
-        args: { url, libraryDir: lib, targetFolder: dlTarget },
+        args: { url, libraryDir: lib, targetFolder: folderName, playlist },
       });
+      return true;
     } catch (err) {
       setDlBusy(false);
       setDlLogs((prev) => prev + `\n[error] ${String(err)}\n`);
+      return false;
     }
+  }
+
+  // After a download ended (either engine): rescan, file the new tracks into the chosen playlists,
+  // drop a finished queued link, start the next queued one.
+  async function finishDownload(exitCode: number, filePaths: string[]) {
+    setDlBusy(false);
+    const lib = folderRef.current;
+    if (!lib) return;
+    try {
+      setStatus("Refreshing…");
+      const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
+      setAllTracks(found);
+      setStatus(`Found ${found.length} tracks`);
+      await loadPlaylists(lib);
+      const active = activeDlRef.current;
+      const targets = active.playlists;
+      if (exitCode === 0 && filePaths.length && targets.length) {
+        const paths = filePaths.filter((fp) => found.some((x) => x.path === fp));
+        if (paths.length) {
+          for (const name of targets) {
+            await invoke<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths } });
+          }
+          await loadPlaylists(lib);
+          setDlLogs((prev) => prev + `[soundhood] ${paths.length} file${paths.length === 1 ? "" : "s"} added to: ${targets.join(", ")}\n`);
+          setStatus(`Downloaded ${paths.length} and added to ${targets.length} playlist${targets.length === 1 ? "" : "s"}`);
+        }
+      } else if (exitCode === 0) {
+        setStatus(`Downloaded ${filePaths.length} file${filePaths.length === 1 ? "" : "s"}`);
+      }
+      if (active.queued) {
+        if (exitCode === 0) saveQueue(shareQueueRef.current.filter((q) => q.url !== active.queued!.url));
+        activeDlRef.current = { ...active, queued: null };
+        setTimeout(() => nextQueuedRef.current(), 300);
+      }
+    } catch (err) {
+      setStatus(`Refresh error: ${String(err)}`);
+    }
+  }
+
+  // Desktop: work through the queued links one after another (each with its own destination).
+  function runQueue() {
+    if (dlBusy || !shareQueue.length) return;
+    queueRunRef.current = [...shareQueue];
+    nextQueued();
+  }
+  function nextQueued() {
+    const item = queueRunRef.current.shift();
+    if (!item) { setStatus("Queue done"); return; }
+    startDownload(item.url, item.target || DEFAULT_DOWNLOAD_TARGET, item.playlists || [], item).then((ok) => {
+      if (!ok) { queueRunRef.current = []; }
+    });
+  }
+  const nextQueuedRef = useRef(nextQueued);
+  nextQueuedRef.current = nextQueued;
+  const finishDownloadRef = useRef(finishDownload);
+  finishDownloadRef.current = finishDownload;
+
+  // Phone: progress lines from the in-app yt-dlp.
+  const [dlProgress, setDlProgress] = useState<number>(-1);
+  useEffect(() => {
+    if (!isMobile) return;
+    let un: (() => void) | undefined;
+    let active = true;
+    addPluginListener<{ id: string; progress: number; eta?: number; line: string }>("soundhood-ytdl", "progress", (e) => {
+      if (typeof e.progress === "number" && e.progress >= 0) setDlProgress(e.progress);
+      if (e.line) setDlLogs((prev) => (prev.length > 20000 ? prev.slice(-12000) : prev) + e.line + "\n");
+    }).then((l) => { if (active) un = () => l.unregister(); else l.unregister(); }).catch((e) => setStatus(`Progress events unavailable: ${String(e).slice(0, 100)}`));
+    return () => { active = false; if (un) un(); };
+  }, [isMobile]);
+  useEffect(() => { if (!dlBusy) setDlProgress(-1); }, [dlBusy]);
+  // Seconds since the download started — so a silent yt-dlp is distinguishable from a dead one.
+  const [dlSeconds, setDlSeconds] = useState<number>(0);
+  useEffect(() => {
+    if (!dlBusy) { setDlSeconds(0); return; }
+    const t0 = Date.now();
+    const t = setInterval(() => setDlSeconds(Math.round((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [dlBusy]);
+  const dlIdRef = useRef<string>("");
+  async function cancelPhoneDownload() {
+    const id = dlIdRef.current;
+    if (!id) return;
+    try { await invoke("plugin:soundhood-ytdl|cancel", { args: { id } }); setStatus("Cancelling…"); } catch (e) { setStatus(`Cancel failed: ${String(e).slice(0, 100)}`); }
+  }
+  const [ytdlpBusy, setYtdlpBusy] = useState<boolean>(false);
+  async function copyLog() {
+    const text = dlLogs;
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus("Log copied");
+      return;
+    } catch { /* clipboard API refused: fall back to a selection */ }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      setStatus(ok ? "Log copied" : "Copy failed — long-press the log to select it");
+    } catch {
+      setStatus("Copy failed — long-press the log to select it");
+    }
+  }
+  async function netcheck() {
+    setYtdlpBusy(true);
+    setStatus("Checking the network from python…");
+    setDlLogs((prev) => prev + "[netcheck] running…\n");
+    try {
+      const r = await invoke<{ output: string }>("plugin:soundhood-ytdl|netcheck");
+      setDlLogs((prev) => prev + r.output + "\n");
+      setStatus("Network check done — see the log");
+    } catch (e) {
+      setDlLogs((prev) => prev + `[netcheck] failed: ${String(e)}\n`);
+      setStatus("Network check failed");
+    }
+    setYtdlpBusy(false);
+  }
+  const [ytdlpVersion, setYtdlpVersion] = useState<string>("");
+  useEffect(() => {
+    if (!isMobile || !mSettings) return;
+    invoke<{ version: string }>("plugin:soundhood-ytdl|ytdlp_version").then((r) => setYtdlpVersion(r.version)).catch((e) => setYtdlpVersion(`unavailable: ${String(e).slice(0, 80)}`));
+  }, [isMobile, mSettings, ytdlpBusy]);
+  async function updateYtdlp() {
+    setYtdlpBusy(true);
+    setStatus("Updating yt-dlp…");
+    try {
+      const r = await invoke<{ status: string; version: string }>("plugin:soundhood-ytdl|ytdlp_update");
+      setStatus(`yt-dlp ${r.version} (${r.status === "ALREADY_UP_TO_DATE" ? "already current" : "updated"})`);
+    } catch (e) {
+      setStatus(`yt-dlp update failed: ${String(e).slice(0, 120)}`);
+    }
+    setYtdlpBusy(false);
   }
 
   function loadAndPlay(t: Track) {
@@ -837,12 +1097,18 @@ export default function App() {
     if (!audio) return;
 
     const src = convertFileSrc(t.path);
-    audio.src = src;
-    audio.load();
-
     setCurrentPath(t.path);
     setCurrentName(displayName(t.name));
     setCurrentPlaylist(t.playlist || "(root)");
+
+    // Phone: the webview never accepts the direct file URL (and can take seconds to say so) —
+    // go straight to the bytes route.
+    if (isMobile) {
+      playViaBlob(t, src, "android: direct file URL skipped", true);
+      return;
+    }
+    audio.src = src;
+    audio.load();
 
     // Any failure to load/decode the file is otherwise silent (nothing plays, no message):
     // surface it in the status pill, with the media error code.
@@ -881,19 +1147,23 @@ export default function App() {
       : ext === "aac" ? "audio/aac"
       : "audio/*";
   }
-  async function playViaBlob(t: Track, src: string, firstError: string) {
+  async function playViaBlob(t: Track, src: string, firstError: string, rustOnly = false) {
     const audio = audioRef.current;
     if (!audio) return;
     setStatus("Loading…");
     try {
       let buf: ArrayBuffer;
-      try {
-        const r = await fetch(src);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        buf = await r.arrayBuffer();
-      } catch {
-        // The file URL is not reachable from the page at all: ask Rust for the bytes.
+      if (rustOnly) {
         buf = await invoke<ArrayBuffer>("read_file_bytes", { path: t.path });
+      } else {
+        try {
+          const r = await fetch(src);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          buf = await r.arrayBuffer();
+        } catch {
+          // The file URL is not reachable from the page at all: ask Rust for the bytes.
+          buf = await invoke<ArrayBuffer>("read_file_bytes", { path: t.path });
+        }
       }
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
       const url = URL.createObjectURL(new Blob([buf], { type: mimeFor(t.path) }));
@@ -1119,6 +1389,9 @@ export default function App() {
         const savedSort = await store.get<string>(KEY_SORT);
         if (savedSort && (SORT_MODES as readonly string[]).includes(savedSort)) setSortMode(savedSort as SortMode);
 
+        const savedQueue = await store.get<QueuedLink[]>(KEY_SHARE_QUEUE);
+        if (Array.isArray(savedQueue)) setShareQueue(savedQueue.filter((q) => q && typeof q.url === "string"));
+
         const savedVolume = await store.get<number>(KEY_VOLUME);
         if (typeof savedVolume === "number" && savedVolume >= 0 && savedVolume <= 1) setVolume(savedVolume);
         settingsLoadedRef.current = true;
@@ -1169,6 +1442,31 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredTracks, currentIndex, shuffle]);
 
+  // Cover picture embedded in the playing file (front cover), as a blob URL; "" when none.
+  const [coverUrl, setCoverUrl] = useState<string>("");
+  const coverUrlRef = useRef<string>("");
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentPath) { setCoverUrl(""); return; }
+    (async () => {
+      try {
+        const buf = await invoke<ArrayBuffer>("cover_art", { path: currentPath });
+        if (cancelled) return;
+        if (coverUrlRef.current) URL.revokeObjectURL(coverUrlRef.current);
+        coverUrlRef.current = "";
+        if (!buf || buf.byteLength < 16) { setCoverUrl(""); return; }
+        const b = new Uint8Array(buf, 0, 4);
+        const mime = b[0] === 0x89 && b[1] === 0x50 ? "image/png" : b[0] === 0xff && b[1] === 0xd8 ? "image/jpeg" : b[0] === 0x52 && b[1] === 0x49 ? "image/webp" : "image/jpeg";
+        const url = URL.createObjectURL(new Blob([buf], { type: mime }));
+        coverUrlRef.current = url;
+        setCoverUrl(url);
+      } catch {
+        if (!cancelled) setCoverUrl("");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentPath]);
+
   // Lock screen / headset / notification controls (Media Session API). The phone shows the song
   // and artist and routes play/pause/next/previous/seek back into the app; same on desktop.
   useEffect(() => {
@@ -1179,11 +1477,12 @@ export default function App() {
         title: currentName || "Soundhood",
         artist: currentTrack?.artist || "",
         album: currentPlaylist || "",
+        artwork: coverUrl ? [{ src: coverUrl, sizes: "512x512", type: "image/jpeg" }] : [],
       });
       ms.playbackState = currentPath ? (isPlaying ? "playing" : "paused") : "none";
     } catch { /* older webview */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentName, currentPath, currentPlaylist, isPlaying, currentTrack?.artist]);
+  }, [currentName, currentPath, currentPlaylist, isPlaying, currentTrack?.artist, coverUrl]);
   useEffect(() => {
     const ms = (navigator as any).mediaSession as MediaSession | undefined;
     if (!ms) return;
@@ -1226,42 +1525,15 @@ export default function App() {
         setDlLogs((prev) => prev + chunk);
       });
 
-      const uFile = await listen<string>("ytdlp:file", (e) => {
-        lastDownloadRef.current = e.payload;
+      const uFile = await listen<string[]>("ytdlp:files", (e) => {
+        lastDownloadRef.current = Array.isArray(e.payload) ? e.payload : [];
       });
 
       const uDone = await listen<number>("ytdlp:done", async (e) => {
-        setDlBusy(false);
         setDlLogs((prev) => prev + `\n[done] exit code: ${e.payload}\n`);
-
-        // Refresh library so the new file appears, then file it into the chosen playlists
-        const lib = folderRef.current;
-        if (lib) {
-          try {
-            setStatus("Refreshing…");
-            const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
-            setAllTracks(found);
-            setStatus(`Found ${found.length} tracks`);
-            await loadPlaylists(lib);
-
-            const filePath = lastDownloadRef.current;
-            lastDownloadRef.current = "";
-            const targets = dlPlaylistsRef.current;
-            if (e.payload === 0 && filePath && targets.length) {
-              const t = found.find((x) => x.path === filePath);
-              if (t) {
-                for (const name of targets) {
-                  await invoke<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths: [t.path] } });
-                }
-                await loadPlaylists(lib);
-                setDlLogs((prev) => prev + `[soundhood] added to: ${targets.join(", ")}\n`);
-                setStatus(`Downloaded and added to ${targets.length} playlist${targets.length === 1 ? "" : "s"}`);
-              }
-            }
-          } catch (err) {
-            setStatus(`Refresh error: ${String(err)}`);
-          }
-        }
+        const filePaths = lastDownloadRef.current;
+        lastDownloadRef.current = [];
+        await finishDownloadRef.current(e.payload, filePaths);
       });
 
       // If StrictMode unmounted us before the awaits finished, immediately unlisten.
@@ -1292,7 +1564,7 @@ export default function App() {
 
 
   return (
-    <div className={`app ${isMobile ? "mobile" : ""}`}>
+    <div className={`app ${isMobile ? "mobile" : ""}`} style={{ "--mBottomH": `${mBottomH}px` } as CSSProperties}>
       <audio ref={audioRef} preload="metadata" />
       <style>{`
         :root{
@@ -1638,6 +1910,26 @@ export default function App() {
           max-width: 34%;
           /* no overflow:hidden here — it would clip the "Move to…" popup; the children clip themselves */
         }
+        .nowPlaying{ flex-direction: row; align-items: center; gap: 10px; }
+        .npText{ display:flex; flex-direction:column; gap: 2px; min-width: 0; flex: 1; }
+        .npArt{
+          width: 46px; height: 46px; flex:none; border-radius: 10px; overflow:hidden;
+          background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+          display:grid; place-items:center; color: rgba(0,255,191,0.35); font-size: 20px;
+        }
+        .npArt img{ width:100%; height:100%; object-fit: cover; display:block; }
+        .miniArt{
+          width: 42px; height: 42px; flex:none; border-radius: 9px; overflow:hidden;
+          background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+          display:grid; place-items:center; color: rgba(0,255,191,0.35); font-size: 18px;
+        }
+        .miniArt img{ width:100%; height:100%; object-fit: cover; display:block; }
+        .mPlayerArt.hasArt{ padding: 8px 0; }
+        .mPlayerArt img{
+          width: min(78vw, 100%); max-height: 100%; aspect-ratio: 1; object-fit: cover;
+          border-radius: 22px; border: 1px solid var(--border);
+          box-shadow: 0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03);
+        }
         .npTitle{ font-weight:800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .npSub{ color: var(--textDim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .controls{
@@ -1668,7 +1960,29 @@ export default function App() {
           gap: 10px;
         }
         .time{ color: var(--textDim); font-size: 12px; min-width: 44px; text-align:center; flex:none; }
-        .range{ width: 100%; min-width: 0; }
+        /* Sliders: thin purple fill on a faint track, small glowing thumb — no native blue, no white. */
+        .range{
+          width: 100%; min-width: 0;
+          -webkit-appearance: none; appearance: none;
+          height: 4px; border-radius: 999px; outline: none; margin: 0;
+          background: linear-gradient(90deg, #b06cff 0%, #8c19ff var(--p, 0%), rgba(255,255,255,0.10) var(--p, 0%));
+        }
+        .range::-webkit-slider-thumb{
+          -webkit-appearance: none;
+          width: 14px; height: 14px; border-radius: 999px;
+          background: #d2b4ff;
+          border: 2px solid #0f0f0f;
+          box-shadow: 0 0 0 3px rgba(140,25,255,0.28);
+          cursor: pointer;
+        }
+        .range::-moz-range-thumb{
+          width: 14px; height: 14px; border-radius: 999px;
+          background: #d2b4ff; border: 2px solid #0f0f0f;
+          box-shadow: 0 0 0 3px rgba(140,25,255,0.28);
+        }
+        .range::-moz-range-track{ background: transparent; }
+        .app.mobile .range{ height: 5px; }
+        .app.mobile .range::-webkit-slider-thumb{ width: 18px; height: 18px; }
         .rightInfo{
           display:flex;
           align-items:center;
@@ -1693,6 +2007,15 @@ export default function App() {
         .mSettings{ display:flex; flex-wrap: wrap; gap: 8px; align-items:center; padding: 0 12px 10px; }
         .mSettings .downloadInput{ flex: 1 1 160px; min-width: 0; }
         .mFolder{ flex: 1 1 100%; color: var(--textDim); font-size: 12px; word-break: break-all; }
+        .queueAdd{ flex: 1 1 100%; display:flex; gap: 8px; align-items:center; margin-top: 4px; }
+        .queueAdd .downloadInput{ flex: 1; min-width: 0; }
+        .queueAdd{ flex-wrap: wrap; }
+        .mLogs{ flex: 1 1 100%; margin: 4px 0 0; max-height: 140px; }
+        .queueBox{ flex: 1 1 100%; margin-top: 4px; border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; background: rgba(0,0,0,0.25); }
+        .queueTitle{ font-weight: 700; margin-bottom: 8px; }
+        .queueRow{ display:flex; align-items:center; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.05); }
+        .queueRow.fresh .queueUrl{ color: var(--accent); }
+        .queueUrl{ flex: 1; min-width: 0; overflow:hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
         .app.mobile .content{ display:flex; flex-direction:column; padding: 0 10px 10px; gap: 0; }
         .app.mobile .panel{ flex: 1; border-radius: 16px; }
         .app.mobile .panelHeader{ padding: 10px 12px; }
@@ -1732,9 +2055,9 @@ export default function App() {
         .tabBtn.active{ color: var(--accent); }
         .tabBtn:disabled{ opacity: 0.35; }
         .mPlayer{
-          position: absolute; inset: 0; z-index: 60;
+          position: absolute; inset: 0 0 var(--mBottomH, 80px) 0; z-index: 60;
           display:flex; flex-direction:column; gap: 14px;
-          padding: 16px 18px 62px; /* bottom = room for the tab bar */
+          padding: 16px 18px 18px;
           background: radial-gradient(700px 500px at 50% 0%, rgba(140,25,255,0.16), transparent 60%),
                       radial-gradient(600px 400px at 50% 100%, rgba(0,255,191,0.10), transparent 60%),
                       var(--bg0);
@@ -1805,6 +2128,60 @@ export default function App() {
           />
           <button className="btn" onClick={() => importFolderPath(pathInput)} disabled={!pathInput.trim()}>Use</button>
           {folder ? <button className="btn" onClick={rescanLibrary} title="Re-read the Music folder">Rescan</button> : null}
+          <div className="queueAdd">
+            <input
+              className="downloadInput"
+              placeholder="Paste a YouTube link…"
+              inputMode="url"
+              value={queueInput}
+              onChange={(e) => setQueueInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && queueLink(queueInput)) setQueueInput(""); }}
+            />
+            <button className="btn" onClick={() => { if (queueLink(queueInput)) setQueueInput(""); }} disabled={!queueInput.trim()}>Add</button>
+            <button className="btn" onClick={pasteLink} title="Read the link from the clipboard">Paste</button>
+          </div>
+          {dlBusy ? (
+            <div className="queueBox">
+              <div className="queueTitle headerRow">
+                <span>Downloading… {dlProgress >= 0 ? `${Math.round(dlProgress)}%` : ""} <span className="tabCount">{dlSeconds}s</span></span>
+                <button className="btn" onClick={cancelPhoneDownload}>Cancel</button>
+              </div>
+              <div className="miniProgress"><div style={{ width: `${dlProgress >= 0 ? dlProgress : 0}%` }} /></div>
+            </div>
+          ) : null}
+          {dlLogs ? (
+            <div className="downloadLogs mLogs"><pre>{dlLogs.slice(-3000)}</pre></div>
+          ) : null}
+          <div className="queueAdd">
+            <button className="btn" onClick={updateYtdlp} disabled={ytdlpBusy || dlBusy} title="Fetch the newest yt-dlp inside the app (YouTube changes often)">
+              {ytdlpBusy ? "Updating…" : "Update yt-dlp"}
+            </button>
+            {ytdlpVersion ? <span className="modalHint" style={{ marginTop: 0 }}>yt-dlp {ytdlpVersion}</span> : null}
+            <button className="btn" onClick={netcheck} disabled={ytdlpBusy || dlBusy} title="Can the bundled python reach YouTube? (DNS, TCP, HTTPS)">Network check</button>
+            {shareQueue.length ? (
+              <button className="btn primaryBtn" onClick={runQueue} disabled={dlBusy}>Download queue ({shareQueue.length})</button>
+            ) : null}
+            {dlLogs ? <button className="btn" onClick={copyLog} title="Copy the whole log to the clipboard">Copy log</button> : null}
+            {dlLogs ? <button className="btn" onClick={() => setDlLogs("")}>Clear log</button> : null}
+          </div>
+          {shareQueue.length ? (
+            <div className="queueBox">
+              <div className="queueTitle">
+                Links to download <span className="tabCount">{shareQueue.length}</span>
+                <span className="modalHint" style={{ marginTop: 0 }}> · queued on this device; "Download queue" runs them here, or the PC picks them up with the Music folder</span>
+              </div>
+              {shareQueue.map((q) => (
+                <div key={q.url} className={`queueRow ${q.url === sharedLink ? "fresh" : ""}`}>
+                  <span className="queueUrl">
+                    {q.url}
+                    <div className="rowSub">→ {q.target || DEFAULT_DOWNLOAD_TARGET}{q.playlists?.length ? ` · ${q.playlists.join(", ")}` : ""}</div>
+                  </span>
+                  <button className="linkBtn" onClick={() => { try { navigator.clipboard.writeText(q.url); setStatus("Link copied"); } catch { /* no clipboard */ } }}>copy</button>
+                  <button className="iconBtn small danger" title="Remove from the list" onClick={() => saveQueue(shareQueue.filter((x) => x.url !== q.url))}><TrashIcon /></button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -1867,10 +2244,15 @@ export default function App() {
         <button className="btn" onClick={() => setDlLogs("")} disabled={!dlLogs}>
           Clear logs
         </button>
+        {shareQueue.length ? (
+          <button className="btn primaryBtn" onClick={runQueue} disabled={dlBusy} title="Download every queued link (shared from the phone), each into its chosen folder and playlists">
+            Download queue ({shareQueue.length})
+          </button>
+        ) : null}
       </div>
       ) : null}
 
-      {dlLogs ? (
+      {dlLogs && !isMobile ? (
         <div className="downloadLogs">
           <pre>{dlLogs}</pre>
         </div>
@@ -2172,6 +2554,8 @@ export default function App() {
       {!isMobile ? (
       <div className="player">
         <div className="nowPlaying">
+          <div className="npArt">{coverUrl ? <img src={coverUrl} alt="" /> : <span>♪</span>}</div>
+          <div className="npText">
           <div className="npTitle">{currentName || "Nothing playing"}</div>
           <div className="npSub">
             {currentPlaylist
@@ -2189,6 +2573,7 @@ export default function App() {
               onSelect={(name) => { if (currentTrack) addToPlaylist(name, [currentTrack]); }}
             />
           ) : null}
+          </div>
         </div>
 
         <div className="controls">
@@ -2202,6 +2587,7 @@ export default function App() {
           <input
             className="range"
             type="range"
+            style={{ "--p": `${duration ? (clamp(progress, 0, duration) / duration) * 100 : 0}%` } as CSSProperties}
             min={0}
             max={duration || 0}
             step={0.25}
@@ -2223,6 +2609,7 @@ export default function App() {
             <input
               className="range volRange"
               type="range"
+              style={{ "--p": `${volume * 100}%` } as CSSProperties}
               min={0}
               max={1}
               step={0.02}
@@ -2247,9 +2634,10 @@ export default function App() {
       ) : null}
 
       {isMobile ? (
-        <div className="mBottom">
+        <div className="mBottom" ref={mBottomRef}>
           {currentPath && mScreen !== "player" ? (
             <div className="miniBar" onClick={() => setMScreen("player")} title="Open the player">
+              <div className="miniArt">{coverUrl ? <img src={coverUrl} alt="" /> : <span>♪</span>}</div>
               <div className="miniInfo">
                 <div className="npTitle">{currentName}</div>
                 <div className="npSub">{currentTrack?.artist || currentPlaylist || ""}</div>
@@ -2258,7 +2646,7 @@ export default function App() {
               <button className="circle" onClick={(e) => { e.stopPropagation(); playNext(); }} title="Next"><NextIcon /></button>
             </div>
           ) : null}
-          {currentPath ? (
+          {currentPath && mScreen !== "player" ? (
             <div className="miniProgress"><div style={{ width: `${duration ? (progress / duration) * 100 : 0}%` }} /></div>
           ) : null}
           <nav className="tabBar">
@@ -2277,7 +2665,7 @@ export default function App() {
             <div className="dimText mPlayerFrom">{currentPlaylist || "All tracks"}</div>
             <div className="dimText">{currentIndex >= 0 ? `${currentIndex + 1}/${shownCount}` : `0/${shownCount}`}</div>
           </div>
-          <div className="mPlayerArt">♪</div>
+          <div className={`mPlayerArt ${coverUrl ? "hasArt" : ""}`}>{coverUrl ? <img src={coverUrl} alt="" /> : <span>♪</span>}</div>
           <div className="mPlayerTitle">{currentName || "Nothing playing"}</div>
           <div className="mPlayerSub">{currentTrack?.artist || " "}</div>
           <div className="timeline">
@@ -2285,6 +2673,7 @@ export default function App() {
             <input
               className="range"
               type="range"
+              style={{ "--p": `${duration ? (clamp(progress, 0, duration) / duration) * 100 : 0}%` } as CSSProperties}
               min={0}
               max={duration || 0}
               step={0.25}
@@ -2325,6 +2714,39 @@ export default function App() {
               />
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {queueDraft ? (
+        <div className="modalBackdrop" onMouseDown={() => setQueueDraft(null)}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modalTitle">Where should this go?</div>
+            <div className="modalHint" style={{ wordBreak: "break-all", marginBottom: 10 }}>{queueDraft.url}</div>
+            <label className="fieldLabel">Folder it lands in</label>
+            <Dropdown
+              value={queueDraft.target}
+              options={targetOptions}
+              title="Storage folder for the file(s)"
+              onSelect={(v) => setQueueDraft({ ...queueDraft, target: v })}
+            />
+            <label className="fieldLabel">Playlists it joins</label>
+            <MultiDropdown
+              values={queueDraft.playlists}
+              options={playlistFiles.map((p) => p.name)}
+              onChange={(next) => setQueueDraft({ ...queueDraft, playlists: next })}
+              placeholder="none"
+              title="Every file this link produces is added to these playlists"
+            />
+            <div className="modalHint" style={{ marginTop: 10 }}>
+              A playlist link produces several files; all of them get the same folder and playlists.
+              {" "}"Queue" keeps it for later (or for the PC); "Download" starts right away on this device.
+            </div>
+            <div className="modalActions">
+              <button className="btn" onClick={() => setQueueDraft(null)}>Cancel</button>
+              <button className="btn" onClick={() => confirmQueueDraft(false)}>Queue</button>
+              <button className="btn primaryBtn" onClick={() => confirmQueueDraft(true)} disabled={dlBusy} autoFocus>Download</button>
+            </div>
+          </div>
         </div>
       ) : null}
 

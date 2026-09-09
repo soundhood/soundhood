@@ -51,6 +51,12 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    // youtubedl-android runs python/ffmpeg as executables: the .so files must exist on disk, not stay inside the APK
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 rust {

@@ -190,6 +190,9 @@ struct YtDlpArgs {
   /// First-level folder under the library root (= a playlist) the file lands in.
   #[serde(default, alias = "targetFolder")]
   target_folder: Option<String>,
+  /// A playlist link downloads every entry (the UI sets this for pure playlist URLs).
+  #[serde(default)]
+  playlist: bool,
 }
 
 /// A target folder is a single folder NAME under the library root — never a path.
@@ -631,10 +634,12 @@ fn send_to_bin(path: &Path) -> Result<(), String> {
 
 /// Newest audio file in `dir` modified at/after `since` (with a little slack for clock granularity).
 #[cfg(desktop)]
-fn newest_audio_since(dir: &Path, since: std::time::SystemTime) -> Option<PathBuf> {
+/// Every audio file in `dir` written since `since` (a playlist link yields several), oldest first.
+fn audio_files_since(dir: &Path, since: std::time::SystemTime) -> Vec<PathBuf> {
   let floor = since.checked_sub(std::time::Duration::from_secs(5)).unwrap_or(since);
-  let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-  for e in std::fs::read_dir(dir).ok()?.flatten() {
+  let mut found: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+  let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+  for e in rd.flatten() {
     let p = e.path();
     if !p.is_file() || !is_audio_file(&p) {
       continue;
@@ -643,11 +648,10 @@ fn newest_audio_since(dir: &Path, since: std::time::SystemTime) -> Option<PathBu
     if m < floor {
       continue;
     }
-    if best.as_ref().map(|(t, _)| m > *t).unwrap_or(true) {
-      best = Some((m, p));
-    }
+    found.push((m, p));
   }
-  best.map(|(_, p)| p)
+  found.sort_by(|a, b| a.0.cmp(&b.0));
+  found.into_iter().map(|(_, p)| p).collect()
 }
 
 #[cfg(desktop)]
@@ -730,7 +734,7 @@ async fn ytdlp_download_audio(app: AppHandle, args: YtDlpArgs) -> Result<(), Str
   };
 
   let mut argv: Vec<String> = vec![
-    "--no-playlist".into(),
+    (if args.playlist { "--yes-playlist" } else { "--no-playlist" }).into(),
     "--js-runtimes".into(),
     js_runtime_arg,
   ];
@@ -786,9 +790,11 @@ async fn ytdlp_download_audio(app: AppHandle, args: YtDlpArgs) -> Result<(), Str
           // Tell the UI which file this download produced: the newest audio file in the
           // target folder written since we started (no log parsing).
           if code == 0 {
-            if let Some(p) = newest_audio_since(&out_dir, started) {
-              let _ = app.emit("ytdlp:file", p.to_string_lossy().to_string());
-            }
+            let files: Vec<String> = audio_files_since(&out_dir, started)
+              .into_iter()
+              .map(|p| p.to_string_lossy().to_string())
+              .collect();
+            let _ = app.emit("ytdlp:files", files);
           }
           let _ = app.emit("ytdlp:done", code);
         }
@@ -809,6 +815,51 @@ fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
   Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Embedded cover picture of a track (front cover preferred), raw bytes; empty when none.
+/// The UI sniffs JPEG/PNG from the first bytes.
+#[tauri::command]
+fn cover_art(path: String) -> Result<tauri::ipc::Response, String> {
+  let tagged = lofty::read_from_path(&path).map_err(|e| format!("{}: {}", path, e))?;
+  let mut best: Option<Vec<u8>> = None;
+  for tag in tagged.tags() {
+    let pics = tag.pictures();
+    if pics.is_empty() {
+      continue;
+    }
+    let pick = pics
+      .iter()
+      .find(|p| p.pic_type() == lofty::picture::PictureType::CoverFront)
+      .unwrap_or(&pics[0]);
+    best = Some(pick.data().to_vec());
+    break;
+  }
+  Ok(tauri::ipc::Response::new(best.unwrap_or_default()))
+}
+
+/// The download queue lives as a small JSON file inside the library (`_Soundhood/download-queue.json`),
+/// so whatever carries the Music folder between phone and PC carries the queue too.
+const QUEUE_REL: &str = "_Soundhood/download-queue.json";
+
+#[tauri::command]
+fn queue_read(library_dir: String) -> Result<String, String> {
+  let p = Path::new(&library_dir).join(QUEUE_REL);
+  if !p.exists() {
+    return Ok(String::new());
+  }
+  std::fs::read_to_string(&p).map_err(|e| format!("{}: {}", p.display(), e))
+}
+
+#[tauri::command]
+fn queue_write(library_dir: String, json: String) -> Result<(), String> {
+  let p = Path::new(&library_dir).join(QUEUE_REL);
+  if let Some(parent) = p.parent() {
+    std::fs::create_dir_all(parent).map_err(|e| format!("{}: {}", parent.display(), e))?;
+  }
+  let tmp = p.with_extension("json.tmp");
+  std::fs::write(&tmp, json).map_err(|e| format!("{}: {}", tmp.display(), e))?;
+  std::fs::rename(&tmp, &p).map_err(|e| format!("{}: {}", p.display(), e))
+}
+
 #[tauri::command]
 fn platform() -> String {
   std::env::consts::OS.to_string()
@@ -820,6 +871,7 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_store::Builder::default().build())
+    .plugin(tauri_plugin_soundhood_ytdl::init())
     .invoke_handler(tauri::generate_handler![
       scan_music_folder,
       ytdlp_download_audio,
@@ -834,7 +886,10 @@ pub fn run() {
       playlist_delete,
       playlists_from_folders,
       platform,
-      read_file_bytes
+      read_file_bytes,
+      cover_art,
+      queue_read,
+      queue_write
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
