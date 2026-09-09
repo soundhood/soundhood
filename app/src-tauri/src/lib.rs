@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 #[cfg(desktop)]
 use tauri_plugin_shell::process::CommandEvent;
@@ -758,7 +758,7 @@ async fn ytdlp_download_audio(app: AppHandle, args: YtDlpArgs) -> Result<(), Str
     .map(|s| s.to_string()),
   );
 
-  let _ = app.emit("ytdlp:stdout", format!("[music-hood] saving into: {}", out_dir.display()));
+  let _ = app.emit("ytdlp:stdout", format!("[soundhood] saving into: {}", out_dir.display()));
 
   let cmd = app
     .shell()

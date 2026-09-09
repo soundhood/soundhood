@@ -311,8 +311,25 @@ export default function App() {
   const [progress, setProgress] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
   const [shuffle, setShuffle] = useState<boolean>(false);
+  // Double-click on a playlist/artist/folder: open it, turn shuffle on, start on a random track.
+  // The list is derived state, so the play happens once the new list has been computed.
+  const autoplayRef = useRef<boolean>(false);
   const [volume, setVolume] = useState<number>(1);
   const settingsLoadedRef = useRef<boolean>(false);
+  // Phone layout: one screen at a time. browse = Playlists/Artists/Folders, tracks = the song list,
+  // player = full-screen now playing. Desktop ignores all three.
+  const [mScreen, setMScreen] = useState<"browse" | "tracks" | "player">("browse");
+  // On a touchscreen a tap plays; "Select" switches taps to ticking rows for bulk playlist edits.
+  const [mSelectMode, setMSelectMode] = useState<boolean>(false);
+  const [mSettings, setMSettings] = useState<boolean>(false);
+  const goTracks = () => { if (isMobile) setMScreen("tracks"); };
+  function toggleRow(t: Track) {
+    setSelectedPaths((prev) => {
+      const n = new Set(prev);
+      if (n.has(t.path)) n.delete(t.path); else n.add(t.path);
+      return n;
+    });
+  }
 
   // Volume: apply to the player immediately, persist a moment after the slider stops moving
   // (but never before the saved value has been read, or we'd overwrite it with the default).
@@ -581,6 +598,35 @@ export default function App() {
   }
 
   const shownCount = filteredTracks.length;
+
+  useEffect(() => {
+    if (!autoplayRef.current) return;
+    if (filteredTracks.length === 0) return;
+    autoplayRef.current = false;
+    const t = filteredTracks[Math.floor(Math.random() * filteredTracks.length)];
+    loadAndPlay(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredTracks]);
+
+  function shufflePlayPlaylist(name: string) {
+    setShuffle(true);
+    autoplayRef.current = true;
+    openPlaylistView(name);
+  }
+  function shufflePlayArtist(name: string) {
+    setShuffle(true);
+    autoplayRef.current = true;
+    setPlView("");
+    setPlaylist("(all)");
+    setArtistView(name);
+  }
+  function shufflePlayFolder(name: string) {
+    setShuffle(true);
+    autoplayRef.current = true;
+    setPlView("");
+    setArtistView("");
+    setPlaylist(name);
+  }
 
   const currentTrack = useMemo(
     () => (currentPath ? allTracks.find((t) => t.path === currentPath) ?? null : null),
@@ -1063,7 +1109,7 @@ export default function App() {
                   await invoke<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths: [t.path] } });
                 }
                 await loadPlaylists(lib);
-                setDlLogs((prev) => prev + `[music-hood] added to: ${targets.join(", ")}\n`);
+                setDlLogs((prev) => prev + `[soundhood] added to: ${targets.join(", ")}\n`);
                 setStatus(`Downloaded and added to ${targets.length} playlist${targets.length === 1 ? "" : "s"}`);
               }
             }
@@ -1101,7 +1147,8 @@ export default function App() {
 
 
   return (
-    <div className="app">
+    <div className={`app ${isMobile ? "mobile" : ""}`}>
+      <audio ref={audioRef} preload="metadata" />
       <style>{`
         :root{
           --bg0:${COLORS.bg0};
@@ -1490,6 +1537,75 @@ export default function App() {
           .timeline{ order: 10; flex: 1 1 100%; min-width: 0; }
           .nowPlaying{ max-width: 46%; }
         }
+        /* ---------- Phone layout (class "mobile" on .app; desktop untouched) ---------- */
+        .app.mobile{ position: relative; }
+        .app.mobile .topbar{ padding: 10px 12px; }
+        .app.mobile .brand{ font-size: 18px; gap: 8px; }
+        .app.mobile .status{ font-size: 11px; padding: 5px 9px; max-width: 48%; overflow:hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .app.mobile .pathLine{ display:none; }
+        .mSettings{ display:flex; flex-wrap: wrap; gap: 8px; align-items:center; padding: 0 12px 10px; }
+        .mSettings .downloadInput{ flex: 1 1 160px; min-width: 0; }
+        .mFolder{ flex: 1 1 100%; color: var(--textDim); font-size: 12px; word-break: break-all; }
+        .app.mobile .content{ display:flex; flex-direction:column; padding: 0 10px 10px; gap: 0; }
+        .app.mobile .panel{ flex: 1; border-radius: 16px; }
+        .app.mobile .panelHeader{ padding: 10px 12px; }
+        .app.mobile .headerRow{ justify-content: flex-start; }
+        .app.mobile .headerTitle{ flex: 1; min-width: 0; overflow:hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .app.mobile .searchRow{ flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+        .app.mobile .search{ flex: 1 1 120px; min-width: 0; }
+        .app.mobile .pill{ padding: 13px 14px; margin-bottom: 6px; }
+        .app.mobile .trackRow{ display:flex; align-items:center; gap: 10px; padding: 11px 14px; margin-bottom: 6px; }
+        .rowMain{ flex: 1; min-width: 0; overflow:hidden; text-overflow: ellipsis; }
+        .rowSub{ color: var(--textDim); font-size: 12px; margin-top: 2px; overflow:hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rowTick{
+          width: 22px; height: 22px; flex:none;
+          border: 1px solid var(--border); border-radius: 7px;
+          display:grid; place-items:center; font-size: 13px; color: var(--accent);
+        }
+        .rowTick.on{ border-color: rgba(0,255,191,0.6); background: rgba(0,255,191,0.12); }
+        .app.mobile .ddMenu{ max-width: 88vw; }
+        .app.mobile .modal{ width: min(440px, 94vw); }
+        .mBottom{
+          position: relative; z-index: 70; flex:none;
+          border-top: 1px solid var(--border);
+          background: #141414;
+          padding-bottom: env(safe-area-inset-bottom);
+        }
+        .miniBar{ display:flex; align-items:center; gap: 10px; padding: 8px 12px; cursor:pointer; }
+        .miniInfo{ flex: 1; min-width: 0; display:flex; flex-direction:column; gap: 2px; }
+        .miniBar .circle{ width: 40px; height: 40px; flex:none; }
+        .miniProgress{ height: 2px; background: rgba(255,255,255,0.08); }
+        .miniProgress > div{ height: 100%; background: var(--accent); transition: width .25s linear; }
+        .tabBar{ display:flex; }
+        .tabBtn{
+          flex: 1; background: none; border: none;
+          color: var(--textDim); font: inherit; font-size: 12px; font-weight: 700;
+          padding: 11px 4px 12px; cursor:pointer;
+        }
+        .tabBtn.active{ color: var(--accent); }
+        .tabBtn:disabled{ opacity: 0.35; }
+        .mPlayer{
+          position: absolute; inset: 0; z-index: 60;
+          display:flex; flex-direction:column; gap: 14px;
+          padding: 16px 18px 62px; /* bottom = room for the tab bar */
+          background: radial-gradient(700px 500px at 50% 0%, rgba(140,25,255,0.16), transparent 60%),
+                      radial-gradient(600px 400px at 50% 100%, rgba(0,255,191,0.10), transparent 60%),
+                      var(--bg0);
+        }
+        .mPlayerTop{ display:flex; align-items:center; justify-content:space-between; gap: 10px; }
+        .mPlayerFrom{ flex: 1; min-width: 0; text-align:center; overflow:hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mPlayerArt{ flex: 1; min-height: 0; display:grid; place-items:center; font-size: 110px; color: rgba(0,255,191,0.22); }
+        .mPlayerTitle{ font-size: 21px; font-weight: 800; text-align:center; word-break: break-word; }
+        .mPlayerSub{ color: var(--textDim); text-align:center; min-height: 1.2em; }
+        .app.mobile .timeline{ flex: none; min-width: 0; }
+        .mPlayerControls{ display:flex; align-items:center; justify-content:center; gap: 14px; }
+        .mPlayerControls .circle{ width: 52px; height: 52px; font-size: 18px; }
+        .circle.big{
+          width: 68px !important; height: 68px !important; font-size: 24px !important;
+          border-color: rgba(0,255,191,0.45); background: rgba(0,255,191,0.12); color: var(--accent);
+        }
+        .mPlayerAdd{ display:flex; justify-content:center; }
+        .mPlayerAdd .ddMenu{ left: 50%; transform: translateX(-50%); }
         /* Scrollbars */
         * {
           scrollbar-width: thin;
@@ -1515,32 +1631,41 @@ export default function App() {
         <div className="brand">
           <div>Soundhood</div>
           {isMobile ? (
-            <>
-              <input
-                className="downloadInput targetNew"
-                placeholder="/storage/emulated/0/Music"
-                value={pathInput}
-                onChange={(e) => setPathInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") importFolderPath(pathInput); }}
-              />
-              <button className="btn" onClick={() => importFolderPath(pathInput)} disabled={!pathInput.trim()}>Use</button>
-            </>
+            <button className={`btn ${mSettings ? "primaryBtn" : ""}`} onClick={() => setMSettings((v) => !v)} title="Library folder · rescan">
+              ⚙
+            </button>
           ) : (
             <button className="btn" onClick={importFolder}>Import</button>
           )}
-          {folder ? (
+          {folder && !isMobile ? (
             <button className="btn" onClick={rescanLibrary} title="Re-read the Music folder">
               Rescan
             </button>
           ) : null}
         </div>
-        <div className="status">Status: {status}</div>
+        <div className="status">{isMobile ? status : `Status: ${status}`}</div>
       </div>
+
+      {isMobile && mSettings ? (
+        <div className="mSettings">
+          <div className="mFolder">{folder ? `Library: ${folder}` : "Type the folder that holds your music, then tap Use."}</div>
+          <input
+            className="downloadInput"
+            placeholder="/storage/emulated/0/Music"
+            value={pathInput}
+            onChange={(e) => setPathInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") importFolderPath(pathInput); }}
+          />
+          <button className="btn" onClick={() => importFolderPath(pathInput)} disabled={!pathInput.trim()}>Use</button>
+          {folder ? <button className="btn" onClick={rescanLibrary} title="Re-read the Music folder">Rescan</button> : null}
+        </div>
+      ) : null}
 
       <div className="pathLine">
         {folder ? `Folder: ${folder}` : "Pick a folder to begin."}
       </div>
 
+      {!isMobile ? (
       <div className="downloadBar">
         <input
           className="downloadInput"
@@ -1596,6 +1721,7 @@ export default function App() {
           Clear logs
         </button>
       </div>
+      ) : null}
 
       {dlLogs ? (
         <div className="downloadLogs">
@@ -1604,6 +1730,7 @@ export default function App() {
       ) : null}
 
       <div className="content">
+        {!isMobile || mScreen === "browse" ? (
         <div className="panel">
           <div className="panelHeader tabs">
             <button className={`tab ${sideTab === "playlists" ? "active" : ""}`} onClick={() => setSideTab("playlists")}>
@@ -1660,7 +1787,9 @@ export default function App() {
                 ) : null}
                 <div
                   className={`pill ${!plView && !artistView && playlist === "(all)" ? "active" : ""}`}
-                  onClick={() => { setPlView(""); setArtistView(""); setPlaylist("(all)"); }}
+                  onClick={() => { setPlView(""); setArtistView(""); setPlaylist("(all)"); goTracks(); }}
+                  onDoubleClick={() => shufflePlayFolder("(all)")}
+                  title="Everything · double-click to shuffle-play the whole library"
                 >
                   (all)
                 </div>
@@ -1668,7 +1797,9 @@ export default function App() {
                   <div
                     key={p.name}
                     className={`pill artistPill ${p.name === plView ? "active" : ""}`}
-                    onClick={() => (plView === p.name ? setPlView("") : openPlaylistView(p.name))}
+                    onClick={() => { if (isMobile) { openPlaylistView(p.name); goTracks(); } else if (plView === p.name) setPlView(""); else openPlaylistView(p.name); }}
+                    onDoubleClick={() => shufflePlayPlaylist(p.name)}
+                    title="Click to open · double-click to shuffle-play"
                   >
                     <span className="artistName">{p.name}</span>
                     <span className="artistCount">{p.entries.length}</span>
@@ -1695,7 +1826,10 @@ export default function App() {
                       setArtistView("");
                       setPlView("");
                       setPlaylist(p);
+                      goTracks();
                     }}
+                    onDoubleClick={() => shufflePlayFolder(p)}
+                    title="Click to open · double-click to shuffle-play"
                   >
                     {p}
                   </div>
@@ -1717,8 +1851,9 @@ export default function App() {
                   <div
                     key={a.name}
                     className={`pill artistPill ${a.name === artistView ? "active" : ""}`}
-                    onClick={() => { setPlView(""); setArtistView((cur) => (cur === a.name ? "" : a.name)); }}
-                    title={`All ${a.count} track${a.count === 1 ? "" : "s"} by ${a.name}, across every folder`}
+                    onClick={() => { setPlView(""); if (isMobile) { setArtistView(a.name); goTracks(); } else setArtistView((cur) => (cur === a.name ? "" : a.name)); }}
+                    onDoubleClick={() => shufflePlayArtist(a.name)}
+                    title={`All ${a.count} track${a.count === 1 ? "" : "s"} by ${a.name}, across every folder · double-click to shuffle-play`}
                   >
                     <span className="artistName">{a.name}</span>
                     <span className="artistCount">{a.count}</span>
@@ -1728,10 +1863,15 @@ export default function App() {
             </>
           )}
         </div>
+        ) : null}
 
+        {!isMobile || mScreen === "tracks" ? (
         <div className="panel">
           <div className="panelHeader headerRow">
-            <span>
+            {isMobile ? (
+              <button className="iconBtn small" onClick={() => setMScreen("browse")} title="Back">‹</button>
+            ) : null}
+            <span className="headerTitle">
               {plView ? (
                 <>
                   <span className="accentText">{plView}</span>
@@ -1834,14 +1974,24 @@ export default function App() {
                 <TrashIcon />
               </button>
             ) : null}
-            <button
-              className="btn"
-              disabled={fixBusy || filteredTracks.length === 0}
-              title="Rewrite the title/artist tags of every track listed here from its 'Song - Artist' filename"
-              onClick={() => setConfirmFix(true)}
-            >
-              {fixBusy ? "Writing…" : "Tags ← names"}
-            </button>
+            {isMobile ? (
+              <button
+                className={`btn ${mSelectMode ? "primaryBtn" : ""}`}
+                title="Tick songs instead of playing them"
+                onClick={() => { if (mSelectMode) setSelectedPaths(new Set()); setMSelectMode((v) => !v); }}
+              >
+                {mSelectMode ? "Done" : "Select"}
+              </button>
+            ) : (
+              <button
+                className="btn"
+                disabled={fixBusy || filteredTracks.length === 0}
+                title="Rewrite the title/artist tags of every track listed here from its 'Song - Artist' filename"
+                onClick={() => setConfirmFix(true)}
+              >
+                {fixBusy ? "Writing…" : "Tags ← names"}
+              </button>
+            )}
             <button
               className={`shuffleBtn ${shuffle ? "on" : ""}`}
               onClick={() => setShuffle((s) => !s)}
@@ -1856,17 +2006,23 @@ export default function App() {
               <div
                 key={t.path}
                 className={`trackRow ${t.path === currentPath ? "active" : ""} ${selectedPaths.has(t.path) ? "selected" : ""}`}
-                onClick={(e) => onRowClick(e, t)}
-                onDoubleClick={() => loadAndPlay(t)}
-                title="Click to select · Ctrl+click adds · Shift+click ranges · double-click plays"
+                onClick={(e) => { if (!isMobile) onRowClick(e, t); else if (mSelectMode) toggleRow(t); else loadAndPlay(t); }}
+                onDoubleClick={() => { if (!isMobile) loadAndPlay(t); }}
+                title={isMobile ? undefined : "Click to select · Ctrl+click adds · Shift+click ranges · double-click plays"}
               >
-                {displayName(t.name)}
+                {isMobile && mSelectMode ? <span className={`rowTick ${selectedPaths.has(t.path) ? "on" : ""}`}>{selectedPaths.has(t.path) ? "✓" : ""}</span> : null}
+                <span className="rowMain">
+                  {displayName(t.name)}
+                  {isMobile && t.artist ? <div className="rowSub">{t.artist}</div> : null}
+                </span>
               </div>
             ))}
           </div>
         </div>
+        ) : null}
       </div>
 
+      {!isMobile ? (
       <div className="player">
         <div className="nowPlaying">
           <div className="npTitle">{currentName || "Nothing playing"}</div>
@@ -1940,8 +2096,90 @@ export default function App() {
           <div>{currentIndex >= 0 ? `${currentIndex + 1}/${shownCount}` : `0/${shownCount}`}</div>
         </div>
 
-        <audio ref={audioRef} preload="metadata" />
       </div>
+      ) : null}
+
+      {isMobile ? (
+        <div className="mBottom">
+          {currentPath && mScreen !== "player" ? (
+            <div className="miniBar" onClick={() => setMScreen("player")} title="Open the player">
+              <div className="miniInfo">
+                <div className="npTitle">{currentName}</div>
+                <div className="npSub">{currentTrack?.artist || currentPlaylist || ""}</div>
+              </div>
+              <button className="circle" onClick={(e) => { e.stopPropagation(); togglePlay(); }} title="Play/Pause">{isPlaying ? "⏸" : "▶"}</button>
+              <button className="circle" onClick={(e) => { e.stopPropagation(); playNext(); }} title="Next">⏭</button>
+            </div>
+          ) : null}
+          {currentPath ? (
+            <div className="miniProgress"><div style={{ width: `${duration ? (progress / duration) * 100 : 0}%` }} /></div>
+          ) : null}
+          <nav className="tabBar">
+            <button className={`tabBtn ${mScreen !== "player" && sideTab === "playlists" ? "active" : ""}`} onClick={() => { setSideTab("playlists"); setMScreen("browse"); }}>Playlists</button>
+            <button className={`tabBtn ${mScreen !== "player" && sideTab === "artists" ? "active" : ""}`} onClick={() => { setSideTab("artists"); setMScreen("browse"); }}>Artists</button>
+            <button className={`tabBtn ${mScreen !== "player" && sideTab === "folders" ? "active" : ""}`} onClick={() => { setSideTab("folders"); setMScreen("browse"); }}>Folders</button>
+            <button className={`tabBtn ${mScreen === "player" ? "active" : ""}`} onClick={() => setMScreen("player")} disabled={!currentPath}>Playing</button>
+          </nav>
+        </div>
+      ) : null}
+
+      {isMobile && mScreen === "player" ? (
+        <div className="mPlayer">
+          <div className="mPlayerTop">
+            <button className="iconBtn" onClick={() => setMScreen("tracks")} title="Back to the list">⌄</button>
+            <div className="dimText mPlayerFrom">{currentPlaylist || "All tracks"}</div>
+            <div className="dimText">{currentIndex >= 0 ? `${currentIndex + 1}/${shownCount}` : `0/${shownCount}`}</div>
+          </div>
+          <div className="mPlayerArt">♪</div>
+          <div className="mPlayerTitle">{currentName || "Nothing playing"}</div>
+          <div className="mPlayerSub">{currentTrack?.artist || " "}</div>
+          <div className="timeline">
+            <div className="time">{formatTime(progress)}</div>
+            <input
+              className="range"
+              type="range"
+              min={0}
+              max={duration || 0}
+              step={0.25}
+              value={clamp(progress, 0, duration || 0)}
+              onChange={(e) => {
+                const audio = audioRef.current;
+                if (!audio) return;
+                const v = Number(e.target.value);
+                audio.currentTime = clamp(v, 0, audio.duration || 0);
+                setProgress(audio.currentTime);
+              }}
+            />
+            <div className="time">{formatTime(duration)}</div>
+          </div>
+          <div className="mPlayerControls">
+            <button
+              className={`shuffleBtn ${shuffle ? "on" : ""}`}
+              onClick={() => setShuffle((s) => !s)}
+              aria-pressed={shuffle}
+              title={shuffle ? "Shuffle is on" : "Shuffle is off"}
+            >
+              <ShuffleIcon on={shuffle} />
+            </button>
+            <button className="circle" onClick={playPrev} title="Previous">⏮</button>
+            <button className="circle big" onClick={togglePlay} title="Play/Pause">{isPlaying ? "⏸" : "▶"}</button>
+            <button className="circle" onClick={playNext} title="Next">⏭</button>
+            <span className="shuffleBtn" style={{ visibility: "hidden" }} />
+          </div>
+          {currentPath ? (
+            <div className="mPlayerAdd">
+              <Dropdown
+                up
+                value=""
+                placeholder="Add to playlist…"
+                title="Add the playing track to a playlist"
+                options={playlistFiles.filter((p) => !(currentTrack && inPlaylist(p, currentTrack))).map((p) => p.name)}
+                onSelect={(name) => { if (currentTrack) addToPlaylist(name, [currentTrack]); }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {editTags ? (
         <div className="modalBackdrop" onMouseDown={() => setEditTags(null)}>

@@ -5,6 +5,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.activity.enableEdgeToEdge
 
@@ -12,7 +14,9 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
-    requestAllFilesAccessIfNeeded()
+    // Let the webview finish loading the UI before bouncing to the system permission screen —
+    // if the app goes to the background mid-load, Android throttles its requests and the page stays blank.
+    Handler(Looper.getMainLooper()).postDelayed({ requestAllFilesAccessIfNeeded() }, 2500)
   }
 
   // Soundhood reads and writes the user's own Music folder tree directly (playlists are files in it).
