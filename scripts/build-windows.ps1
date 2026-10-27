@@ -3,19 +3,29 @@
   Builds the Windows installer and prints where it is.
 
 .DESCRIPTION
-  Run from anywhere:   pwsh -File scripts\build-windows.ps1
+  Run from anywhere:   pwsh -File scripts\build-windows.ps1 [-SkipSidecarFetch]
 
   1. Installs the npm dependencies (npm ci) when app\node_modules is missing or older than
      app\package-lock.json.
-  2. Runs `npm run tauri build` in app\ (release build + NSIS installer).
-  3. Prints the installer path. The Cargo workspace puts every bundle under
+  2. Fetches yt-dlp and deno into app\src-tauri\bin with scripts\fetch-sidecars.ps1: the pinned
+     releases from GitHub over HTTPS, each checked against the release's published SHA-256 and the
+     pin in core\src\ytdlp\pins.rs before it replaces the file there. -SkipSidecarFetch keeps
+     what bin\ holds (an offline rebuild); step 4 still holds it to the pins.
+  3. Builds soundhood-tools (npm run build:tools), the third bundled helper.
+  4. Checks every bundled helper (node .github\scripts\sidecars.mjs check): present, not a
+     placeholder, and yt-dlp and deno exactly the pinned builds. Stops here when one is not.
+  5. Runs `npm run tauri build` in app\ (release build + NSIS installer).
+  6. Prints the installer path. The Cargo workspace puts every bundle under
      <repo>\target\release\bundle\nsis, not under app\src-tauri\target.
 
-  The desktop sidecars (yt-dlp, deno) must sit in app\src-tauri\bin with their target-triple names
-  until the sidecar manager fetches them on first enable; the script stops early when they are missing.
+  Until the sidecar manager fetches yt-dlp and deno on first enable, the installer carries them, so
+  it must carry the pinned ones: an older vendored yt-dlp is below the project's floor.
 #>
 [CmdletBinding()]
-param()
+param(
+  # Use the yt-dlp and deno already in app\src-tauri\bin instead of fetching them (no network).
+  [switch] $SkipSidecarFetch
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -37,17 +47,26 @@ function Install-NpmDependencies {
   if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit $LASTEXITCODE)" }
 }
 
-$triple = 'x86_64-pc-windows-msvc'
-$missing = @('yt-dlp', 'deno') | Where-Object {
-  -not (Test-Path (Join-Path $app "src-tauri\bin\$_-$triple.exe"))
-}
-if ($missing) {
-  throw ("Missing sidecar(s) in app\src-tauri\bin: " + (($missing | ForEach-Object { "$_-$triple.exe" }) -join ', '))
-}
-
 Push-Location $app
 try {
   Install-NpmDependencies
+
+  if ($SkipSidecarFetch) {
+    Write-Host 'sidecars: using what app\src-tauri\bin holds (-SkipSidecarFetch)'
+  } else {
+    Write-Host 'sidecars: fetching the pinned yt-dlp and deno (verified)'
+    & (Join-Path $PSScriptRoot 'fetch-sidecars.ps1')
+    if ($LASTEXITCODE -ne 0) { throw "fetching the sidecars failed (exit $LASTEXITCODE); nothing was built" }
+  }
+
+  & npm run build:tools
+  if ($LASTEXITCODE -ne 0) { throw "npm run build:tools failed (exit $LASTEXITCODE)" }
+
+  & node (Join-Path $repo '.github\scripts\sidecars.mjs') check
+  if ($LASTEXITCODE -ne 0) {
+    throw 'The bundled helpers are not the pinned builds (see above); run without -SkipSidecarFetch.'
+  }
+
   & npm run tauri build
   if ($LASTEXITCODE -ne 0) { throw "npm run tauri build failed (exit $LASTEXITCODE)" }
 } finally {
