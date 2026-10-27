@@ -53,6 +53,11 @@ pub(crate) fn atomic_replace(tmp: &Path, dest: &Path) -> Result<()>;
 pub(crate) fn rename_no_clobber(from: &Path, to: &Path) -> Result<()>;
 /// Cross-volume landing: copy to <dest dir>/.soundhood-tmp-<job>, fsync, rename to dest, then remove src.
 pub(crate) fn stage_move(src: &Path, dest: &Path, job: &str) -> Result<()>;
+/// The two halves of stage_move, so ingest can journal / crash-test between them.
+pub(crate) fn stage_copy(src: &Path, dest: &Path, job: &str) -> Result<PathBuf>; // returns the staged temp
+pub(crate) fn stage_finish(staged: &Path, dest: &Path, src: &Path) -> Result<()>;
+/// The Android bin, compiled and tested on every platform (to_bin selects it on Android).
+pub(crate) fn to_app_bin(lib: &Library, rel: &RelPath) -> Result<BinRecord>;
 /// Delete to a bin. Desktop: OS recycle bin via `trash` (cfg not android). Android: move to
 /// <root>/_Soundhood/.bin/<yyyy-mm>/<rel_path> (same volume). Returns where it went.
 pub(crate) fn to_bin(lib: &Library, rel: &RelPath) -> Result<BinRecord>;
@@ -60,7 +65,10 @@ pub(crate) fn restore_from_bin(lib: &Library, rec: &BinRecord) -> Result<()>; //
                                                           // macOS -> Error::Refused("restore from the Trash")
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BinRecord { pub kind: BinKind /*os|app*/, pub original: RelPath, pub bin_rel: Option<RelPath>,
-                       pub deleted_at: i64 }
+                       pub deleted_at: i64 /*unix seconds*/ }
+// Read-only refusals: tags::write -> Error::Refused("read-only: …"), atomic_replace -> Error::Refused("read-only file: …").
+// Ingest checks read-only up front (on Windows the temp copy is writable, so the refusal would otherwise come late).
+// TagRead.bitrate is kbps. Restoring from the OS recycle bin lists the whole bin (trash crate): slow on a full bin.
 pub fn list_tmp_files(root: &Path) -> Result<Vec<RelPath>>; // every TMP_PREFIX file under the root
 pub(crate) fn remove_file(abs: &Path) -> Result<()>;      // only for the core's own temp files
 ```
