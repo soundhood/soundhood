@@ -81,8 +81,12 @@ pub(crate) fn write(path: &Path, changes: &TagSet) -> Result<()> {
   guarded(path, || {
     let file = &mut opened.file;
     if file.primary_tag().is_none() {
+      // Seed the new primary tag from the tag `read` reported (e.g. an ID3v1-only MP3), so the
+      // fields outside `changes` keep their values once the primary tag takes over.
       let kind = file.primary_tag_type();
-      file.insert_tag(Tag::new(kind));
+      let mut seed = file.first_tag().cloned().unwrap_or_else(|| Tag::new(kind));
+      seed.re_map(kind);
+      file.insert_tag(seed);
     }
     let tag = file
       .primary_tag_mut()

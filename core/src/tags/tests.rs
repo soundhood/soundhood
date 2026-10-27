@@ -174,6 +174,36 @@ fn write_on_a_hidden_temp_then_replace() {
   }
 }
 
+/// An MP3 with only an ID3v1 trailer: `read` reports the ID3v1 fields, so the new ID3v2 tag must
+/// start from them or every edit would fail verification. The ID3v1 trailer itself is not touched.
+#[test]
+fn seeds_a_missing_primary_tag_from_the_tag_that_was_read() {
+  let (_dir, path) = copy_of("mp3");
+  // The fixture carries ffmpeg's ID3v2 encoder frame; drop it to get an ID3v1-only file.
+  TagType::Id3v2.remove_from_path(&path, WriteOptions::default()).unwrap();
+  let mut v1 = Tag::new(TagType::Id3v1);
+  v1.set_title("Old Title".into());
+  v1.set_artist("Someone".into());
+  v1.save_to_path(&path, WriteOptions::default()).unwrap();
+  let before = read(&path).unwrap();
+  assert_eq!(
+    (before.title.as_str(), before.artist.as_str()),
+    ("Old Title", "Someone")
+  );
+  let trailer = |p: &Path| {
+    let b = std::fs::read(p).unwrap();
+    b[b.len() - 128..].to_vec()
+  };
+  let v1_bytes = trailer(&path);
+
+  let changes = set(|t| t.title = Some("New Title".into()));
+  write(&path, &changes).unwrap();
+  let after = verify(&path, &before, &changes).unwrap();
+  assert_eq!((after.title.as_str(), after.artist.as_str()), ("New Title", "Someone"));
+  assert_eq!(id3v2_major(&path), 4);
+  assert_eq!(trailer(&path), v1_bytes, "the ID3v1 trailer is byte-identical");
+}
+
 #[test]
 fn creates_the_primary_tag_when_missing() {
   for (ext, _) in CONTAINERS {
