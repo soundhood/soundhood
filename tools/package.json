@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:visual": "playwright test --config screenshot/playwright.config.mjs",
     "test:visual:update": "playwright test --config screenshot/playwright.config.mjs --update-snapshots=all",
-    "evidence:baseline": "node screenshot/copy-evidence.mjs",
+    "evidence:after": "node screenshot/copy-evidence.mjs",
     "lint:tokens": "node token-lint.mjs",
     "lint:blue": "node blue-scan.mjs",
     "lint:hygiene": "node hygiene-lint.mjs"

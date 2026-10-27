@@ -1,7 +1,8 @@
-// Visual baselines of the current UI: Chromium against the app's Vite dev server with the Tauri
-// backend mocked (harness.mjs). `npm run test:visual` compares against the committed baselines in
-// __screenshots__/<os>/, `npm run test:visual:update` rewrites them, and
-// `npm run evidence:baseline` copies them to docs/evidence/phase-0/baseline/.
+// Visual baselines and behaviour checks of the current UI: Chromium against the app's Vite dev
+// server with the Tauri backend mocked (harness.mjs). `npm run test:visual` runs every *.spec.mjs
+// and compares against the committed baselines in __screenshots__/<os>/,
+// `npm run test:visual:update` rewrites them, and `npm run evidence:after` copies them to
+// docs/evidence/phase-0/after/.
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
