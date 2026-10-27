@@ -240,7 +240,14 @@ fn extract(o: &Opened) -> TagRead {
         .or_else(|| t.get_string(ItemKey::Year))
         .map(str::to_string)
     }),
-    comment: text(&|t| t.comment().map(|s| s.to_string())),
+    // The plain comment: ID3v2 COMM frames with a description (iTunNORM, iTunSMPB, ...) are data,
+    // and lofty lists them under the same key.
+    comment: text(&|t| {
+      t.get_items(ItemKey::Comment)
+        .find(|i| i.description().is_empty())
+        .and_then(|i| i.value().text())
+        .map(str::to_string)
+    }),
     duration_ms: u64::try_from(props.duration().as_millis()).unwrap_or(u64::MAX),
     codec: o.codec.clone(),
     bitrate: props.audio_bitrate(),
