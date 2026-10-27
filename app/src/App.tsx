@@ -1224,6 +1224,10 @@ export default function App() {
     }
     // Then the visible log, then the change lines kept out of it (core:batch).
     const text = copyLogText(head, dlLogs, quietLogRef.current);
+    // What to do by hand when the clipboard refuses: the phone selects with a long press.
+    const copyFailed = isMobile
+      ? "Copy failed: long-press the log to select it"
+      : `Copy failed: select the log text and press ${platform === "macos" ? "Cmd" : "Ctrl"}+C`;
     try {
       await navigator.clipboard.writeText(text);
       setStatus("Log copied");
@@ -1238,9 +1242,9 @@ export default function App() {
       ta.select();
       const ok = document.execCommand("copy");
       document.body.removeChild(ta);
-      setStatus(ok ? "Log copied" : "Copy failed — long-press the log to select it");
+      setStatus(ok ? "Log copied" : copyFailed);
     } catch {
-      setStatus("Copy failed — long-press the log to select it");
+      setStatus(copyFailed);
     }
   }
   // ---------- Proton Drive (phone: rclone inside the app; PC: the Proton Drive app mirrors the folder) ----------
@@ -2040,6 +2044,7 @@ export default function App() {
 
         .downloadBar{
           display:flex;
+          flex-wrap: wrap;  /* narrow windows: the buttons go to a second row, never off the side */
           align-items:center;
           gap: 10px;
           padding: 0 16px 12px 16px;
