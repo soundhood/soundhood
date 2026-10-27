@@ -205,6 +205,7 @@ agent runs the same list locally before any merge. Nothing merges while one is r
 | UI builds | in `app/`: `npm ci`, `npm run build` | `web` |
 | Design tokens | `node tools/token-lint.mjs` | `web` |
 | Repository hygiene | `node tools/hygiene-lint.mjs` | `web` |
+| Documentation links resolve | `node .github/scripts/md-links.mjs` | `web` |
 | Visual suite | in `tools/`: `npm run test:visual` (diff report uploaded when it fails) | `visual` |
 | No blue | `node tools/blue-scan.mjs` (after the visual suite) | `visual` |
 | Desktop installer builds | in `app/`: `npm run tauri build` | `desktop-build` |
