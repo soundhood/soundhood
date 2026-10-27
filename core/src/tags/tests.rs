@@ -1,8 +1,9 @@
 //! Round-trip tests per container on copies of `core/fixtures/audio/tone.*` (3 s, no tags).
 
 use super::*;
+use lofty::config::WriteOptions;
 use lofty::picture::MimeType;
-use lofty::tag::TagType;
+use lofty::tag::{TagExt, TagType};
 use std::path::PathBuf;
 
 const CONTAINERS: [(&str, &str); 5] = [

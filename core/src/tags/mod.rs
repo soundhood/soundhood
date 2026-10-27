@@ -1,14 +1,14 @@
 //! Tag reading and the verified tag write used by the write path (lofty 0.25).
-//! Zone: core-foundation. Contract: core/CONTRACT.md.
+//! Zone: core-foundation; the lossless write (`lossless/`): core-tags-lossless.
+//! Contract: core/CONTRACT.md.
 
 use crate::error::{Error, Result};
 use crate::model::TagSet;
-use lofty::config::{ParseOptions, WriteOptions};
+use lofty::config::ParseOptions;
 use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
-use lofty::id3::v2::Id3v2Version;
 use lofty::picture::{Picture, PictureType};
 use lofty::probe::Probe;
-use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
+use lofty::tag::{Accessor, ItemKey, Tag};
 use serde::{Deserialize, Serialize};
 use std::io::BufReader;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -37,12 +37,10 @@ pub struct TagRead {
   pub art_hash: Option<String>,
 }
 
-/// A file opened through lofty plus the two facts the generic `TaggedFile` loses.
+/// A file opened through lofty plus the fact the generic `TaggedFile` loses.
 struct Opened {
   file: TaggedFile,
   codec: String,
-  /// The file's ID3v2 tag is version 2.3 (kept as 2.3 on write).
-  id3v23: bool,
 }
 
 /// Reads tags and properties from the primary tag, else the first tag. Never panics: a lofty
@@ -64,42 +62,22 @@ pub fn cover_art(abs: &Path) -> Result<Option<Vec<u8>>> {
   Ok(chosen_picture(&opened.file).map(|p| p.data().to_vec()))
 }
 
-/// Applies `changes` to the file at `path` (always a temp copy): WriteOptions remove_others(false),
-/// respect_read_only(true); keeps ID3v2.3 only if the file already had it; creates the primary tag if
-/// missing. `Some("")` removes the field.
+/// Applies `changes` to the file at `path` (always a temp copy), losslessly: only the items behind
+/// the `TagSet` fields change; every other item (pictures, lyrics, track numbers, freeform MP4
+/// atoms such as iTunSMPB, described COMM / TXXX / PRIV frames, other Vorbis comments, FLAC
+/// PICTURE blocks), an ID3v1 trailer, an APE tag and the audio bytes stay byte-identical. `Some("")`
+/// (after trimming) removes the field; a missing tag is created, seeded from what `read` reported.
 ///
-/// Only the primary tag is written; other tags in the file (an ID3v1 trailer, APE) stay
-/// byte-identical, and items outside the `TagSet` (track number, pictures, lyrics, freeform
-/// atoms) are carried through untouched. A read-only file is refused (`Error::Refused("read-only:
-/// …")`) before anything is opened for writing.
+/// WriteOptions remove_others(false), respect_read_only(true), lossy_text_encoding(false); an
+/// ID3v2.3 tag stays 2.3. The output is deterministic: the same file and changes give the same
+/// bytes. MP4, MP3 / ADTS AAC, WAV / AIFF with an ID3v2 tag, FLAC and Ogg Vorbis / Opus / Speex are
+/// written; any other format is `Error::Refused`, as is an item the writer could not keep
+/// byte-for-byte (checked in memory before anything is written). After the write the file is
+/// parsed again and any difference outside the intended fields is `Error::Verify`. A read-only file
+/// is refused (`Error::Refused("read-only: …")`) before anything is opened for writing.
 #[cfg_attr(not(test), allow(dead_code))] // ingest::tagwrite (zone core-writepath) is the caller
 pub(crate) fn write(path: &Path, changes: &TagSet) -> Result<()> {
-  if std::fs::metadata(path)?.permissions().readonly() {
-    return Err(Error::Refused(format!("read-only: {}", path.display())));
-  }
-  let mut opened = open(path)?;
-  guarded(path, || {
-    let file = &mut opened.file;
-    if file.primary_tag().is_none() {
-      // Seed the new primary tag from the tag `read` reported (e.g. an ID3v1-only MP3), so the
-      // fields outside `changes` keep their values once the primary tag takes over.
-      let kind = file.primary_tag_type();
-      let mut seed = file.first_tag().cloned().unwrap_or_else(|| Tag::new(kind));
-      seed.re_map(kind);
-      file.insert_tag(seed);
-    }
-    let tag = file
-      .primary_tag_mut()
-      .ok_or_else(|| Error::Tag(format!("{}: no writable tag", path.display())))?;
-    apply(tag, changes);
-    let mut options = WriteOptions::new().remove_others(false).respect_read_only(true);
-    if opened.id3v23 {
-      options = options.use_id3v23(true);
-    }
-    tag
-      .save_to_path(path, options)
-      .map_err(|e| Error::Tag(format!("{}: cannot write tags: {e}", path.display())))
-  })
+  lossless::write(path, changes)
 }
 
 /// Re-reads `tmp` and checks it against what was intended: duration within 1 s and codec equal to
@@ -168,61 +146,6 @@ fn fields<'a>(c: &'a TagSet, b: &'a TagRead, a: &'a TagRead) -> [(&'static str, 
   ]
 }
 
-/// Sets or (for "" after trimming) removes each field present in `changes`; nothing else.
-fn apply(tag: &mut Tag, changes: &TagSet) {
-  let value = |v: &Option<String>| v.as_deref().map(|s| s.trim().to_string());
-  if let Some(v) = value(&changes.title) {
-    if v.is_empty() {
-      tag.remove_title();
-    } else {
-      tag.set_title(v);
-    }
-  }
-  if let Some(v) = value(&changes.artist) {
-    if v.is_empty() {
-      tag.remove_artist();
-    } else {
-      tag.set_artist(v);
-    }
-  }
-  if let Some(v) = value(&changes.album) {
-    if v.is_empty() {
-      tag.remove_album();
-    } else {
-      tag.set_album(v);
-    }
-  }
-  if let Some(v) = value(&changes.genre) {
-    if v.is_empty() {
-      tag.remove_genre();
-    } else {
-      tag.set_genre(v);
-    }
-  }
-  if let Some(v) = value(&changes.comment) {
-    if v.is_empty() {
-      tag.remove_comment();
-    } else {
-      tag.set_comment(v);
-    }
-  }
-  if let Some(v) = value(&changes.album_artist) {
-    tag.remove_key(ItemKey::AlbumArtist);
-    if !v.is_empty() {
-      tag.insert_text(ItemKey::AlbumArtist, v);
-    }
-  }
-  if let Some(v) = value(&changes.year) {
-    // One logical field, two keys in the wild (DATE/©day/TDRC and the rarer YEAR): a write leaves
-    // exactly one, so the next read cannot see a stale year.
-    tag.remove_key(ItemKey::RecordingDate);
-    tag.remove_key(ItemKey::Year);
-    if !v.is_empty() {
-      tag.insert_text(ItemKey::RecordingDate, v);
-    }
-  }
-}
-
 fn extract(o: &Opened) -> TagRead {
   let f = &o.file;
   let props = f.properties();
@@ -240,7 +163,14 @@ fn extract(o: &Opened) -> TagRead {
         .or_else(|| t.get_string(ItemKey::Year))
         .map(str::to_string)
     }),
-    comment: text(&|t| t.comment().map(|s| s.to_string())),
+    // The plain comment: ID3v2 COMM frames with a description (iTunNORM, iTunSMPB, ...) are data,
+    // and lofty lists them under the same key.
+    comment: text(&|t| {
+      t.get_items(ItemKey::Comment)
+        .find(|i| i.description().is_empty())
+        .and_then(|i| i.value().text())
+        .map(str::to_string)
+    }),
     duration_ms: u64::try_from(props.duration().as_millis()).unwrap_or(u64::MAX),
     codec: o.codec.clone(),
     bitrate: props.audio_bitrate(),
@@ -261,11 +191,11 @@ fn chosen_picture(f: &TaggedFile) -> Option<&Picture> {
 
 /// Opens `path` through lofty: the file type is guessed from the content (falling back to the
 /// extension), and the format-specific reader is used where it knows more than the generic one
-/// (the MP4 codec, the ID3v2 version).
+/// (the MP4 codec, the MPEG layer).
 fn open(path: &Path) -> Result<Opened> {
   let file = std::fs::File::open(path)?;
   guarded(path, || {
-    let err = |e: lofty::error::FileParseError| Error::Tag(format!("{}: {e}", path.display()));
+    let err = |e: lofty::error::FileParseError| Error::Tag(format!("{}: {}", path.display(), error_chain(&e)));
     let options = ParseOptions::new();
     let mut probe = Probe::new(BufReader::new(file)).options(options);
     if let Some(ft) = FileType::from_path(path) {
@@ -289,7 +219,6 @@ fn open(path: &Path) -> Result<Opened> {
         Opened {
           file: f.into(),
           codec: codec.into(),
-          id3v23: false,
         }
       }
       FileType::Mpeg => {
@@ -299,38 +228,30 @@ fn open(path: &Path) -> Result<Opened> {
           lofty::mpeg::Layer::Layer2 => "mp2",
           _ => "mp3",
         };
-        let id3v23 = f.id3v2().is_some_and(|t| t.original_version() == Id3v2Version::V3);
         Opened {
           file: f.into(),
           codec: codec.into(),
-          id3v23,
         }
       }
       FileType::Aac => {
         let f = lofty::aac::AacFile::read_from(&mut reader, options).map_err(err)?;
-        let id3v23 = f.id3v2().is_some_and(|t| t.original_version() == Id3v2Version::V3);
         Opened {
           file: f.into(),
           codec: "aac".into(),
-          id3v23,
         }
       }
       FileType::Wav => {
         let f = lofty::iff::wav::WavFile::read_from(&mut reader, options).map_err(err)?;
-        let id3v23 = f.id3v2().is_some_and(|t| t.original_version() == Id3v2Version::V3);
         Opened {
           file: f.into(),
           codec: "wav".into(),
-          id3v23,
         }
       }
       FileType::Aiff => {
         let f = lofty::iff::aiff::AiffFile::read_from(&mut reader, options).map_err(err)?;
-        let id3v23 = f.id3v2().is_some_and(|t| t.original_version() == Id3v2Version::V3);
         Opened {
           file: f.into(),
           codec: "aiff".into(),
-          id3v23,
         }
       }
       other => {
@@ -341,12 +262,42 @@ fn open(path: &Path) -> Result<Opened> {
         Opened {
           file,
           codec: codec_name(other),
-          id3v23: false,
         }
       }
     };
     Ok(opened)
   })
+}
+
+/// The file type lofty detects from the content (the extension only breaks ties).
+fn probe(path: &Path) -> Result<FileType> {
+  let file = std::fs::File::open(path)?;
+  guarded(path, || {
+    let mut probe = Probe::new(BufReader::new(file));
+    if let Some(ft) = FileType::from_path(path) {
+      probe = probe.set_file_type(ft);
+    }
+    probe
+      .guess_file_type()?
+      .file_type()
+      .ok_or_else(|| Error::Tag(format!("{}: unknown audio format", path.display())))
+  })
+}
+
+/// An error with its whole `source()` chain: lofty 0.25's own message is often only "failed to
+/// write Mp4 file", with the cause one level down.
+fn error_chain(e: &dyn std::error::Error) -> String {
+  let mut out = e.to_string();
+  let mut cause = e.source();
+  while let Some(c) = cause {
+    let msg = c.to_string();
+    if !out.contains(&msg) {
+      out.push_str(": ");
+      out.push_str(&msg);
+    }
+    cause = c.source();
+  }
+  out
 }
 
 fn codec_name(ft: FileType) -> String {
@@ -367,6 +318,8 @@ fn codec_name(ft: FileType) -> String {
 fn guarded<T>(path: &Path, f: impl FnOnce() -> Result<T>) -> Result<T> {
   catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| Err(Error::Tag(format!("{}: lofty panicked", path.display()))))
 }
+
+mod lossless;
 
 #[cfg(test)]
 mod tests;
