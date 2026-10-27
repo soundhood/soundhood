@@ -1,6 +1,7 @@
 //! The desktop yt-dlp argument list, ported verbatim from the pre-rebuild host
 //! (`ytdlp_download_audio`). Phase 2 replaces the arg set (build brief 5.6); until then this
-//! reproduces the old argv exactly and the tests below pin it.
+//! reproduces the old argv exactly, plus one safety change (`--` before the URL, and only http(s)
+//! links accepted), and the tests below pin it.
 
 use crate::error::{Error, Result};
 use std::path::PathBuf;
@@ -34,12 +35,13 @@ pub struct DownloadArgs {
   pub out_dir: PathBuf,
 }
 
-/// The argv (without the program name) the pre-rebuild desktop host passed to the yt-dlp sidecar.
-/// Refuses a link that starts with `-`: the URL is the last, bare positional, so such a link
-/// (pasted, shared, or read from the synced queue file) would be parsed as an option.
+/// The argv (without the program name) the pre-rebuild desktop host passed to the yt-dlp sidecar,
+/// with `--` before the URL. Refuses anything but an `http://` or `https://` link: the URL may come
+/// from a paste, a share or the synced queue file, and must never reach yt-dlp as an option
+/// (`--exec ...`) or as a local file / other scheme.
 pub fn build(a: &DownloadArgs) -> Result<Vec<String>> {
-  if a.url.starts_with('-') {
-    return Err(Error::Refused(format!("not a link: {}", a.url)));
+  if !is_web_link(&a.url) {
+    return Err(Error::Refused(format!("not a web link: {}", a.url)));
   }
   let mut argv: Vec<String> = vec![
     (if a.playlist { "--yes-playlist" } else { "--no-playlist" }).into(),
@@ -82,12 +84,20 @@ pub fn build(a: &DownloadArgs) -> Result<Vec<String>> {
       "m4a",
       "--no-progress",
       "--console-title",
+      // End of options: whatever follows is a URL, never a flag.
+      "--",
       a.url.as_str(),
     ]
     .iter()
     .map(|s| s.to_string()),
   );
   Ok(argv)
+}
+
+/// True for a link that starts with `http://` or `https://` (scheme case-insensitive).
+pub fn is_web_link(url: &str) -> bool {
+  let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+  lower.starts_with("http://") || lower.starts_with("https://")
 }
 
 #[cfg(test)]
@@ -142,6 +152,7 @@ mod tests {
       "m4a",
       "--no-progress",
       "--console-title",
+      "--",
       URL,
     ]
   }
@@ -201,6 +212,39 @@ mod tests {
       ..base()
     };
     assert!(matches!(build(&a), Err(Error::Refused(_))));
+  }
+
+  #[test]
+  fn only_http_and_https_links_are_accepted() {
+    for bad in [
+      "",
+      "file:///etc/passwd",
+      "ftp://x/y",
+      "youtube.com/watch?v=x",
+      " https://x",
+      "-https://x",
+    ] {
+      let a = DownloadArgs {
+        url: bad.into(),
+        ..base()
+      };
+      assert!(matches!(build(&a), Err(Error::Refused(_))), "{bad:?} must be refused");
+    }
+    for good in ["http://example.com/a", "HTTPS://www.youtube.com/watch?v=AbCdEfGhIjK"] {
+      let a = DownloadArgs {
+        url: good.into(),
+        ..base()
+      };
+      let argv = build(&a).expect("accepted");
+      assert_eq!(&argv[argv.len() - 2..], ["--", good]);
+    }
+  }
+
+  #[test]
+  fn the_url_follows_an_end_of_options_marker() {
+    let argv = build(&base()).unwrap();
+    assert_eq!(argv[argv.len() - 2], "--");
+    assert_eq!(argv.last().map(String::as_str), Some(URL));
   }
 
   #[test]

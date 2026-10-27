@@ -6,7 +6,8 @@ Soundhood adds on top. Everything a library manifest can declare (storage, foreg
 notification and wake-lock permissions, extractNativeLibs) lives in the soundhood-ytdl plugin's own
 AndroidManifest.xml and merges into the app by itself. What is left is app-level, re-applied here:
 
-  1. AndroidManifest.xml  the share-sheet target (SEND text/plain) on MainActivity
+  1. AndroidManifest.xml  the share-sheet target (SEND text/plain) on MainActivity; no backups
+                          (rclone.conf in the app's files holds the Proton session tokens)
   2. MainActivity.kt      system-bar insets, share delivery to the web UI, the delayed All-files request
   3. strings.xml          the app name
   4. app/build.gradle.kts SDK levels, useLegacyPackaging, release signing
@@ -99,6 +100,20 @@ def share_filter(s):
     if not m:
         raise TemplateChanged("the launcher <intent-filter> of MainActivity")
     return s[: m.end()] + SHARE_FILTER.format(i=m.group(1)) + s[m.end() :]
+
+
+def no_backup(s):
+    """android:allowBackup="false": rclone.conf (Proton session tokens) must not leave the phone
+    through Android backup."""
+    if 'android:allowBackup="false"' in s:
+        return s
+    if "android:allowBackup=" in s:
+        return re.sub(r'android:allowBackup="[^"]*"', 'android:allowBackup="false"', s, count=1)
+    m = re.search(r"([ \t]*)<application\b", s)
+    if not m:
+        raise TemplateChanged("the <application> element")
+    attr_indent = m.group(1) + "    "
+    return s[: m.end()] + "\n" + attr_indent + 'android:allowBackup="false"' + s[m.end() :]
 
 
 def drop_legacy_manifest_items(s):
@@ -324,6 +339,8 @@ def main():
             [
                 ("manifest: share intent-filter", share_filter),
                 ("manifest: no app-level permissions (the plugin declares them)", drop_legacy_manifest_items),
+                # After the legacy clean-up, whose anchor is the line right after <application.
+                ("manifest: allowBackup=false", no_backup),
             ],
         )
 

@@ -40,8 +40,19 @@ object Rclone {
     File(ctx.filesDir, "rclone-cache").deleteRecursively()
   }
 
-  /** Runs rclone with the given arguments; every output line goes to onLine (and logcat). */
-  fun run(ctx: Context, args: List<String>, extraEnv: Map<String, String> = emptyMap(), timeoutSec: Long = 3600, onLine: ((String) -> Unit)? = null): Result {
+  /**
+   * Runs rclone with the given arguments; every output line goes to onLine (and logcat, unless
+   * logOutput is false). stdin, when given, is written to the process followed by a newline.
+   */
+  fun run(
+    ctx: Context,
+    args: List<String>,
+    extraEnv: Map<String, String> = emptyMap(),
+    timeoutSec: Long = 3600,
+    stdin: String? = null,
+    logOutput: Boolean = true,
+    onLine: ((String) -> Unit)? = null
+  ): Result {
     val bin = binary(ctx)
     if (!bin.exists()) return Result(127, "rclone is not bundled in this build (librclone.so missing)", false)
     val cmd = ArrayList<String>()
@@ -65,12 +76,20 @@ object Rclone {
     env["TMPDIR"] = ctx.cacheDir.absolutePath
     env.putAll(extraEnv)
     val proc = pb.start()
+    if (stdin != null) {
+      try {
+        proc.outputStream.bufferedWriter().use { it.write(stdin); it.write("\n") }
+      } catch (_: Throwable) {
+        proc.destroyForcibly()
+        return Result(1, "could not pass input to rclone", false)
+      }
+    }
     val out = StringBuilder()
     val reader = thread(isDaemon = true) {
       try {
         proc.inputStream.bufferedReader().forEachLine { line ->
           if (out.length < 200_000) out.append(line).append('\n')
-          Log.i(TAG, "rclone: $line")
+          if (logOutput) Log.i(TAG, "rclone: $line")
           onLine?.invoke(line)
         }
       } catch (_: Throwable) {
@@ -86,9 +105,13 @@ object Rclone {
     return Result(proc.exitValue(), out.toString(), false)
   }
 
-  /** `rclone obscure` — the reversible encoding rclone expects for password values. */
+  /**
+   * `rclone obscure -`: the reversible encoding rclone expects for password values. The secret goes
+   * in on stdin, never in argv (readable in /proc while rclone runs), and the result is never
+   * logged: obscured is reversible, so it is as good as the password.
+   */
   fun obscure(ctx: Context, secret: String): String? {
-    val r = run(ctx, listOf("obscure", secret), timeoutSec = 30)
+    val r = run(ctx, listOf("obscure", "-"), timeoutSec = 30, stdin = secret, logOutput = false)
     if (r.exitCode != 0) return null
     return r.output.trim().lines().lastOrNull()?.trim()
   }

@@ -33,6 +33,13 @@ pub struct CancelArgs {
   pub id: String,
 }
 
+/// What the Kotlin `cancel` resolves: whether a running download with that id was stopped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelResult {
+  pub cancelled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionResult {
