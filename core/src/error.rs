@@ -39,4 +39,22 @@ impl Error {
   pub fn other(msg: impl fmt::Display) -> Self {
     Error::Other(msg.to_string())
   }
+
+  /// The plain reason for the UI's status line: the message without the variant's prefix
+  /// ("read-only file", "… already exists in Ambient"), never a doubled label.
+  pub fn reason(&self) -> String {
+    match self {
+      Error::Tag(m)
+      | Error::InvalidPath(m)
+      | Error::Exists(m)
+      | Error::NotFound(m)
+      | Error::InUse(m)
+      | Error::Verify(m)
+      | Error::Refused(m)
+      | Error::Other(m) => m.clone(),
+      Error::Io(e) => e.to_string(),
+      Error::Index(e) => e.to_string(),
+      Error::Json(e) => e.to_string(),
+    }
+  }
 }
