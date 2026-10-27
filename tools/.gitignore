@@ -1,0 +1,5 @@
+node_modules/
+# Playwright run output (the committed baselines live in screenshot/__screenshots__/)
+screenshot/test-results/
+screenshot/playwright-report/
+screenshot/.cache/
