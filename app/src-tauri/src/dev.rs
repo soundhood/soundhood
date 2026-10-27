@@ -138,3 +138,15 @@ fn sidecars_in_use(data_dir: &std::path::Path, home: Option<&std::path::Path>) -
 fn sidecars_in_use(_data_dir: &std::path::Path, _home: Option<&std::path::Path>) -> String {
   "none: the phone downloads through the soundhood-ytdl plugin (youtubedl-android)".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// The plugin refuses to sync a library holding this marker; it keeps its own copy of the name
+  /// because it does not depend on the core.
+  #[test]
+  fn the_plugin_knows_the_fixture_marker() {
+    assert_eq!(tauri_plugin_soundhood_ytdl::FIXTURE_MARKER, MARKER);
+  }
+}
