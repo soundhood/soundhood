@@ -181,6 +181,16 @@ fn name_key(name: &str) -> String {
 /// failing to remove it after a successful landing is not an error.
 #[allow(dead_code)] // reached from ingest::tagwrite (zone core-writepath)
 pub(crate) fn stage_move(src: &Path, dest: &Path, job: &str) -> Result<()> {
+  let tmp = stage_copy(src, dest, job)?;
+  stage_finish(&tmp, dest, src)
+}
+
+/// First half of [`stage_move`]: refuses early when `dest`'s name is taken, then copies `src` to
+/// the hidden `<dest dir>/.soundhood-tmp-<job>.<ext of dest>` and fsyncs it. Returns the temp.
+/// Split out so the write path can journal (and crash-test, `after_stage_copy`) between the copy
+/// and the rename; a crash here leaves only a temp that orphan cleanup finds.
+#[allow(dead_code)] // reached from ingest::tagwrite (zone core-writepath)
+pub(crate) fn stage_copy(src: &Path, dest: &Path, job: &str) -> Result<PathBuf> {
   let dir = dest
     .parent()
     .ok_or_else(|| Error::InvalidPath(dest.display().to_string()))?;
@@ -193,19 +203,29 @@ pub(crate) fn stage_move(src: &Path, dest: &Path, job: &str) -> Result<()> {
   let tmp = tmp_path(dir, job, &ext);
   let mut input = File::open(src).map_err(|e| in_use_or_io(e, src))?;
   let mut out = create_hidden(&tmp)?;
+  let copied = io::copy(&mut input, &mut out).and_then(|_| out.sync_all());
+  drop(out);
+  if let Err(e) = copied {
+    let _ = std::fs::remove_file(&tmp);
+    return Err(e.into());
+  }
+  Ok(tmp)
+}
+
+/// Second half of [`stage_move`]: the staged temp becomes `dest` (never overwriting; on failure
+/// the temp is removed and `src` kept), then `src` is removed. `src` lives in app data (the
+/// download staging area), so failing to remove it after a successful landing is not an error.
+#[allow(dead_code)] // reached from ingest::tagwrite (zone core-writepath)
+pub(crate) fn stage_finish(tmp: &Path, dest: &Path, src: &Path) -> Result<()> {
   let landed = (|| {
-    io::copy(&mut input, &mut out)?;
-    out.sync_all()?;
-    drop(out);
     #[cfg(windows)]
-    super::win::set_hidden(&tmp, false)?;
-    rename_no_clobber(&tmp, dest)
+    super::win::set_hidden(tmp, false)?;
+    rename_no_clobber(tmp, dest)
   })();
   if let Err(e) = landed {
-    let _ = std::fs::remove_file(&tmp);
+    let _ = std::fs::remove_file(tmp);
     return Err(e);
   }
-  drop(input);
   let _ = std::fs::remove_file(src);
   Ok(())
 }
@@ -440,6 +460,49 @@ mod tests {
     assert_eq!(fs::read(lib.path().join("SONG - ARTIST.m4a")).unwrap(), b"existing");
     assert!(src.exists(), "the staged source stays when landing is refused");
     assert_eq!(fs::read_dir(lib.path()).unwrap().count(), 1, "no temp left behind");
+  }
+
+  /// Stopping between the two halves (a crash at `after_stage_copy`) leaves only a hidden temp
+  /// that orphan cleanup can find; the source and the destination name are untouched.
+  #[test]
+  fn stage_copy_then_finish() {
+    let staging = tempfile::tempdir().unwrap();
+    let lib = tempfile::tempdir().unwrap();
+    let src = staging.path().join("dl.m4a");
+    fs::write(&src, b"fresh").unwrap();
+    let dest = lib.path().join("Chill").join("Song - Artist.m4a");
+
+    let tmp = stage_copy(&src, &dest, "job2").unwrap();
+    assert_eq!(tmp, lib.path().join("Chill").join(".soundhood-tmp-job2.m4a"));
+    assert!(!dest.exists());
+    assert!(src.exists());
+    #[cfg(windows)]
+    assert!(super::super::win::is_hidden(&tmp));
+    let temps = super::super::list_tmp_files(lib.path()).unwrap();
+    assert_eq!(temps.len(), 1);
+    assert_eq!(temps[0].as_str(), "Chill/.soundhood-tmp-job2.m4a");
+
+    stage_finish(&tmp, &dest, &src).unwrap();
+    assert_eq!(fs::read(&dest).unwrap(), b"fresh");
+    assert!(!tmp.exists() && !src.exists());
+  }
+
+  #[test]
+  fn stage_finish_refuses_a_name_taken_meanwhile() {
+    let staging = tempfile::tempdir().unwrap();
+    let lib = tempfile::tempdir().unwrap();
+    let src = staging.path().join("dl.m4a");
+    fs::write(&src, b"fresh").unwrap();
+    let dest = lib.path().join("Song - Artist.m4a");
+    let tmp = stage_copy(&src, &dest, "job3").unwrap();
+    fs::write(lib.path().join("song - artist.M4A"), b"arrived via sync").unwrap();
+    assert!(matches!(stage_finish(&tmp, &dest, &src), Err(Error::Exists(_))));
+    assert_eq!(
+      fs::read(lib.path().join("song - artist.M4A")).unwrap(),
+      b"arrived via sync"
+    );
+    assert!(!tmp.exists(), "the staged temp is removed");
+    assert!(src.exists(), "the source is kept for a retry");
   }
 
   #[test]

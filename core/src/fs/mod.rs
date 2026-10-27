@@ -11,7 +11,8 @@ pub(crate) use bin::{restore_from_bin, to_bin};
 pub use bin::{BinKind, BinRecord};
 #[allow(unused_imports)] // the write helpers are reached from ingest::tagwrite (zone core-writepath)
 pub(crate) use write::{
-  atomic_replace, copy_to_tmp, create_hidden, fsync, remove_file, rename_no_clobber, stage_move, tmp_path,
+  atomic_replace, copy_to_tmp, create_hidden, fsync, remove_file, rename_no_clobber, stage_copy, stage_finish,
+  stage_move, tmp_path,
 };
 
 use crate::error::{Error, Result};
