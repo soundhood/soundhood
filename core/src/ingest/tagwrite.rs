@@ -562,6 +562,12 @@ pub(crate) fn write_tags(
   })();
   let note = match checked {
     Ok(note) => note,
+    // tags::write refuses before writing anything (an unsupported format, or an item it could not
+    // keep byte-for-byte): nothing went wrong with the file, so it is a skip, not a failed check.
+    Err(Error::Refused(m)) => {
+      let _ = fs::remove_file(&tmp);
+      return Outcome::skipped(path, &format!("not changed: {m}"));
+    }
     Err(err) => {
       let _ = fs::remove_file(&tmp);
       return Outcome::Failed {

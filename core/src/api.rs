@@ -43,7 +43,8 @@ impl Core {
       device: device.clone(),
       platform: Platform::current(),
     };
-    let index = Index::open(app_data_dir, root)?;
+    // The legacy cache seeds the first refresh, so upgrading does not re-read every file.
+    let index = Index::open(app_data_dir, root)?.with_legacy_cache_dir(legacy_cache_dir);
     let orphans = tagwrite::cleanup_orphans(&lib)?;
     let core = Core {
       lib,

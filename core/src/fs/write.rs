@@ -217,17 +217,19 @@ pub(crate) fn stage_copy(src: &Path, dest: &Path, job: &str) -> Result<PathBuf> 
 /// download staging area), so failing to remove it after a successful landing is not an error.
 #[allow(dead_code)] // reached from ingest::tagwrite (zone core-writepath)
 pub(crate) fn stage_finish(tmp: &Path, dest: &Path, src: &Path) -> Result<()> {
-  let landed = (|| {
-    #[cfg(windows)]
-    super::win::set_hidden(tmp, false)?;
-    rename_no_clobber(tmp, dest)
-  })();
-  if let Err(e) = landed {
+  if let Err(e) = unhide_and_rename(tmp, dest) {
     let _ = std::fs::remove_file(tmp);
     return Err(e);
   }
   let _ = std::fs::remove_file(src);
   Ok(())
+}
+
+/// The landed file must not stay hidden: Windows carries the temp's attributes through the rename.
+fn unhide_and_rename(tmp: &Path, dest: &Path) -> Result<()> {
+  #[cfg(windows)]
+  super::win::set_hidden(tmp, false)?;
+  rename_no_clobber(tmp, dest)
 }
 
 /// Removes one of the core's own temp files. Refuses any other name, so this can never delete a

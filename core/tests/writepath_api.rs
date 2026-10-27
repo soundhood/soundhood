@@ -21,7 +21,6 @@ fn open(root: &std::path::Path) -> (Core, tempfile::TempDir) {
 }
 
 #[test]
-#[ignore = "needs the index (zone core-index); re-enabled by the lead after the merge"]
 fn open_removes_orphans_and_write_tags_returns_the_reread_track() {
   let (d, _, report) = fixture_lib(10, false);
   std::fs::write(d.path().join("Ambient/.soundhood-tmp-0123abcd.m4a"), b"partial").unwrap();
@@ -58,7 +57,6 @@ fn open_removes_orphans_and_write_tags_returns_the_reread_track() {
 }
 
 #[test]
-#[ignore = "needs the index (zone core-index); re-enabled by the lead after the merge"]
 fn move_and_delete_report_refusals_as_errors() {
   let (d, _, _) = fixture_lib(20, false);
   let (core, _app) = open(d.path());
@@ -111,7 +109,6 @@ fn move_and_delete_report_refusals_as_errors() {
 }
 
 #[test]
-#[ignore = "needs the index (zone core-index); re-enabled by the lead after the merge"]
 fn playlist_commands_return_the_playlist_and_never_error_on_no_change() {
   let (d, _, report) = fixture_lib(10, false);
   let (core, _app) = open(d.path());
