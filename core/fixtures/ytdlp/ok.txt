@@ -1,0 +1,10 @@
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Nm7qW3eRt5Y
+[youtube] Nm7qW3eRt5Y: Downloading webpage
+[youtube] Nm7qW3eRt5Y: Downloading tv_samsung player API JSON
+[youtube] Nm7qW3eRt5Y: Downloading m3u8 information
+[info] Nm7qW3eRt5Y: Downloading 1 format(s): 140
+[download] Destination: incoming\job-0004\Harbor Lights - Paper Comets.m4a
+[download] 100% of    3.21MiB in 00:00:01 at 2.71MiB/s
+[ExtractAudio] Not converting audio incoming\job-0004\Harbor Lights - Paper Comets.m4a; file is already in target format m4a
+[Metadata] Adding metadata to "incoming\job-0004\Harbor Lights - Paper Comets.m4a"
+[EmbedThumbnail] ffmpeg: Adding thumbnail to "incoming\job-0004\Harbor Lights - Paper Comets.m4a"
