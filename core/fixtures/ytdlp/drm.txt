@@ -1,0 +1,4 @@
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Wn8cX4jRb5D
+[youtube] Wn8cX4jRb5D: Downloading webpage
+[youtube] Wn8cX4jRb5D: Downloading tv_samsung player API JSON
+ERROR: [youtube] Wn8cX4jRb5D: This video is DRM protected

@@ -1,0 +1,7 @@
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Fv8nD3qLs6W
+[youtube] Fv8nD3qLs6W: Downloading webpage
+[info] Fv8nD3qLs6W: Downloading 1 format(s): 140
+[download] Destination: incoming\job-0002\Velvet Engine.m4a
+[download] Got error: The read operation timed out. Retrying (1/10)...
+[download] Got error: HTTP Error 503: Service Unavailable. Retrying (2/10)...
+ERROR: [download] Got error: HTTP Error 503: Service Unavailable

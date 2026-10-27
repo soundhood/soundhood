@@ -1,0 +1,10 @@
+[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLf1xtur3Pl4yl1stId000000000000
+[youtube:tab] PLf1xtur3Pl4yl1stId000000000000: Downloading webpage
+[youtube:tab] PLf1xtur3Pl4yl1stId000000000000: Redownloading playlist API JSON with unavailable videos
+[download] Downloading playlist: Fixture Mix
+[youtube:tab] Playlist Fixture Mix: Downloading 2 items of 2
+[download] Downloading item 1 of 2
+[download] Mv3kQ8rTz1A: Glass Tide has already been recorded in the archive
+[download] Downloading item 2 of 2
+[download] Pz6wN2cLx9B: Static Bloom has already been recorded in the archive
+[download] Finished downloading playlist: Fixture Mix
