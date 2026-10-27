@@ -53,9 +53,9 @@ fn sanitize_folder_name(raw: &str) -> Result<String, String> {
 #[cfg(desktop)]
 mod desktop {
   use super::{sanitize_folder_name, YtDlpArgs};
-  use crate::paths::tilde;
+  use crate::paths::{tilde, tilde_in};
   use crate::sidecar;
-  use crate::state::home_dir;
+  use crate::state::{home_dir, reason};
   use soundhood_core::ytdlp::args::{build, is_web_link, DownloadArgs};
   use std::path::{Path, PathBuf};
   use tauri::{AppHandle, Emitter, Manager};
@@ -107,7 +107,7 @@ mod desktop {
       cookies,
       out_dir: out_dir.clone(),
     })
-    .map_err(|e| e.to_string())?;
+    .map_err(reason)?;
 
     let _ = app.emit(
       "ytdlp:stdout",
@@ -124,13 +124,16 @@ mod desktop {
     let (mut rx, _child) = cmd.spawn().map_err(|e| format!("Failed to spawn yt-dlp: {e}"))?;
 
     tauri::async_runtime::spawn(async move {
+      // yt-dlp names its output files with absolute paths; the log (and "Copy log") gets `~` instead
+      // of the home folder. `ytdlp:files` keeps the real paths: the UI adds those files to playlists.
+      let line_of = |bytes: &[u8]| tilde_in(&String::from_utf8_lossy(bytes), home.as_deref());
       while let Some(event) = rx.recv().await {
         match event {
           CommandEvent::Stdout(line) => {
-            let _ = app.emit("ytdlp:stdout", String::from_utf8_lossy(&line).to_string());
+            let _ = app.emit("ytdlp:stdout", line_of(&line));
           }
           CommandEvent::Stderr(line) => {
-            let _ = app.emit("ytdlp:stderr", String::from_utf8_lossy(&line).to_string());
+            let _ = app.emit("ytdlp:stderr", line_of(&line));
           }
           CommandEvent::Terminated(payload) => {
             let code = payload.code.unwrap_or(1);

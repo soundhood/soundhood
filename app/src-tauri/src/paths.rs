@@ -52,9 +52,72 @@ pub fn tilde(path: &Path, home: Option<&Path>) -> String {
   }
 }
 
+/// `text` with every whole occurrence of the user's home folder replaced by `~`: yt-dlp prints
+/// absolute paths ("Destination: ..."), and its output goes into "Copy log". Case-insensitive on
+/// Windows (ASCII letters, like `tilde`); a longer folder name (`C:\Users\username` for home
+/// `C:\Users\user`) is left alone.
+pub fn tilde_in(text: &str, home: Option<&Path>) -> String {
+  let Some(home) = home else { return text.to_string() };
+  let home = home.to_string_lossy();
+  let home = home.trim_end_matches(['/', '\\']);
+  if home.is_empty() {
+    return text.to_string();
+  }
+  // ASCII folding keeps byte offsets equal between `text` and `hay`.
+  let fold = |s: &str| {
+    if cfg!(windows) {
+      s.to_ascii_lowercase()
+    } else {
+      s.to_string()
+    }
+  };
+  let (hay, needle) = (fold(text), fold(home));
+  let mut out = String::with_capacity(text.len());
+  let mut from = 0;
+  while let Some(found) = hay[from..].find(&needle) {
+    let start = from + found;
+    let end = start + needle.len();
+    let whole = matches!(text[end..].chars().next(), None | Some('/' | '\\' | '"' | '\''));
+    out.push_str(&text[from..start]);
+    out.push_str(if whole { "~" } else { &text[start..end] });
+    from = end;
+  }
+  out.push_str(&text[from..]);
+  out
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn tilde_in_masks_every_whole_home_folder_in_a_line() {
+    let home = Path::new("/home/user");
+    assert_eq!(
+      tilde_in("[download] Destination: /home/user/Music/a.m4a", Some(home)),
+      "[download] Destination: ~/Music/a.m4a"
+    );
+    assert_eq!(
+      tilde_in("Moving \"/home/user/x.webm\" to \"/home/user/x.m4a\"", Some(home)),
+      "Moving \"~/x.webm\" to \"~/x.m4a\""
+    );
+    assert_eq!(tilde_in("/home/username/a", Some(home)), "/home/username/a");
+    assert_eq!(tilde_in("no path here", Some(home)), "no path here");
+    assert_eq!(tilde_in("/home/user/a", None), "/home/user/a");
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn tilde_in_ignores_case_on_windows() {
+    let home = Path::new(r"C:\Users\User");
+    assert_eq!(
+      tilde_in(
+        r"[ExtractAudio] Destination: c:\users\user\AppData\Roaming\x\Downloads\Ünï.m4a",
+        Some(home)
+      ),
+      r"[ExtractAudio] Destination: ~\AppData\Roaming\x\Downloads\Ünï.m4a"
+    );
+  }
 
   #[test]
   fn clean_root_strips_blanks_and_trailing_separators() {
