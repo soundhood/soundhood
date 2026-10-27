@@ -2647,7 +2647,7 @@ export default function App() {
                 {undoBusy ? "Undoing…" : "Undo last change"}
               </button>
               <span className="modalHint" style={{ marginTop: 0 }}>
-                {lastChange ? lastChange.label : "nothing to undo"}
+                {lastChange ? lastChange.label : "Nothing to undo"}
               </span>
             </div>
           ) : null}
