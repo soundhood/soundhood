@@ -1,0 +1,4 @@
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Bc5yU2kRn8F
+[youtube] Bc5yU2kRn8F: Downloading webpage
+[youtube] Bc5yU2kRn8F: Downloading tv_samsung player API JSON
+ERROR: [youtube] Bc5yU2kRn8F: Video unavailable. This content isn’t available, try again later.

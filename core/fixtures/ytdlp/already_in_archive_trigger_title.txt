@@ -1,0 +1,11 @@
+[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLf1xtur3Pl4yl1stId222222222222
+[youtube:tab] PLf1xtur3Pl4yl1stId222222222222: Downloading webpage
+[download] Downloading playlist: Fixture Mix Two
+[youtube:tab] Playlist Fixture Mix Two: Downloading 3 items of 3
+[download] Downloading item 1 of 3
+[download] Rate Limited - Neon Pines has already been recorded in the archive
+[download] Downloading item 2 of 3
+[download] Qw8eR2tYu5I: Video Unavailable - Glass Tide has already been recorded in the archive
+[download] Downloading item 3 of 3
+[download] Er9tY3uIo6P: Sign In To Confirm You're Not A Bot - Paper Comets has already been recorded in the archive
+[download] Finished downloading playlist: Fixture Mix Two
