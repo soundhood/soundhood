@@ -51,15 +51,36 @@ pub struct FileStamp {
 
 /// Every audio file under `root`, sorted by `rel`. Skips the app's own folders (`_Soundhood/`,
 /// `_Playlists/` at the top level), every dot-folder (`.stfolder`, `.git`, the Android bin) and the
-/// write path's `.soundhood-tmp-*` files. Symlinks are not followed.
+/// write path's `.soundhood-tmp-*` files. Symlinks are not followed. Folders and files that cannot
+/// be read are left out (see [`scan_report`]); only an unreadable root is an error.
 pub fn scan(root: &Path) -> Result<Vec<FileStamp>> {
+  scan_report(root).map(|(stamps, _)| stamps)
+}
+
+/// [`scan`], plus one line per entry that could not be read: `"<rel>: <reason>"`. A protected
+/// folder (`System Volume Information` on a drive root, an Android-restricted directory) costs the
+/// scan that folder, not the whole library. An unreadable or missing root, or a root that is not a
+/// folder, is still an error.
+pub fn scan_report(root: &Path) -> Result<(Vec<FileStamp>, Vec<String>)> {
+  if !std::fs::metadata(root)?.is_dir() {
+    return Err(Error::InvalidPath(format!("{} is not a folder", root.display())));
+  }
   let mut out = Vec::new();
+  let mut skipped = Vec::new();
   let walk = WalkDir::new(root)
     .min_depth(1)
     .into_iter()
     .filter_entry(|e| !skipped_dir(e));
   for entry in walk {
-    let entry = entry.map_err(walk_error)?;
+    let entry = match entry {
+      Ok(entry) => entry,
+      // depth 0 is the root itself: nothing below it can be listed, so there is no partial result
+      Err(e) if e.depth() == 0 => return Err(walk_error(e)),
+      Err(e) => {
+        skipped.push(skip_line(root, e.path(), &walk_reason(&e)));
+        continue;
+      }
+    };
     if !entry.file_type().is_file() {
       continue;
     }
@@ -67,15 +88,38 @@ pub fn scan(root: &Path) -> Result<Vec<FileStamp>> {
     if name.starts_with(TMP_PREFIX) || !is_audio_file(&name) {
       continue;
     }
-    let meta = entry.metadata().map_err(walk_error)?;
-    out.push(FileStamp {
-      rel: RelPath::from_abs(root, entry.path())?,
-      mtime: unix_secs(&meta),
-      size: meta.len(),
-    });
+    let meta = match entry.metadata() {
+      Ok(meta) => meta,
+      Err(e) => {
+        skipped.push(skip_line(root, Some(entry.path()), &walk_reason(&e)));
+        continue;
+      }
+    };
+    match RelPath::from_abs(root, entry.path()) {
+      Ok(rel) => out.push(FileStamp {
+        rel,
+        mtime: unix_secs(&meta),
+        size: meta.len(),
+      }),
+      Err(e) => skipped.push(skip_line(root, Some(entry.path()), &e.to_string())),
+    }
   }
   out.sort_by(|a, b| a.rel.cmp(&b.rel));
-  Ok(out)
+  Ok((out, skipped))
+}
+
+/// The OS reason alone: walkdir's own message repeats the absolute path.
+fn walk_reason(e: &walkdir::Error) -> String {
+  e.io_error().map(|io| io.to_string()).unwrap_or_else(|| e.to_string())
+}
+
+/// `"<rel>: <reason>"` for the skipped list; the root-relative form keeps absolute paths out of logs.
+fn skip_line(root: &Path, path: Option<&Path>, reason: &str) -> String {
+  let rel = path
+    .and_then(|p| RelPath::from_abs(root, p).ok())
+    .map(|r| r.to_string())
+    .unwrap_or_else(|| "?".into());
+  format!("{rel}: {reason}")
 }
 
 /// True for folders the scan never enters. The root itself (depth 0) may be a dot-folder
