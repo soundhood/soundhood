@@ -2,7 +2,7 @@
 //! Nothing here writes into a user's library.
 
 use crate::paths::tilde;
-use crate::state::{app_cache_dir, app_data_dir, home_dir, Cores};
+use crate::state::{app_cache_dir, app_data_dir, home_dir, reason, Cores};
 use serde::Serialize;
 use soundhood_core::api::{Core, SelfTestReport};
 use soundhood_core::fixtures::{generate, FixtureSpec, MARKER};
@@ -33,7 +33,7 @@ pub async fn dev_fixture_root(app: AppHandle, enable: bool) -> Result<FixtureRoo
     // The marker is written first by `generate`, so a folder with it is a fixture library, even
     // when the app has since added its own `_Soundhood/` bookkeeping to it.
     if !dest.join(MARKER).is_file() {
-      generate(&dest, &FixtureSpec::default()).map_err(|e| e.to_string())?;
+      generate(&dest, &FixtureSpec::default()).map_err(reason)?;
     }
     Ok(FixtureRoot {
       root: dest.to_string_lossy().into_owned(),
@@ -80,7 +80,7 @@ pub async fn diagnostics(app: AppHandle, library_dir: Option<String>) -> Result<
   let data_dir = app_data_dir(&app)?;
   tauri::async_runtime::spawn_blocking(move || {
     let home = home_dir(&app);
-    let device_id = soundhood_core::fs::device_id(&data_dir).map_err(|e| e.to_string())?.0;
+    let device_id = soundhood_core::fs::device_id(&data_dir).map_err(reason)?.0;
     let library_dir = library_dir.filter(|d| !d.trim().is_empty());
     let (index_path, orphans_removed) = match &library_dir {
       Some(dir) => {

@@ -47,7 +47,7 @@ impl Cores {
     // The pre-rebuild JSON tag cache lived in the cache dir; the core deletes it after the first
     // successful index refresh.
     let cache_dir = app.path().app_cache_dir().ok();
-    let (core, report) = Core::open(&root, &data_dir, cache_dir.as_deref()).map_err(|e| e.to_string())?;
+    let (core, report) = Core::open(&root, &data_dir, cache_dir.as_deref()).map_err(reason)?;
     log_open(app, &core, &report);
     let core = Arc::new(core);
     cores.insert(key.clone(), core.clone());
@@ -103,24 +103,35 @@ where
   .map_err(|e| format!("internal error: {e}"))?
 }
 
-/// Tells the UI what a mutating command did; sent whether the op applied, was skipped or failed.
+/// Tells the UI what a batch did (the undo report, whatever it holds).
 pub fn emit_batch(app: &AppHandle, report: &BatchReport) {
   let _ = app.emit(BATCH_EVENT, report);
 }
 
-/// A single-op command fails when its one operation did not apply: the reason ("file in use",
-/// "read-only file", "already exists in <folder>") is what the UI shows.
-pub fn single_op(report: &BatchReport) -> Result<(), String> {
-  if let Some(s) = report.skipped.first() {
-    return Err(s.reason.clone());
+/// After a single-op command that succeeded: tells the UI about the batch only when it changed
+/// something (or a side part of it failed). An op that was already in effect (same tag values, a
+/// track already in the playlist or not in it, a playlist that exists) wrote nothing and journaled
+/// nothing; its "no change" row is not a skip, so no event goes out for it. A real skip or failure
+/// never gets here: the core returns it as the call's error.
+pub fn emit_change(app: &AppHandle, report: &BatchReport) {
+  if changed(report) {
+    emit_batch(app, report);
   }
-  if let Some(f) = report.failed.first() {
-    return Err(f.error.clone());
+}
+
+/// True when the batch applied an op, had a part fail, or stopped.
+pub fn changed(report: &BatchReport) -> bool {
+  !report.applied.is_empty() || !report.failed.is_empty() || report.aborted
+}
+
+/// The plain reason the UI's status line shows for a core error: no variant prefix ("read-only
+/// file", "<name> already exists in <folder>", never "refused: ..." or "already exists: ...").
+pub fn reason(e: soundhood_core::Error) -> String {
+  match e {
+    // The core puts the file's path in `InUse`; the status line names the state, as it always has.
+    soundhood_core::Error::InUse(_) => "file in use".to_string(),
+    e => e.reason(),
   }
-  if report.aborted {
-    return Err("The change was stopped before it was made".into());
-  }
-  Ok(())
 }
 
 /// An absolute track path from the UI that is a file inside this library; the error strings are
@@ -163,6 +174,7 @@ pub fn is_library_dir(dir: &str) -> bool {
 mod tests {
   use super::*;
   use soundhood_core::ingest::{Applied, Failed, Skipped};
+  use soundhood_core::Error;
 
   fn report() -> BatchReport {
     BatchReport {
@@ -172,34 +184,48 @@ mod tests {
   }
 
   #[test]
-  fn single_op_passes_an_applied_op() {
-    let mut r = report();
-    r.applied.push(Applied {
-      label: "Tags of a.m4a".into(),
-      path_before: Some("a.m4a".into()),
-      path_after: Some("a.m4a".into()),
-    });
-    assert_eq!(single_op(&r), Ok(()));
-  }
-
-  #[test]
-  fn single_op_returns_the_skip_or_failure_reason() {
+  fn a_batch_that_only_found_nothing_to_change_is_not_a_change() {
     let mut r = report();
     r.skipped.push(Skipped {
       path: "a.m4a".into(),
-      reason: "file in use".into(),
+      reason: "no change".into(),
     });
-    assert_eq!(single_op(&r), Err("file in use".into()));
+    assert!(!changed(&r));
+    assert!(!changed(&report()));
+  }
+
+  #[test]
+  fn applied_failed_or_stopped_batches_are_changes() {
+    let mut r = report();
+    r.applied.push(Applied {
+      label: "Edited tags of a.m4a".into(),
+      path_before: Some("a.m4a".into()),
+      path_after: Some("a.m4a".into()),
+    });
+    assert!(changed(&r));
 
     let mut r = report();
     r.failed.push(Failed {
-      path: "a.m4a".into(),
-      error: "verification failed: duration".into(),
+      path: "Favourites".into(),
+      error: "file in use".into(),
     });
-    assert_eq!(single_op(&r), Err("verification failed: duration".into()));
+    assert!(changed(&r));
 
     let mut r = report();
     r.aborted = true;
-    assert!(single_op(&r).is_err());
+    assert!(changed(&r));
+  }
+
+  #[test]
+  fn reasons_have_no_variant_prefix() {
+    assert_eq!(reason(Error::Refused("read-only file".into())), "read-only file");
+    assert_eq!(
+      reason(Error::Exists("a.mp3 already exists in Ambient".into())),
+      "a.mp3 already exists in Ambient"
+    );
+    assert_eq!(reason(Error::Refused("Nothing to undo".into())), "Nothing to undo");
+    assert_eq!(reason(Error::NotFound("Favourites".into())), "Favourites");
+    // The path the core keeps in InUse is not shown; the state is.
+    assert_eq!(reason(Error::InUse("Ambient/a.m4a".into())), "file in use");
   }
 }
