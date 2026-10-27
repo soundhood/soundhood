@@ -565,7 +565,8 @@ pub(crate) fn write_tags(
     // keep byte-for-byte): nothing went wrong with the file, so it is a skip, not a failed check.
     Err(Error::Refused(m)) => {
       let _ = fs::remove_file(&tmp);
-      return Outcome::skipped(path, &format!("not changed: {m}"));
+      // The first line is the plain reason; the rest is technical detail.
+      return Outcome::skipped(path, m.lines().next().unwrap_or_default());
     }
     Err(err) => {
       let _ = fs::remove_file(&tmp);

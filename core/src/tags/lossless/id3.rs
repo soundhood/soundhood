@@ -8,7 +8,7 @@
 //! and is left alone. A 2.3 tag stays 2.3; a new tag is 2.4.
 
 use super::bytes::{be16, be32, le32, syncsafe, Source};
-use super::{ensure_kept, lofty_error, refused, write_options, Field, Group, Item, Wanted};
+use super::{crowded, ensure_kept, lofty_error, refused, write_options, Field, Group, Item, Wanted};
 use crate::error::{Error, Result};
 use lofty::id3::v2::{
   BinaryFrame, CommentFrame, Frame, FrameFlags, FrameId, Id3v2Tag, Id3v2Version, TextInformationFrame,
@@ -71,19 +71,16 @@ pub(super) fn parse(path: &Path, host: Host) -> Result<Meta> {
       } else {
         // lofty also finds a tag behind up to 1 KiB of junk and would replace it there.
         if src.peek(1, 1024 + 10)?.windows(3).any(|w| w == b"ID3") {
-          return Err(refused(
-            path,
-            "an ID3v2 tag that does not start the file is not written yet",
-          ));
+          return Err(refused("an ID3v2 tag that does not start the file is not written yet"));
         }
         container.push(Item::hashed(OUTSIDE, src.len, src.hash_range(0, src.len)?));
         None
       }
     }
-    Host::Riff | Host::Aiff => chunks(&mut src, path, &mut container)?,
+    Host::Riff | Host::Aiff => chunks(&mut src, &mut container)?,
   };
   let tag = match tag_bytes {
-    Some(b) => Some(parse_tag(path, &b)?),
+    Some(b) => Some(parse_tag(&b)?),
     None => None,
   };
   Ok(Meta { host, tag, container })
@@ -91,7 +88,7 @@ pub(super) fn parse(path: &Path, host: Host) -> Result<Meta> {
 
 /// Walks a RIFF (little-endian) or FORM (big-endian) file: every chunk except the ID3 chunk and
 /// padding becomes a container item; returns the ID3 chunk's content.
-fn chunks(src: &mut Source<'_>, path: &Path, container: &mut Vec<Item>) -> Result<Option<Vec<u8>>> {
+fn chunks(src: &mut Source, container: &mut Vec<Item>) -> Result<Option<Vec<u8>>> {
   let head = src.read_at(0, 12)?;
   let little = match &head[..4] {
     b"RIFF" => true,
@@ -112,7 +109,7 @@ fn chunks(src: &mut Source<'_>, path: &Path, container: &mut Vec<Item>) -> Resul
       return Err(src.malformed(format!("the {name:?} chunk runs past the end of the file")));
     }
     match &h[..4] {
-      b"ID3 " | b"id3 " if tag.is_some() => return Err(refused(path, "the file has more than one ID3 chunk")),
+      b"ID3 " | b"id3 " if tag.is_some() => return Err(refused("the file has more than one ID3 chunk")),
       b"ID3 " | b"id3 " => tag = Some(src.read_at(data, size)?),
       // Padding: lofty may turn an outgrown ID3 chunk into JUNK.
       b"JUNK" | b"junk" | b"PAD " | b"FLLR" => {}
@@ -172,19 +169,19 @@ fn frame_size(body: &[u8], pos: usize, major: u8) -> usize {
   }
 }
 
-fn parse_tag(path: &Path, bytes: &[u8]) -> Result<RawTag> {
-  let malformed = |what: String| Error::Tag(format!("{}: {what}", path.display()));
+fn parse_tag(bytes: &[u8]) -> Result<RawTag> {
+  let malformed = |what: String| Error::Tag(what);
   if bytes.len() < 10 || &bytes[..3] != b"ID3" {
     return Err(malformed("the ID3v2 header is missing".into()));
   }
   let (major, flags) = (bytes[3], bytes[5]);
   match major {
     3 | 4 => {}
-    2 => return Err(refused(path, "ID3v2.2 tags are not written yet")),
-    v => return Err(refused(path, format!("ID3v2.{v} tags are not written"))),
+    2 => return Err(refused("ID3v2.2 tags are not written yet")),
+    v => return Err(refused(format!("ID3v2.{v} tags are not written"))),
   }
   if major == 4 && flags & 0x80 != 0 {
-    return Err(refused(path, "unsynchronised ID3v2.4 tags are not written yet"));
+    return Err(refused("unsynchronised ID3v2.4 tags are not written yet"));
   }
   let size = syncsafe(&bytes[6..10]) as usize;
   let body = bytes
@@ -223,7 +220,7 @@ fn parse_tag(path: &Path, bytes: &[u8]) -> Result<RawTag> {
       .checked_add(size)
       .filter(|&e| e <= body.len())
       .ok_or_else(|| malformed(format!("the ID3v2 frame {id} is larger than the tag")))?;
-    let (flags, content) = frame_content(path, major, &id, be16(&body[pos + 8..]), &body[start..end])?;
+    let (flags, content) = frame_content(major, &id, be16(&body[pos + 8..]), &body[start..end])?;
     frames.push(RawFrame {
       field: field_of(&id, &content),
       id,
@@ -236,7 +233,7 @@ fn parse_tag(path: &Path, bytes: &[u8]) -> Result<RawTag> {
 }
 
 /// The status flags and the plain content of one frame.
-fn frame_content(path: &Path, major: u8, id: &str, raw: u16, data: &[u8]) -> Result<(FrameFlags, Vec<u8>)> {
+fn frame_content(major: u8, id: &str, raw: u16, data: &[u8]) -> Result<(FrameFlags, Vec<u8>)> {
   let mut flags = FrameFlags::default();
   let (grouped, packed, unsync, dli);
   if major == 4 {
@@ -257,10 +254,7 @@ fn frame_content(path: &Path, major: u8, id: &str, raw: u16, data: &[u8]) -> Res
     dli = false;
   }
   if packed {
-    return Err(refused(
-      path,
-      format!("the ID3v2 frame {id} is compressed or encrypted"),
-    ));
+    return Err(refused(format!("the ID3v2 frame {id} is compressed or encrypted")));
   }
   // Extra header bytes, in flag order: group id, then (2.4) the data length indicator.
   let mut at = 0;
@@ -273,8 +267,24 @@ fn frame_content(path: &Path, major: u8, id: &str, raw: u16, data: &[u8]) -> Res
   }
   let content = data
     .get(at..)
-    .ok_or_else(|| Error::Tag(format!("{}: the ID3v2 frame {id} is truncated", path.display())))?;
+    .ok_or_else(|| Error::Tag(format!("the ID3v2 frame {id} is truncated")))?;
   Ok((flags, if unsync { deunsync(content) } else { content.to_vec() }))
+}
+
+/// How many values a text frame holds: its text split at the encoding's NUL terminator, a
+/// trailing terminator not counting.
+pub(super) fn text_values(content: &[u8]) -> usize {
+  let Some((&enc, text)) = content.split_first() else {
+    return 0;
+  };
+  if matches!(enc, 1 | 2) {
+    let units: Vec<[u8; 2]> = text.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+    let body = units.strip_suffix(&[[0, 0]]).unwrap_or(&units);
+    1 + body.iter().filter(|u| **u == [0, 0]).count()
+  } else {
+    let body = text.strip_suffix(&[0]).unwrap_or(text);
+    1 + body.iter().filter(|&&b| b == 0).count()
+  }
 }
 
 /// A COMM frame whose description is empty: the plain comment field.
@@ -305,6 +315,29 @@ fn field_of(id: &str, content: &[u8]) -> Option<Field> {
 }
 
 impl Meta {
+  /// The first field `wanted` edits that holds more than one value here: two frames with the same
+  /// id (two TPE1, two plain COMM in different languages), or a text frame with several values
+  /// (ID3v2.4 separates them with NUL). TYER, TDAT and TIME together are one ID3v2.3 date.
+  pub(super) fn several(&self, wanted: &Wanted) -> Option<Field> {
+    let frames = self.tag.as_ref().map_or(&[][..], |t| &t.frames);
+    crowded(wanted, |f| {
+      let of_field: Vec<&RawFrame> = frames.iter().filter(|r| r.field == Some(f)).collect();
+      of_field
+        .iter()
+        .map(|r| {
+          let same_id = of_field.iter().filter(|o| o.id == r.id).count();
+          let values = if r.id.starts_with('T') {
+            text_values(&r.content)
+          } else {
+            1
+          };
+          same_id.max(values)
+        })
+        .max()
+        .unwrap_or(0)
+    })
+  }
+
   pub(super) fn items(&self) -> Vec<Item> {
     let mut items = self.container.clone();
     if let Some(tag) = &self.tag {
@@ -371,13 +404,7 @@ fn v23_date(v: &str) -> Option<Vec<(&'static str, String)>> {
 }
 
 /// The frames that carry `f` after the edit (none when it is cleared or untouched).
-fn new_frames(
-  path: &Path,
-  f: Field,
-  wanted: &Wanted,
-  id3v23: bool,
-  replaced: Option<&RawFrame>,
-) -> Result<Vec<Frame<'static>>> {
+fn new_frames(f: Field, wanted: &Wanted, id3v23: bool, replaced: Option<&RawFrame>) -> Result<Vec<Frame<'static>>> {
   let Some(v) = wanted.value(f) else {
     return Ok(Vec::new());
   };
@@ -395,7 +422,7 @@ fn new_frames(
     Field::AlbumArtist => vec![text("TPE2", v.into())],
     Field::Genre => vec![text("TCON", v.into())],
     Field::Year if id3v23 => v23_date(v)
-      .ok_or_else(|| refused(path, format!("an ID3v2.3 tag cannot hold the date {v:?}")))?
+      .ok_or_else(|| refused(format!("an ID3v2.3 tag cannot hold the date {v:?}")))?
       .into_iter()
       .map(|(id, s)| text(id, s))
       .collect(),
@@ -417,8 +444,8 @@ fn new_frames(
 }
 
 /// An untouched frame, as lofty will write it back unchanged.
-fn keep(path: &Path, raw: &RawFrame, id3v23: bool) -> Result<Frame<'static>> {
-  let id = FrameId::new(raw.id.clone()).map_err(|e| refused(path, format!("the ID3v2 frame id {}: {e}", raw.id)))?;
+fn keep(raw: &RawFrame, id3v23: bool) -> Result<Frame<'static>> {
+  let id = FrameId::new(raw.id.clone()).map_err(|e| refused(format!("the ID3v2 frame id {}: {e}", raw.id)))?;
   if id3v23 && raw.id == "TCON" {
     // lofty's 2.3 writer drops a TCON that is not a text frame; as a text frame it is re-encoded,
     // which the pre-write comparison checks.
@@ -444,7 +471,7 @@ pub(super) fn write(path: &Path, meta: &Meta, wanted: Wanted) -> Result<Wanted> 
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
       return Err(Error::Refused(format!(
-        "tag writes are not supported for {ext} files without an ID3v2 tag yet"
+        "the app cannot add tags to {ext} files that have none yet, so nothing was changed"
       )));
     }
   };
@@ -456,15 +483,15 @@ pub(super) fn write(path: &Path, meta: &Meta, wanted: Wanted) -> Result<Wanted> 
       // The first frame of an edited field takes the new value in place; the others go.
       Some(f) => {
         if !std::mem::replace(&mut done[f as usize], true) {
-          out.extend(new_frames(path, f, &wanted, id3v23, Some(raw))?);
+          out.extend(new_frames(f, &wanted, id3v23, Some(raw))?);
         }
       }
-      None => out.push(keep(path, raw, id3v23)?),
+      None => out.push(keep(raw, id3v23)?),
     }
   }
   for f in Field::ALL {
     if !done[f as usize] {
-      out.extend(new_frames(path, f, &wanted, id3v23, None)?);
+      out.extend(new_frames(f, &wanted, id3v23, None)?);
     }
   }
   let mut tag = Id3v2Tag::new();
@@ -476,17 +503,17 @@ pub(super) fn write(path: &Path, meta: &Meta, wanted: Wanted) -> Result<Wanted> 
   let mut encoded = Vec::new();
   tag
     .dump_to(&mut encoded, options)
-    .map_err(|e| lofty_error(path, "cannot encode the ID3v2 tag", &e))?;
+    .map_err(|e| lofty_error("cannot encode the ID3v2 tag", &e))?;
   let rebuilt = if encoded.is_empty() {
     Vec::new()
   } else {
-    parse_tag(path, &encoded)?.frames
+    parse_tag(&encoded)?.frames
   };
-  ensure_kept(path, &frame_items(frames), &frame_items(&rebuilt), &wanted)?;
+  ensure_kept(&frame_items(frames), &frame_items(&rebuilt), &wanted)?;
 
   tag
     .save_to_path(path, options)
-    .map_err(|e| lofty_error(path, "cannot write the ID3v2 tag", &e))?;
+    .map_err(|e| lofty_error("cannot write the ID3v2 tag", &e))?;
   Ok(wanted)
 }
 
@@ -531,7 +558,7 @@ mod tests {
     long.extend(std::iter::repeat_n(b'a', 255));
     let mut frames = frame(b"TIT2", 256u32.to_be_bytes(), &long);
     frames.extend(frame(b"TPE1", [0, 0, 0, 3], b"\0ab"));
-    let parsed = parse_tag(Path::new("t.mp3"), &tag(4, 0, &frames)).unwrap();
+    let parsed = parse_tag(&tag(4, 0, &frames)).unwrap();
     let ids: Vec<&str> = parsed.frames.iter().map(|f| f.id.as_str()).collect();
     assert_eq!(ids, ["TIT2", "TPE1"]);
     assert_eq!(parsed.frames[0].content.len(), 256);
@@ -542,7 +569,7 @@ mod tests {
     // Content `o 00 FF 00` is stored unsynchronised as `o 00 FF 00 00`; the frame size counts the
     // plain content.
     let frames = frame(b"PRIV", [0, 0, 0, 4], &[b'o', 0, 0xff, 0x00, 0x00]);
-    let parsed = parse_tag(Path::new("t.mp3"), &tag(3, 0x80, &frames)).unwrap();
+    let parsed = parse_tag(&tag(3, 0x80, &frames)).unwrap();
     assert_eq!(parsed.frames.len(), 1);
     assert_eq!(parsed.frames[0].content, [b'o', 0, 0xff, 0]);
     assert_eq!(
@@ -554,11 +581,11 @@ mod tests {
   #[test]
   fn refuses_id3v22_and_compressed_frames() {
     let v22 = tag(2, 0, b"TT2\0\0\x02\0a");
-    assert!(matches!(parse_tag(Path::new("t.mp3"), &v22), Err(Error::Refused(_))));
+    assert!(matches!(parse_tag(&v22), Err(Error::Refused(_))));
     let mut compressed = frame(b"TIT2", [0, 0, 0, 2], b"\0a");
     compressed[9] = 0x08;
     assert!(matches!(
-      parse_tag(Path::new("t.mp3"), &tag(4, 0, &compressed)),
+      parse_tag(&tag(4, 0, &compressed)),
       Err(Error::Refused(m)) if m.contains("TIT2")
     ));
   }
@@ -567,7 +594,7 @@ mod tests {
   fn strips_the_group_id_and_data_length_indicator() {
     let mut f = frame(b"PRIV", [0, 0, 0, 7], &[0x42, 0, 0, 0, 2, b'o', 0]);
     f[9] = 0x41; // grouping + data length indicator
-    let parsed = parse_tag(Path::new("t.mp3"), &tag(4, 0, &f)).unwrap();
+    let parsed = parse_tag(&tag(4, 0, &f)).unwrap();
     assert_eq!(parsed.frames[0].content, [b'o', 0]);
     assert_eq!(parsed.frames[0].flags.grouping_identity, Some(0x42));
   }

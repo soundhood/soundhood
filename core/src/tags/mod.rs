@@ -74,7 +74,13 @@ pub fn cover_art(abs: &Path) -> Result<Option<Vec<u8>>> {
 /// written; any other format is `Error::Refused`, as is an item the writer could not keep
 /// byte-for-byte (checked in memory before anything is written). After the write the file is
 /// parsed again and any difference outside the intended fields is `Error::Verify`. A read-only file
-/// is refused (`Error::Refused("read-only: …")`) before anything is opened for writing.
+/// is refused (`Error::Refused("read-only file")`) before anything is opened for writing.
+///
+/// Messages never carry a path (the file is a hidden temp copy). A refusal's message is a plain
+/// sentence for the report, optionally followed by a newline and the technical detail, which the
+/// write path keeps in the journal instead. A field the file holds several values for (two ARTIST
+/// comments, a multi-value TPE1, several ©ART data boxes) is refused when the edit touches it:
+/// the journal keeps one value per field, so undo could not bring the others back.
 #[cfg_attr(not(test), allow(dead_code))] // ingest::tagwrite (zone core-writepath) is the caller
 pub(crate) fn write(path: &Path, changes: &TagSet) -> Result<()> {
   lossless::write(path, changes)
@@ -85,30 +91,24 @@ pub(crate) fn write(path: &Path, changes: &TagSet) -> Result<()> {
 /// `before`. Returns the re-read tags.
 #[cfg_attr(not(test), allow(dead_code))] // ingest::tagwrite (zone core-writepath) is the caller
 pub(crate) fn verify(tmp: &Path, before: &TagRead, changes: &TagSet) -> Result<TagRead> {
+  // The messages never name `tmp`: it is a hidden copy whose path shows where the library lives.
   let after = read(tmp)?;
   if after.duration_ms.abs_diff(before.duration_ms) > 1000 {
     return Err(Error::Verify(format!(
-      "{}: duration changed from {} ms to {} ms",
-      tmp.display(),
-      before.duration_ms,
-      after.duration_ms
+      "duration changed from {} ms to {} ms",
+      before.duration_ms, after.duration_ms
     )));
   }
   if after.codec != before.codec {
     return Err(Error::Verify(format!(
-      "{}: codec changed from {} to {}",
-      tmp.display(),
-      before.codec,
-      after.codec
+      "codec changed from {} to {}",
+      before.codec, after.codec
     )));
   }
   for (name, change, was, now) in fields(changes, before, &after) {
     let want = change.map_or(was, |v| v.trim());
     if now != want {
-      return Err(Error::Verify(format!(
-        "{}: {name} is {now:?}, expected {want:?}",
-        tmp.display()
-      )));
+      return Err(Error::Verify(format!("{name} is {now:?}, expected {want:?}")));
     }
   }
   Ok(after)

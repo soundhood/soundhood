@@ -299,3 +299,78 @@ fn undo_refuses_a_file_changed_since() {
   assert_eq!(read_bytes(&lib, &r), bytes, "nothing forced");
   assert_eq!(tags::read(&lib.abs(&r)).unwrap().title, "Edited Again");
 }
+
+/// The ARTIST values of a FLAC file, every one of them.
+fn flac_artists(path: &std::path::Path) -> Vec<String> {
+  use lofty::config::ParseOptions;
+  use lofty::file::AudioFile;
+  let flac = lofty::flac::FlacFile::read_from(&mut std::fs::File::open(path).unwrap(), ParseOptions::new()).unwrap();
+  flac
+    .vorbis_comments()
+    .map(|vc| vc.get_all("ARTIST").map(str::to_string).collect())
+    .unwrap_or_default()
+}
+
+/// A FLAC with two ARTIST comments (a Picard-tagged library): editing the artist would keep one
+/// value, and the journal's one-string pre-image could not bring the second back on undo. So the
+/// edit is skipped with a plain reason and the file is untouched; editing the title still works,
+/// keeps both artists, and undoes cleanly.
+#[test]
+fn an_edit_of_a_field_with_several_values_is_refused_whole() {
+  use lofty::config::{ParseOptions, WriteOptions};
+  use lofty::file::AudioFile;
+  let (_d, lib, report) = fixture_lib(10, false);
+  let r = track_with_ext(&report, "flac");
+  let path = lib.abs(&r);
+  let mut flac =
+    lofty::flac::FlacFile::read_from(&mut std::fs::File::open(&path).unwrap(), ParseOptions::new()).unwrap();
+  let mut vc = flac.vorbis_comments().cloned().unwrap_or_default();
+  let _ = vc.remove("ARTIST").count();
+  vc.push("ARTIST".into(), "First Artist".into());
+  vc.push("ARTIST".into(), "Second Artist".into());
+  let _ = flac.set_vorbis_comments(vc);
+  let mut f = std::fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
+  flac.save_to(&mut f, WriteOptions::default()).unwrap();
+  drop(f);
+  age(&path);
+  let both = vec!["First Artist".to_string(), "Second Artist".to_string()];
+  assert_eq!(flac_artists(&path), both);
+  let original = read_bytes(&lib, &r);
+  let title_before = tags::read(&path).unwrap().title;
+
+  let rep = apply(
+    &lib,
+    vec![Op::WriteTags {
+      rel: r.clone(),
+      changes: TagSet {
+        artist: Some("Edited Artist".into()),
+        ..TagSet::default()
+      },
+    }],
+    &ApplyOptions::default(),
+  );
+  assert!(rep.applied.is_empty() && rep.failed.is_empty(), "{}", show(&rep));
+  assert_eq!(rep.skipped.len(), 1, "{}", show(&rep));
+  assert_eq!(
+    rep.skipped[0].reason,
+    "this file has several artist values; edit it in a tag editor so nothing is lost"
+  );
+  assert_eq!(read_bytes(&lib, &r), original, "untouched");
+  assert!(temps(&lib.root).is_empty());
+  assert!(undo::last_change(&lib).unwrap().is_none(), "nothing to undo");
+
+  let rep = apply(
+    &lib,
+    vec![Op::WriteTags {
+      rel: r.clone(),
+      changes: title("Only The Title"),
+    }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
+  assert_eq!(flac_artists(&path), both, "both artists kept");
+  let u = undo::undo_batch(&lib, &rep.batch).unwrap();
+  assert_eq!(u.applied.len(), 1, "{}", show(&u));
+  assert_eq!(flac_artists(&path), both);
+  assert_eq!(tags::read(&path).unwrap().title, title_before);
+}

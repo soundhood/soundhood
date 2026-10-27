@@ -182,12 +182,12 @@ fn rich_mp3(id3v23: bool) -> (tempfile::TempDir, PathBuf) {
   (dir, path)
 }
 
-/// Vorbis comments as taggers leave them: two ARTIST values, ReplayGain, custom and lower-case keys.
+/// Vorbis comments as taggers leave them: ReplayGain, custom and lower-case keys. (Two values of
+/// one field are refused when that field is edited; see `a_field_with_several_values_is_refused`.)
 fn dress_comments(vc: &mut lofty::ogg::tag::VorbisComments) {
   for (k, v) in [
     ("TITLE", "Old Title"),
     ("ARTIST", "Old Artist"),
-    ("ARTIST", "Second Artist"),
     ("ALBUM", "Old Album"),
     ("REPLAYGAIN_TRACK_GAIN", "-6.48 dB"),
     ("REPLAYGAIN_TRACK_PEAK", "0.988525"),
@@ -605,7 +605,7 @@ fn flac_picture_blocks_and_comments_survive() {
       .collect()
   };
   assert_eq!(untouched(&comments), untouched(&comments_after));
-  // Both ARTIST values are replaced by the one new value, where the first was.
+  // The ARTIST value is replaced where it was.
   let pos = |c: &[Vec<u8>], k: &[u8]| c.iter().position(|i| i.starts_with(k));
   assert_eq!(pos(&comments_after, b"ARTIST="), pos(&comments, b"ARTIST="));
   assert_eq!(comments_after.iter().filter(|i| i.starts_with(b"ARTIST=")).count(), 1);
@@ -689,7 +689,7 @@ fn wav_with_id3_is_written_and_without_is_refused() {
   let plain = fs::read(&path).unwrap();
   let err = crate::tags::write(&path, &title_and_artist()).unwrap_err();
   assert!(
-    matches!(&err, Error::Refused(m) if m == "tag writes are not supported for wav files without an ID3v2 tag yet"),
+    matches!(&err, Error::Refused(m) if m == "the app cannot add tags to wav files that have none yet, so nothing was changed"),
     "{err}"
   );
   assert_eq!(fs::read(&path).unwrap(), plain);
@@ -716,7 +716,7 @@ fn other_formats_are_refused_untouched() {
   fs::write(&path, &ape).unwrap();
   let err = crate::tags::write(&path, &title_and_artist()).unwrap_err();
   assert!(
-    matches!(&err, Error::Refused(m) if m == "tag writes are not supported for ape files yet"),
+    matches!(&err, Error::Refused(m) if m == "the app cannot change tags in ape files yet, so nothing was changed"),
     "{err}"
   );
   assert_eq!(fs::read(&path).unwrap(), ape);
@@ -777,9 +777,137 @@ fn lofty_errors_carry_their_source_chain() {
     }
   }
   let e = Outer(std::io::Error::other("atom too large"));
-  let err = lofty_error(Path::new("x.m4a"), "cannot write the MP4 tags", &e);
+  let err = lofty_error("cannot write the MP4 tags", &e);
   assert_eq!(
     err.to_string(),
-    "tag error: x.m4a: cannot write the MP4 tags: failed to write Mp4 file: atom too large"
+    "tag error: cannot write the MP4 tags: failed to write Mp4 file: atom too large"
   );
+}
+
+/// The artist values a file holds, read through lofty's concrete tag of each format.
+fn artists_of(path: &Path) -> Vec<String> {
+  let mut f = File::open(path).unwrap();
+  match path.extension().and_then(|e| e.to_str()).unwrap() {
+    "flac" => FlacFile::read_from(&mut f, LoftyParse::new())
+      .unwrap()
+      .vorbis_comments()
+      .map(|vc| vc.get_all("ARTIST").map(str::to_string).collect())
+      .unwrap_or_default(),
+    "ogg" => VorbisFile::read_from(&mut f, LoftyParse::new())
+      .unwrap()
+      .vorbis_comments()
+      .get_all("ARTIST")
+      .map(str::to_string)
+      .collect(),
+    "m4a" => Mp4File::read_from(&mut f, LoftyParse::new())
+      .unwrap()
+      .ilst()
+      .and_then(|i| i.get(&AtomIdent::Fourcc(*b"\xa9ART")))
+      .map(|a| {
+        a.data()
+          .filter_map(|d| match d {
+            AtomData::UTF8(s) => Some(s.clone()),
+            _ => None,
+          })
+          .collect()
+      })
+      .unwrap_or_default(),
+    "mp3" => id3::raw_frames(path, id3::Host::Leading)
+      .1
+      .into_iter()
+      .filter(|(id, _)| id == "TPE1")
+      .flat_map(|(_, c)| {
+        let text = String::from_utf8_lossy(&c[1..]).trim_end_matches('\x00').to_string();
+        text.split('\x00').map(str::to_string).collect::<Vec<_>>()
+      })
+      .collect(),
+    other => panic!("no artist reader for {other}"),
+  }
+}
+
+/// A field holding several values (two ARTIST comments, several ©ART data boxes, a multi-value or
+/// doubled TPE1) cannot be edited without losing all but one, and the journal could not give the
+/// others back: an edit touching it is refused with a plain reason, the file untouched. An edit of
+/// another field still works and keeps every value.
+#[test]
+fn a_field_with_several_values_is_refused() {
+  let several = "this file has several artist values; edit it in a tag editor so nothing is lost";
+  let two = vec!["First Artist".to_string(), "Second Artist".to_string()];
+  let mut cases: Vec<(&str, tempfile::TempDir, PathBuf)> = Vec::new();
+
+  let (dir, path) = copy_of("flac");
+  let mut flac = FlacFile::read_from(&mut File::open(&path).unwrap(), LoftyParse::new()).unwrap();
+  let mut vc = flac.vorbis_comments().cloned().unwrap_or_default();
+  vc.push("ARTIST".into(), "First Artist".into());
+  vc.push("ARTIST".into(), "Second Artist".into());
+  let _ = flac.set_vorbis_comments(vc);
+  let mut file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+  flac.save_to(&mut file, WriteOptions::default()).unwrap();
+  drop(file);
+  cases.push(("flac: two ARTIST comments", dir, path));
+
+  let (dir, path) = copy_of("ogg");
+  let mut vc = VorbisFile::read_from(&mut File::open(&path).unwrap(), LoftyParse::new())
+    .unwrap()
+    .remove_vorbis_comments();
+  vc.push("ARTIST".into(), "First Artist".into());
+  vc.push("ARTIST".into(), "Second Artist".into());
+  vc.save_to_path(&path, WriteOptions::default()).unwrap();
+  cases.push(("ogg: two ARTIST comments", dir, path));
+
+  let (dir, path) = copy_of("m4a");
+  let file = Mp4File::read_from(&mut File::open(&path).unwrap(), LoftyParse::new()).unwrap();
+  let mut ilst = file.ilst().cloned().unwrap_or_default();
+  ilst.insert(
+    Atom::from_collection(
+      AtomIdent::Fourcc(*b"\xa9ART"),
+      vec![
+        AtomData::UTF8("First Artist".into()),
+        AtomData::UTF8("Second Artist".into()),
+      ],
+    )
+    .unwrap(),
+  );
+  ilst.save_to_path(&path, WriteOptions::default()).unwrap();
+  cases.push(("m4a: two data boxes in one ©ART", dir, path));
+
+  let (dir, path) = copy_of("mp3");
+  let mut tag = Id3v2Tag::new();
+  let _ = tag.insert(text("TPE1", TextEncoding::Latin1, "First Artist\x00Second Artist"));
+  tag.save_to_path(&path, WriteOptions::default()).unwrap();
+  cases.push(("mp3: an ID3v2.4 TPE1 with two values", dir, path));
+
+  for (what, _dir, path) in &cases {
+    assert_eq!(artists_of(path), two, "{what}: the fixture holds two artists");
+    let before = fs::read(path).unwrap();
+    let err = crate::tags::write(path, &set(|t| t.artist = Some("Edited Artist".into()))).unwrap_err();
+    assert!(matches!(&err, Error::Refused(m) if m == several), "{what}: {err}");
+    let err = crate::tags::write(path, &set(|t| t.artist = Some(String::new()))).unwrap_err();
+    assert!(
+      matches!(&err, Error::Refused(m) if m == several),
+      "{what}: clearing too: {err}"
+    );
+    assert_eq!(fs::read(path).unwrap(), before, "{what}: untouched");
+
+    crate::tags::write(path, &set(|t| t.title = Some("Only The Title".into()))).unwrap();
+    assert_eq!(read(path).unwrap().title, "Only The Title", "{what}");
+    assert_eq!(artists_of(path), two, "{what}: both artists kept");
+  }
+}
+
+/// ID3v2 text values: NUL-separated in ISO-8859-1 and UTF-8, a NUL pair in UTF-16; a trailing
+/// terminator does not count.
+#[test]
+fn id3_text_frames_count_their_values() {
+  assert_eq!(id3::text_values(b"\x00One"), 1);
+  assert_eq!(id3::text_values(b"\x00One\x00"), 1);
+  assert_eq!(id3::text_values(b"\x03One\x00Two"), 2);
+  assert_eq!(id3::text_values(b"\x03One\x00Two\x00"), 2);
+  assert_eq!(
+    id3::text_values(&[1, 0xff, 0xfe, b'A', 0, 0, 0, 0xff, 0xfe, b'B', 0, 0, 0]),
+    2
+  );
+  assert_eq!(id3::text_values(&[1, 0xff, 0xfe, b'A', 0, 0, 0]), 1);
+  // A UTF-16 character whose low byte is zero is not a separator.
+  assert_eq!(id3::text_values(&[2, 0, b'A', 1, 0]), 1);
 }
