@@ -8,6 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { batchLogLines, capLog, copyLogText, diagnosticsLines, libraryKey, undoStatus } from "./coreIpc";
 import type { BatchReport, ChangeSummary, Diagnostics, RefreshReport, SelfTestReport } from "./coreIpc";
 import { checkFolderName, folderNameRefusal } from "./folderName";
+import { SYNC_OFF_LINE, isTestLibrary, shownFolder } from "./testLibrary";
 
 type Track = {
   path: string;
@@ -58,8 +59,12 @@ const KEY_SHARE_QUEUE = "share_queue";
 const KEY_LAST_SYNC = "last_sync";
 // Hidden developer section: 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop).
 const KEY_DEV_MODE = "dev_mode";
-// The real library while "Use fixture root" points the app at the generated fixture library.
+// The real library while "Use fixture root" points the app at the generated fixture library; never
+// the fixture library itself.
 const KEY_REAL_LIBRARY_DIR = "real_library_dir";
+// Where the host generated the fixture library ("test library"): the switch is on while the shown
+// library is this folder.
+const KEY_FIXTURE_ROOT = "fixture_root";
 type QueuedLink = { url: string; added: number; target?: string; playlists?: string[] };
 /** A pure playlist link (list= without a specific video) downloads every entry. */
 function isPlaylistLink(url: string): boolean {
@@ -579,7 +584,10 @@ export default function App() {
   const [devMode, setDevMode] = useState<boolean>(false);
   const devModeRef = useRef<boolean>(false);
   devModeRef.current = devMode;
-  const [fixtureOn, setFixtureOn] = useState<boolean>(false);
+  // The fixture root the host returned (remembered); the test library is shown when the current
+  // library is that folder.
+  const [fixtureRoot, setFixtureRoot] = useState<string>("");
+  const fixtureOn = isTestLibrary(folder, fixtureRoot);
   const [devBusy, setDevBusy] = useState<"" | "fixture" | "selftest" | "rebuild">("");
   const statusTapsRef = useRef<{ n: number; at: number }>({ n: 0, at: 0 });
 
@@ -608,38 +616,60 @@ export default function App() {
     }
   }
 
-  // "Use fixture root": on = remember the real library, point the app at the generated fixture
-  // library (created by the host on first use); off = go back to the remembered library.
+  // "Use fixture root": on = remember the real library and point the app at the generated test
+  // library (created by the host on first use); off = go back to the remembered library. The state
+  // itself is never stored: it follows from the shown library being the fixture root.
   async function switchFixtureRoot(enable: boolean) {
     if (devBusy) return;
     setDevBusy("fixture");
     try {
       const store = await storePromise;
       if (enable) {
-        const real = folderRef.current;
+        const current = folderRef.current;
         const r = await invoke<{ root: string }>("dev_fixture_root", { enable: true });
         if (!r?.root) throw new Error("the host returned no fixture folder");
-        await store.set(KEY_REAL_LIBRARY_DIR, real);
+        await store.set(KEY_FIXTURE_ROOT, r.root);
+        // Only a real library is remembered, never the test library itself.
+        if (current && !isTestLibrary(current, r.root)) await store.set(KEY_REAL_LIBRARY_DIR, current);
         await store.save();
-        setFixtureOn(true);
-        appendLog(["[dev] fixture root on"]);
+        setFixtureRoot(r.root);
+        appendQuietLog(["[dev] test library on"]);
         await importFolderPath(r.root);
       } else {
-        const real = await store.get<string>(KEY_REAL_LIBRARY_DIR);
+        const saved = await store.get<string>(KEY_REAL_LIBRARY_DIR);
+        const real = typeof saved === "string" && saved && !isTestLibrary(saved, fixtureRoot) ? saved : "";
         try {
           await invoke("dev_fixture_root", { enable: false });
         } catch { /* nothing to switch off on the host */ }
         await store.set(KEY_REAL_LIBRARY_DIR, "");
         await store.save();
-        setFixtureOn(false);
-        appendLog(["[dev] fixture root off"]);
-        if (typeof real === "string" && real) await importFolderPath(real);
-        else setStatus("Fixture root off: choose the library folder again");
+        appendQuietLog(["[dev] test library off"]);
+        if (real) await importFolderPath(real);
+        else await closeLibrary("Test library off: choose your library folder again");
       }
     } catch (e) {
-      setStatus(`Fixture root: ${String(e).slice(0, 120)}`);
+      setStatus(`Test library: ${String(e).slice(0, 120)}`);
     }
     setDevBusy("");
+  }
+
+  /** No library shown (the test library was switched off and no real one is known). */
+  async function closeLibrary(message: string) {
+    if (currentPathRef.current) stopPlayer();
+    setFolder("");
+    setAllTracks([]);
+    setPlaylistFiles([]);
+    setSelectedPaths(new Set());
+    setPlaylist("(all)");
+    setPlView("");
+    setArtistView("");
+    setLastChange(null);
+    setStatus(message);
+    try {
+      const store = await storePromise;
+      await store.set(KEY_LIBRARY_DIR, "");
+      await store.save();
+    } catch { /* non-fatal: the library is closed for this session */ }
   }
 
   async function runSelfTest() {
@@ -1294,6 +1324,8 @@ export default function App() {
   async function protonSync(direction: "down" | "up" | "both" = "both") {
     const lib = folderRef.current;
     if (!lib) { setStatus("Pick the Music folder first"); return; }
+    // The test library must never meet the real Proton Drive folder (the buttons are off too).
+    if (isTestLibrary(lib, fixtureRoot)) { setStatus(SYNC_OFF_LINE); return; }
     setProtonBusy("sync");
     setStatus("Syncing with Proton Drive…");
     try {
@@ -1755,8 +1787,8 @@ export default function App() {
         settingsLoadedRef.current = true;
 
         if ((await store.get<boolean>(KEY_DEV_MODE)) === true) setDevMode(true);
-        const savedReal = await store.get<string>(KEY_REAL_LIBRARY_DIR);
-        setFixtureOn(typeof savedReal === "string" && savedReal !== "");
+        const savedFixtureRoot = await store.get<string>(KEY_FIXTURE_ROOT);
+        if (typeof savedFixtureRoot === "string") setFixtureRoot(savedFixtureRoot);
 
         let saved = await store.get<string>(KEY_LIBRARY_DIR);
         // Android: no folder picker (it returns content URIs, not paths) — start from the standard Music folder.
@@ -2049,6 +2081,7 @@ export default function App() {
           gap: 10px;
           padding: 0 16px 12px 16px;
         }
+        .brand .testLibraryNote{ margin-top: 0; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
         .devBar{ display:flex; flex-wrap: wrap; align-items:center; gap: 8px; padding: 0 16px 12px 16px; }
         .downloadInput{
           flex: 1;
@@ -2546,6 +2579,14 @@ export default function App() {
               {undoBusy ? "Undoing…" : "Undo"}
             </button>
           ) : null}
+          {fixtureOn ? (
+            <span
+              className="modalHint testLibraryNote"
+              title="The app shows the generated test library, not your music. Switch it off under Developer."
+            >
+              Test library
+            </span>
+          ) : null}
         </div>
         <div className="status" onClick={onStatusTap}>{isMobile ? status : `Status: ${status}`}</div>
       </div>
@@ -2554,7 +2595,7 @@ export default function App() {
 
       {isMobile && mSettings ? (
         <div className="mSettings">
-          <div className="mFolder">{folder ? `Library: ${folder}` : "Type the folder that holds your music, then tap Use."}</div>
+          <div className="mFolder">{folder ? `Library: ${shownFolder(folder, fixtureRoot)}` : "Type the folder that holds your music, then tap Use."}</div>
           <input
             className="downloadInput"
             placeholder="/storage/emulated/0/Music"
@@ -2602,11 +2643,12 @@ export default function App() {
               <div className="modalHint">This build has no sync engine (rclone not bundled).</div>
             ) : proton.connected ? (
               <div className="queueAdd" style={{ marginTop: 0 }}>
-                <button className="btn primaryBtn" onClick={() => protonSync("both")} disabled={protonBusy !== "" || dlBusy}>{protonBusy === "sync" ? "Syncing…" : "Sync now"}</button>
-                <button className="btn" onClick={() => protonSync("down")} disabled={protonBusy !== "" || dlBusy} title="Only fetch what the PC added">Get new</button>
-                <button className="btn" onClick={() => protonSync("up")} disabled={protonBusy !== "" || dlBusy} title="Only send what the phone added">Send new</button>
+                <button className="btn primaryBtn" onClick={() => protonSync("both")} disabled={protonBusy !== "" || dlBusy || fixtureOn}>{protonBusy === "sync" ? "Syncing…" : "Sync now"}</button>
+                <button className="btn" onClick={() => protonSync("down")} disabled={protonBusy !== "" || dlBusy || fixtureOn} title="Only fetch what the PC added">Get new</button>
+                <button className="btn" onClick={() => protonSync("up")} disabled={protonBusy !== "" || dlBusy || fixtureOn} title="Only send what the phone added">Send new</button>
                 <span className="modalHint" style={{ marginTop: 0 }}>{lastSync ? `last: ${new Date(lastSync).toLocaleString()}` : "never synced"}</span>
                 <button className="linkBtn" onClick={protonLogout} disabled={protonBusy !== ""}>disconnect</button>
+                {fixtureOn ? <div className="modalHint syncOffLine" style={{ flex: "1 1 100%", marginTop: 0 }}>{SYNC_OFF_LINE}</div> : null}
               </div>
             ) : (
               <div className="queueAdd" style={{ marginTop: 0 }}>
@@ -2668,7 +2710,7 @@ export default function App() {
       ) : null}
 
       <div className="pathLine">
-        {folder ? `Folder: ${folder}` : "Pick a folder to begin."}
+        {folder ? `Folder: ${shownFolder(folder, fixtureRoot)}` : "Pick a folder to begin."}
       </div>
 
       {!isMobile ? (
