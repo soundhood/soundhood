@@ -249,8 +249,7 @@ val soundhoodKeystore: Properties? = soundhoodKeystoreFile.takeIf { it.isFile }?
 if (soundhoodKeystore == null) {
     val note = "Soundhood: $soundhoodKeystoreFile not found, so the release APK is signed with " +
         "this machine's Android debug key (~/.android/debug.keystore)"
-    logger.warn("w: $note")
-    // Configuration-cache hits skip the line above; say it again when a release is packaged.
+    // Said when a release is packaged (not while configuring), so configuration-cache hits show it too.
     tasks.configureEach {
         if (name.startsWith("package") && name.endsWith("Release")) {
             doFirst { logger.warn("w: $note") }
