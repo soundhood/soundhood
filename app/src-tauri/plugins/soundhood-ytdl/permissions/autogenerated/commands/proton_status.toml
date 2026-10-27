@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-proton-status"
+description = "Enables the proton_status command without any pre-configured scope."
+commands.allow = ["proton_status"]
+
+[[permission]]
+identifier = "deny-proton-status"
+description = "Denies the proton_status command without any pre-configured scope."
+commands.deny = ["proton_status"]

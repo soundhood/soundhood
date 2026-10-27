@@ -41,7 +41,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::cancel,
       commands::ytdlp_version,
       commands::ytdlp_update,
-      commands::netcheck
+      commands::netcheck,
+      commands::proton_status,
+      commands::proton_login,
+      commands::proton_sync,
+      commands::proton_logout
     ])
     .setup(|app, api| {
       #[cfg(mobile)]

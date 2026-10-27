@@ -1,3 +1,4 @@
 /target
 /android/.tauri/
 /android/build/
+/android/src/main/jniLibs/

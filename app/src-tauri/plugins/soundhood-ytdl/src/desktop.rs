@@ -11,7 +11,7 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 }
 
 /// Desktop has its own yt-dlp sidecar; this plugin is a no-op there.
-pub struct Ytdl<R: Runtime>(std::marker::PhantomData<R>);
+pub struct Ytdl<R: Runtime>(std::marker::PhantomData<fn() -> R>);
 
 impl<R: Runtime> Ytdl<R> {
   pub fn download(&self, _args: DownloadArgs) -> crate::Result<DownloadResult> {

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-proton-sync"
+description = "Enables the proton_sync command without any pre-configured scope."
+commands.allow = ["proton_sync"]
+
+[[permission]]
+identifier = "deny-proton-sync"
+description = "Denies the proton_sync command without any pre-configured scope."
+commands.deny = ["proton_sync"]

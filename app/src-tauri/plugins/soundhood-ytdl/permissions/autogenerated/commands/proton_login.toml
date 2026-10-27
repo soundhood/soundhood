@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-proton-login"
+description = "Enables the proton_login command without any pre-configured scope."
+commands.allow = ["proton_login"]
+
+[[permission]]
+identifier = "deny-proton-login"
+description = "Denies the proton_login command without any pre-configured scope."
+commands.deny = ["proton_login"]

@@ -62,22 +62,40 @@ object LocalProxy {
     }
   }
 
-  private fun connectAny(host: String, port: Int): Socket? {
-    val addrs = try { InetAddress.getAllByName(host).toList() } catch (e: Exception) {
-      Log.w(TAG, "proxy: cannot resolve $host — ${e.message}"); return null
+  // Resolved addresses, kept for a minute: under load (a sync asks Proton thousands of times) the
+  // resolver itself can refuse or stall, and every miss would surface to rclone as a 502.
+  private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InetAddress>>>()
+  private fun resolve(host: String): List<InetAddress>? {
+    val now = System.currentTimeMillis()
+    dnsCache[host]?.let { (t, list) -> if (now - t < 60_000) return list }
+    var last: Exception? = null
+    for (attempt in 1..3) {
+      try {
+        val list = InetAddress.getAllByName(host).toList()
+        if (list.isNotEmpty()) { dnsCache[host] = now to list; return list }
+      } catch (e: Exception) { last = e; Thread.sleep(150L * attempt) }
     }
+    dnsCache[host]?.let { (_, list) -> return list } // stale is better than nothing
+    Log.w(TAG, "proxy: cannot resolve $host — ${last?.message}")
+    return null
+  }
+
+  private fun connectAny(host: String, port: Int): Socket? {
+    val addrs = resolve(host) ?: return null
     val ordered = addrs.filter { it is java.net.Inet4Address } + addrs.filter { it !is java.net.Inet4Address }
     var lastErr: String? = null
-    for (a in ordered) {
-      val s = Socket()
-      try {
-        s.connect(InetSocketAddress(a, port), 10000)
-        return s
-      } catch (e: Exception) {
-        lastErr = "${a.hostAddress}: ${e.message}"
-        Log.w(TAG, "proxy: $host -> $lastErr")
-        try { s.close() } catch (_: Exception) {}
+    for (round in 1..2) {
+      for (a in ordered) {
+        val s = Socket()
+        try {
+          s.connect(InetSocketAddress(a, port), 10000)
+          return s
+        } catch (e: Exception) {
+          lastErr = "${a.hostAddress}: ${e.message}"
+          try { s.close() } catch (_: Exception) {}
+        }
       }
+      if (round == 1) Thread.sleep(300)
     }
     Log.w(TAG, "proxy: cannot reach $host:$port (${addrs.size} address(es); last: $lastErr)")
     return null

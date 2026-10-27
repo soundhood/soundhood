@@ -71,3 +71,60 @@ pub(crate) async fn netcheck<R: Runtime>(app: AppHandle<R>) -> Result<NetcheckRe
     Err(crate::Error::Message("not on desktop".into()))
   }
 }
+
+macro_rules! mobile_passthrough {
+  ($name:ident, $method:literal, $args:ty, $ret:ty) => {
+    #[command]
+    pub(crate) async fn $name<R: Runtime>(app: AppHandle<R>, args: $args) -> Result<$ret> {
+      #[cfg(mobile)]
+      {
+        let handle = app.ytdl().handle();
+        tauri::async_runtime::spawn_blocking(move || {
+          handle.run_mobile_plugin::<$ret>($method, args).map_err(crate::Error::from)
+        })
+        .await
+        .map_err(|e| crate::Error::Message(e.to_string()))?
+      }
+      #[cfg(desktop)]
+      {
+        let _ = (app, args);
+        Err(crate::Error::Message("not on desktop".into()))
+      }
+    }
+  };
+}
+
+mobile_passthrough!(proton_login, "protonLogin", ProtonLoginArgs, ProtonLoginResult);
+mobile_passthrough!(proton_sync, "protonSync", ProtonSyncArgs, ProtonSyncResult);
+
+#[command]
+pub(crate) async fn proton_status<R: Runtime>(app: AppHandle<R>) -> Result<ProtonStatus> {
+  #[cfg(mobile)]
+  {
+    let handle = app.ytdl().handle();
+    tauri::async_runtime::spawn_blocking(move || handle.run_mobile_plugin::<ProtonStatus>("protonStatus", ()).map_err(crate::Error::from))
+      .await
+      .map_err(|e| crate::Error::Message(e.to_string()))?
+  }
+  #[cfg(desktop)]
+  {
+    let _ = app;
+    Ok(ProtonStatus { bundled: false, connected: false, username: String::new() })
+  }
+}
+
+#[command]
+pub(crate) async fn proton_logout<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+  #[cfg(mobile)]
+  {
+    let handle = app.ytdl().handle();
+    tauri::async_runtime::spawn_blocking(move || handle.run_mobile_plugin::<serde_json::Value>("protonLogout", ()).map(|_| ()).map_err(crate::Error::from))
+      .await
+      .map_err(|e| crate::Error::Message(e.to_string()))?
+  }
+  #[cfg(desktop)]
+  {
+    let _ = app;
+    Ok(())
+  }
+}

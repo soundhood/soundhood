@@ -1,3 +1,3 @@
 [default]
 description = "Soundhood's on-device downloader: start/cancel a yt-dlp download, read/update the yt-dlp version."
-permissions = ["allow-download", "allow-cancel", "allow-ytdlp-version", "allow-ytdlp-update", "allow-netcheck", "allow-register-listener", "allow-remove-listener"]
+permissions = ["allow-download", "allow-cancel", "allow-ytdlp-version", "allow-ytdlp-update", "allow-netcheck", "allow-proton-status", "allow-proton-login", "allow-proton-sync", "allow-proton-logout", "allow-register-listener", "allow-remove-listener"]

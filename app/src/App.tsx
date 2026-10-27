@@ -52,6 +52,7 @@ const KEY_SORT = "sort";
 const KEY_DOWNLOAD_PLAYLISTS = "download_playlists";
 // Links shared into the app (phone share sheet) waiting to be downloaded — the phone has no downloader yet.
 const KEY_SHARE_QUEUE = "share_queue";
+const KEY_LAST_SYNC = "last_sync";
 type QueuedLink = { url: string; added: number; target?: string; playlists?: string[] };
 /** A pure playlist link (list= without a specific video) downloads every entry. */
 function isPlaylistLink(url: string): boolean {
@@ -524,6 +525,9 @@ export default function App() {
   useEffect(() => {
     folderRef.current = folder;
     if (folder) loadQueueFromLibrary(folder);
+    if (!folder || isMobile) return;
+    const t = setInterval(() => loadQueueFromLibrary(folder), 60_000);
+    return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder]);
 
@@ -1061,6 +1065,73 @@ export default function App() {
       setStatus("Copy failed — long-press the log to select it");
     }
   }
+  // ---------- Proton Drive (phone: rclone inside the app; PC: the Proton Drive app mirrors the folder) ----------
+  type ProtonStatus = { bundled: boolean; connected: boolean; username: string };
+  const [proton, setProton] = useState<ProtonStatus | null>(null);
+  const [protonForm, setProtonForm] = useState<{ username: string; password: string; twofa: string }>({ username: "", password: "", twofa: "" });
+  const [protonBusy, setProtonBusy] = useState<"" | "login" | "sync">("");
+  const [lastSync, setLastSync] = useState<number>(0);
+  async function refreshProton() {
+    if (!isMobile) return;
+    try { setProton(await invoke<ProtonStatus>("plugin:soundhood-ytdl|proton_status")); } catch { setProton({ bundled: false, connected: false, username: "" }); }
+  }
+  useEffect(() => { if (isMobile && mSettings) refreshProton(); }, [isMobile, mSettings]);
+  useEffect(() => {
+    if (!isMobile) return;
+    let un: (() => void) | undefined;
+    let active = true;
+    addPluginListener<{ kind: string; line: string }>("soundhood-ytdl", "sync", (e) => {
+      if (e.line) setDlLogs((prev) => (prev.length > 20000 ? prev.slice(-12000) : prev) + e.line + "\n");
+    }).then((l) => { if (active) un = () => l.unregister(); else l.unregister(); }).catch(() => {});
+    return () => { active = false; if (un) un(); };
+  }, [isMobile]);
+  async function protonLogin() {
+    if (!protonForm.username.trim() || !protonForm.password) { setStatus("Proton: username and password needed"); return; }
+    setProtonBusy("login");
+    setStatus("Connecting to Proton Drive…");
+    setDlLogs((prev) => prev + "[proton] connecting…\n");
+    try {
+      const r = await invoke<{ connected: boolean; username: string; folders: string }>("plugin:soundhood-ytdl|proton_login", {
+        args: { username: protonForm.username.trim(), password: protonForm.password, twofa: protonForm.twofa.trim() },
+      });
+      setProtonForm({ username: "", password: "", twofa: "" });
+      setStatus(r.connected ? `Connected to Proton Drive as ${r.username}` : "Proton: login finished but no session saved");
+      setDlLogs((prev) => prev + `[proton] top-level folders:\n${r.folders}\n`);
+    } catch (e) {
+      setStatus("Proton login failed — see the log");
+      setDlLogs((prev) => prev + `[proton] ${String(e)}\n`);
+    }
+    setProtonBusy("");
+    refreshProton();
+  }
+  async function protonLogout() {
+    try { await invoke("plugin:soundhood-ytdl|proton_logout"); } catch { /* ignore */ }
+    setStatus("Disconnected from Proton Drive");
+    refreshProton();
+  }
+  async function protonSync(direction: "down" | "up" | "both" = "both") {
+    const lib = folderRef.current;
+    if (!lib) { setStatus("Pick the Music folder first"); return; }
+    setProtonBusy("sync");
+    setStatus("Syncing with Proton Drive…");
+    try {
+      const r = await invoke<{ ok: boolean; log: string }>("plugin:soundhood-ytdl|proton_sync", { args: { libraryDir: lib, remoteDir: "Music", direction } });
+      const now = Date.now();
+      setLastSync(now);
+      try { const store = await storePromise; await store.set(KEY_LAST_SYNC, now); await store.save(); } catch { /* ignore */ }
+      setStatus(r.ok ? "Proton sync done — refreshing…" : "Proton sync finished with errors");
+      // Whatever arrived: new tracks, playlists, the download queue.
+      const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
+      setAllTracks(found);
+      await loadPlaylists(lib);
+      await loadQueueFromLibrary(lib);
+      setStatus(`Synced · ${found.length} tracks`);
+    } catch (e) {
+      setStatus("Proton sync failed — see the log");
+      setDlLogs((prev) => prev + `[proton] ${String(e)}\n`);
+    }
+    setProtonBusy("");
+  }
   async function netcheck() {
     setYtdlpBusy(true);
     setStatus("Checking the network from python…");
@@ -1389,6 +1460,8 @@ export default function App() {
         const savedSort = await store.get<string>(KEY_SORT);
         if (savedSort && (SORT_MODES as readonly string[]).includes(savedSort)) setSortMode(savedSort as SortMode);
 
+        const savedSync = await store.get<number>(KEY_LAST_SYNC);
+        if (typeof savedSync === "number") setLastSync(savedSync);
         const savedQueue = await store.get<QueuedLink[]>(KEY_SHARE_QUEUE);
         if (Array.isArray(savedQueue)) setShareQueue(savedQueue.filter((q) => q && typeof q.url === "string"));
 
@@ -2139,6 +2212,36 @@ export default function App() {
             />
             <button className="btn" onClick={() => { if (queueLink(queueInput)) setQueueInput(""); }} disabled={!queueInput.trim()}>Add</button>
             <button className="btn" onClick={pasteLink} title="Read the link from the clipboard">Paste</button>
+          </div>
+          <div className="queueBox">
+            <div className="queueTitle headerRow">
+              <span>Proton Drive</span>
+              {proton?.connected ? <span className="modalHint" style={{ marginTop: 0 }}>{proton.username}</span> : null}
+            </div>
+            {!proton ? (
+              <div className="modalHint">checking…</div>
+            ) : !proton.bundled ? (
+              <div className="modalHint">This build has no sync engine (rclone not bundled).</div>
+            ) : proton.connected ? (
+              <div className="queueAdd" style={{ marginTop: 0 }}>
+                <button className="btn primaryBtn" onClick={() => protonSync("both")} disabled={protonBusy !== "" || dlBusy}>{protonBusy === "sync" ? "Syncing…" : "Sync now"}</button>
+                <button className="btn" onClick={() => protonSync("down")} disabled={protonBusy !== "" || dlBusy} title="Only fetch what the PC added">Get new</button>
+                <button className="btn" onClick={() => protonSync("up")} disabled={protonBusy !== "" || dlBusy} title="Only send what the phone added">Send new</button>
+                <span className="modalHint" style={{ marginTop: 0 }}>{lastSync ? `last: ${new Date(lastSync).toLocaleString()}` : "never synced"}</span>
+                <button className="linkBtn" onClick={protonLogout} disabled={protonBusy !== ""}>disconnect</button>
+              </div>
+            ) : (
+              <div className="queueAdd" style={{ marginTop: 0 }}>
+                <input className="downloadInput" placeholder="Proton email" inputMode="email" autoCapitalize="none" value={protonForm.username} onChange={(e) => setProtonForm({ ...protonForm, username: e.target.value })} />
+                <input className="downloadInput" placeholder="Password" type="password" value={protonForm.password} onChange={(e) => setProtonForm({ ...protonForm, password: e.target.value })} />
+                <input className="downloadInput" placeholder="2FA code (if enabled)" inputMode="numeric" value={protonForm.twofa} onChange={(e) => setProtonForm({ ...protonForm, twofa: e.target.value })} style={{ flex: "0 1 170px" }} />
+                <button className="btn primaryBtn" onClick={protonLogin} disabled={protonBusy !== ""}>{protonBusy === "login" ? "Connecting…" : "Connect"}</button>
+                <div className="modalHint" style={{ flex: "1 1 100%", marginTop: 0 }}>
+                  The password is used once to open the session and is not stored; the app keeps only Proton's session tokens, on this phone.
+                  Sync copies in both directions and never deletes.
+                </div>
+              </div>
+            )}
           </div>
           {dlBusy ? (
             <div className="queueBox">

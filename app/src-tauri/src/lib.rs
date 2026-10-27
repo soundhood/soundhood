@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(desktop)]
 use tauri_plugin_shell::process::CommandEvent;
@@ -146,8 +146,63 @@ fn scan_dir(root: &Path, dir: &Path, out: &mut Vec<Track>) -> Result<(), String>
   Ok(())
 }
 
+// ---------- tag cache: rescans only read the files that changed ----------
+
+/// One cached tag read, keyed by path; valid while mtime + size match.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+struct CachedTags {
+  mtime: u64,
+  size: u64,
+  title: String,
+  artist: String,
+  duration_secs: u64,
+}
+
+fn file_stamp(path: &Path) -> Option<(u64, u64)> {
+  let m = std::fs::metadata(path).ok()?;
+  let mtime = m
+    .modified()
+    .ok()?
+    .duration_since(std::time::UNIX_EPOCH)
+    .ok()?
+    .as_secs();
+  Some((mtime, m.len()))
+}
+
+/// Per-device cache file (never synced): <app cache dir>/library-<hash of root>.json
+fn tag_cache_path(app: &AppHandle, root: &Path) -> Option<PathBuf> {
+  let dir = app.path().app_cache_dir().ok()?;
+  let mut h: u64 = 0xcbf29ce484222325;
+  for b in root.to_string_lossy().as_bytes() {
+    h ^= *b as u64;
+    h = h.wrapping_mul(0x100000001b3);
+  }
+  Some(dir.join(format!("library-{h:016x}.json")))
+}
+
+fn load_tag_cache(path: &Option<PathBuf>) -> std::collections::HashMap<String, CachedTags> {
+  let Some(p) = path else { return Default::default() };
+  std::fs::read_to_string(p)
+    .ok()
+    .and_then(|s| serde_json::from_str(&s).ok())
+    .unwrap_or_default()
+}
+
+fn save_tag_cache(path: &Option<PathBuf>, cache: &std::collections::HashMap<String, CachedTags>) {
+  let Some(p) = path else { return };
+  if let Some(parent) = p.parent() {
+    let _ = std::fs::create_dir_all(parent);
+  }
+  if let Ok(json) = serde_json::to_string(cache) {
+    let tmp = p.with_extension("json.tmp");
+    if std::fs::write(&tmp, json).is_ok() {
+      let _ = std::fs::rename(&tmp, p);
+    }
+  }
+}
+
 #[tauri::command]
-fn scan_music_folder(dir: String) -> Result<Vec<Track>, String> {
+fn scan_music_folder(app: AppHandle, dir: String) -> Result<Vec<Track>, String> {
   let root = PathBuf::from(&dir);
   if !root.is_dir() {
     return Err("Selected path is not a directory".into());
@@ -156,13 +211,43 @@ fn scan_music_folder(dir: String) -> Result<Vec<Track>, String> {
   let mut tracks = Vec::new();
   scan_dir(&root, &root, &mut tracks)?;
 
-  // Tag pass, in parallel: thousands of files, each a small header read.
-  tracks.par_iter_mut().for_each(|t| {
-    let (title, artist, secs) = read_tags(Path::new(&t.path));
-    t.title = title;
-    t.artist = artist;
-    t.duration_secs = secs;
-  });
+  // Tag pass, in parallel — but only for files the cache doesn't know (new, or changed on disk).
+  // A warm rescan of thousands of files is then a directory walk plus one JSON read.
+  let cache_path = tag_cache_path(&app, &root);
+  let cache = load_tag_cache(&cache_path);
+  let fresh: Vec<(String, CachedTags)> = tracks
+    .par_iter_mut()
+    .filter_map(|t| {
+      let path = Path::new(&t.path);
+      let (mtime, size) = file_stamp(path).unwrap_or((0, 0));
+      if let Some(c) = cache.get(&t.path) {
+        if c.mtime == mtime && c.size == size {
+          t.title = c.title.clone();
+          t.artist = c.artist.clone();
+          t.duration_secs = c.duration_secs;
+          return None;
+        }
+      }
+      let (title, artist, secs) = read_tags(path);
+      t.title = title.clone();
+      t.artist = artist.clone();
+      t.duration_secs = secs;
+      Some((t.path.clone(), CachedTags { mtime, size, title, artist, duration_secs: secs }))
+    })
+    .collect();
+  if !fresh.is_empty() || cache.len() != tracks.len() {
+    // Rebuild from what is on disk now: dropped files leave the cache, changed ones are replaced.
+    let mut next: std::collections::HashMap<String, CachedTags> = std::collections::HashMap::with_capacity(tracks.len());
+    for t in &tracks {
+      if let Some(c) = cache.get(&t.path) {
+        next.insert(t.path.clone(), c.clone());
+      }
+    }
+    for (k, v) in fresh {
+      next.insert(k, v);
+    }
+    save_tag_cache(&cache_path, &next);
+  }
 
   // Untagged files: fall back to the filename only when it names an artist the tags already know.
   let known: std::collections::HashSet<String> = tracks
@@ -733,12 +818,29 @@ async fn ytdlp_download_audio(app: AppHandle, args: YtDlpArgs) -> Result<(), Str
     None => vec![],
   };
 
+  // YouTube's "Sign in to confirm you're not a bot" wall: if the user has exported their browser
+  // cookies to <app config dir>\cookies.txt (Netscape format), hand them to yt-dlp. Never synced,
+  // never inside the library.
+  let cookie_args: Vec<String> = match app.path().app_config_dir() {
+    Ok(dir) => {
+      let f = dir.join("cookies.txt");
+      if f.is_file() {
+        let _ = app.emit("ytdlp:stdout", format!("[soundhood] using cookies: {}", f.display()));
+        vec!["--cookies".into(), f.to_string_lossy().to_string()]
+      } else {
+        vec![]
+      }
+    }
+    Err(_) => vec![],
+  };
+
   let mut argv: Vec<String> = vec![
     (if args.playlist { "--yes-playlist" } else { "--no-playlist" }).into(),
     "--js-runtimes".into(),
     js_runtime_arg,
   ];
   argv.extend(ffmpeg_args);
+  argv.extend(cookie_args);
   argv.extend(
     [
       "-f",

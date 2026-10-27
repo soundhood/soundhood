@@ -9,6 +9,10 @@ Soundhood's on-device downloader: start/cancel a yt-dlp download, read/update th
 - `allow-ytdlp-version`
 - `allow-ytdlp-update`
 - `allow-netcheck`
+- `allow-proton-status`
+- `allow-proton-login`
+- `allow-proton-sync`
+- `allow-proton-logout`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -95,6 +99,110 @@ Enables the netcheck command without any pre-configured scope.
 <td>
 
 Denies the netcheck command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`soundhood-ytdl:allow-proton-login`
+
+</td>
+<td>
+
+Enables the proton_login command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`soundhood-ytdl:deny-proton-login`
+
+</td>
+<td>
+
+Denies the proton_login command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`soundhood-ytdl:allow-proton-logout`
+
+</td>
+<td>
+
+Enables the proton_logout command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`soundhood-ytdl:deny-proton-logout`
+
+</td>
+<td>
+
+Denies the proton_logout command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`soundhood-ytdl:allow-proton-status`
+
+</td>
+<td>
+
+Enables the proton_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`soundhood-ytdl:deny-proton-status`
+
+</td>
+<td>
+
+Denies the proton_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`soundhood-ytdl:allow-proton-sync`
+
+</td>
+<td>
+
+Enables the proton_sync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`soundhood-ytdl:deny-proton-sync`
+
+</td>
+<td>
+
+Denies the proton_sync command without any pre-configured scope.
 
 </td>
 </tr>

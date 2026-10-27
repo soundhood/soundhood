@@ -331,6 +331,54 @@
           "markdownDescription": "Denies the netcheck command without any pre-configured scope."
         },
         {
+          "description": "Enables the proton_login command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-proton-login",
+          "markdownDescription": "Enables the proton_login command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the proton_login command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-proton-login",
+          "markdownDescription": "Denies the proton_login command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the proton_logout command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-proton-logout",
+          "markdownDescription": "Enables the proton_logout command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the proton_logout command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-proton-logout",
+          "markdownDescription": "Denies the proton_logout command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the proton_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-proton-status",
+          "markdownDescription": "Enables the proton_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the proton_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-proton-status",
+          "markdownDescription": "Denies the proton_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the proton_sync command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-proton-sync",
+          "markdownDescription": "Enables the proton_sync command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the proton_sync command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-proton-sync",
+          "markdownDescription": "Denies the proton_sync command without any pre-configured scope."
+        },
+        {
           "description": "Enables the register_listener command without any pre-configured scope.",
           "type": "string",
           "const": "allow-register-listener",
@@ -379,10 +427,10 @@
           "markdownDescription": "Denies the ytdlp_version command without any pre-configured scope."
         },
         {
-          "description": "Soundhood's on-device downloader: start/cancel a yt-dlp download, read/update the yt-dlp version.\n#### This default permission set includes:\n\n- `allow-download`\n- `allow-cancel`\n- `allow-ytdlp-version`\n- `allow-ytdlp-update`\n- `allow-netcheck`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Soundhood's on-device downloader: start/cancel a yt-dlp download, read/update the yt-dlp version.\n#### This default permission set includes:\n\n- `allow-download`\n- `allow-cancel`\n- `allow-ytdlp-version`\n- `allow-ytdlp-update`\n- `allow-netcheck`\n- `allow-proton-status`\n- `allow-proton-login`\n- `allow-proton-sync`\n- `allow-proton-logout`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Soundhood's on-device downloader: start/cancel a yt-dlp download, read/update the yt-dlp version.\n#### This default permission set includes:\n\n- `allow-download`\n- `allow-cancel`\n- `allow-ytdlp-version`\n- `allow-ytdlp-update`\n- `allow-netcheck`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Soundhood's on-device downloader: start/cancel a yt-dlp download, read/update the yt-dlp version.\n#### This default permission set includes:\n\n- `allow-download`\n- `allow-cancel`\n- `allow-ytdlp-version`\n- `allow-ytdlp-update`\n- `allow-netcheck`\n- `allow-proton-status`\n- `allow-proton-login`\n- `allow-proton-sync`\n- `allow-proton-logout`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

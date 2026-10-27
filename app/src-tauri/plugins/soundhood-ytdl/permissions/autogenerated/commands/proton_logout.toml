@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-proton-logout"
+description = "Enables the proton_logout command without any pre-configured scope."
+commands.allow = ["proton_logout"]
+
+[[permission]]
+identifier = "deny-proton-logout"
+description = "Denies the proton_logout command without any pre-configured scope."
+commands.deny = ["proton_logout"]
