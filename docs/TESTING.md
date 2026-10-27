@@ -70,13 +70,15 @@ own unit tests there, using synthetic values only.
 Playwright drives the real UI build with Tauri's IPC mocked (`mockIPC`) over the **fixture library**:
 50 tracks, 5 playlists, covers in aqua, purple and greyscale so colour checks are meaningful.
 
-- Viewports 390x844, 834x1194, 1280x800 and 1920x1080; each in default, reduced motion,
-  `prefers-contrast: more` and 130 % font size.
+- Viewports 390x844 and 834x1194 (phone layout), 1280x800 and 1920x1080 (PC layout), in the default
+  mode only. Reduced motion, `prefers-contrast: more` and 130 % font size join in Phase 1, with the
+  design system.
 - Baselines are committed; a run fails when a screenshot differs from its baseline by more than 0.2 %.
 - Run: in `tools/`, `npm run test:visual`. When a change is intended, update the baselines with
   `npm run test:visual -- --update-snapshots` and commit them with the change that caused them.
-- On failure the HTML diff report is in `tools/playwright-report/`; CI uploads it as the
-  `visual-diff-report` artefact.
+- Playwright prints one line per test (the `list` reporter, no HTML report). On failure the expected,
+  actual and diff images of each failing screenshot are in `tools/screenshot/test-results/`; CI
+  uploads that folder as the `visual-diff-report` artefact.
 - Playwright names baselines per platform, so CI runs the suite on Windows, like the baselines.
 
 ## Lints
@@ -98,15 +100,26 @@ tools/hygiene-lint.mjs`.
 
 Committed screenshots and gate runs on real devices use the fixture library, never a real one.
 
-- The developer switch **Use fixture root** (Settings, Tools) installs the generated fixture library
-  on the device and points the app at it. The same library can be generated on the PC with
-  `soundhood-tools fixture-lib <dir>`.
-- **Run self-test** (Settings, Tools) runs the bundled fixture corpus through the installed app's own
-  Rust code and writes pass and fail counts to the log, so the phone is checked with the same rules as
-  the PC. "Copy log" shows the result.
-- Desktop screenshots come from the real WebView2 window: start the app with
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and connect Playwright with
-  `connectOverCDP`.
+- **The developer section** holds the switches below. It is hidden: on the phone, tap the status line
+  in the top bar 7 times in a row (each tap within 1.5 s of the last) and it appears at the bottom of
+  the settings sheet; on the PC, press
+  Ctrl+Alt+Shift+D and it appears as a row under the top bar. The same gesture hides it again; the
+  app remembers whether it is shown.
+- **Use fixture root** installs the generated fixture library on the device (under the app's own
+  data) and points the app at it. While it is on, Proton sync (Sync now, Get new, Send new) is
+  switched off, so the test library never reaches the real Proton Drive. The same library can be
+  generated on the PC with `soundhood-tools fixture-lib <dir>`.
+- **Run self-test** runs the bundled fixture corpus through the installed app's own Rust code and
+  writes pass and fail counts to the log, so the phone is checked with the same rules as the PC.
+  **Copy log** shows the result. **Rebuild index** rebuilds the index from the files and logs the
+  time it took.
+- Desktop screenshots come from the real WebView2 window, run under a test identity so the installed
+  app's data is never touched ([DEV](DEV.md#desktop)). Start it with
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222 --disable-lcd-text"` and
+  connect Playwright with `connectOverCDP`. `--disable-lcd-text` turns off ClearType's coloured text
+  fringes, which blue-scan would count as blue. The variable takes the place of the browser arguments
+  the app sets itself, so add those too (`additionalBrowserArgs` of the window in
+  `app/src-tauri/tauri.conf.json`), or the run is not the shipped configuration.
 - Phone screenshots, saved on the phone and then pulled (a PowerShell `>` redirect can corrupt binary
   output):
 
