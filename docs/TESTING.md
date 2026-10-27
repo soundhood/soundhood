@@ -85,7 +85,14 @@ Playwright drives the real UI build with Tauri's IPC mocked (`mockIPC`) over the
 |---|---|
 | `node tools/token-lint.mjs` | a raw hex colour outside `app/src/design/tokens.css`; `appearance` changed on an input without custom styling; any character in U+1F000 to U+1FAFF, U+2600 to U+27BF or U+2B00 to U+2BFF in TSX (emoji as icons) |
 | `node tools/blue-scan.mjs` | more than 0.1 % of pixels with hue 200 to 250 degrees and saturation above 0.5. It scans only the visual suite's screenshots of the fixture library (controlled covers) and device screenshots with the artwork areas masked; artwork and the colour tint taken from it are exempt by design, not by loosening the threshold |
-| `node tools/hygiene-lint.mjs` | personal data in the tree: real library paths, personal names, LAN addresses, device identifiers, secrets, files that should never be committed ([DEV](DEV.md#public-repository-hygiene)) |
+| `node tools/hygiene-lint.mjs` | in the text of every tracked file (binary contents and files over 8 MB are skipped): the owner's first name, kept in the lint only as a SHA-256 hash and matched per word, also inside camelCase names; the owner's library path in any slash style or URL-encoded; private LAN addresses (10/8, 172.16/12, 192.168/16); e-mail addresses other than GitHub noreply, the commit trailer and example domains; Windows user-profile paths with a real account name; a device serial written next to `adb -s`, `adb --serial`, `ANDROID_SERIAL`, `serialno`, `serial number` or `serial:`, or as a line of `adb devices` output (6 to 20 letters and digits with at least one digit), and a 15-digit number after "IMEI"; the terms of the `HYGIENE_DENY` environment variable (below). In every tracked path, binaries included: the same rules, plus file names that hold keys or secrets (`*.jks`, `*.keystore`, `*.p12`, `keystore.properties`, `key.properties`, `cookies.txt`, `.env`, `.env.*`). Names, terms and serials are never printed. It does not see inside images, so a real path in a screenshot is caught only by the evidence rules ([DEV](DEV.md#public-repository-hygiene)) |
+
+`HYGIENE_DENY` holds owner-specific terms outside the repository (a CI secret; empty on forks), separated
+by commas or new lines. A 64-hex entry is the SHA-256 of a lower-cased word; a word of letters only is
+hashed by the lint; both are matched per word like the built-in name. Any other entry (a model name with
+digits, a serial, two words) is matched as text, ignoring case, but not inside a longer word or number.
+Entries shorter than 3 characters are ignored. Locally: `$env:HYGIENE_DENY = "<terms>"; node
+tools/hygiene-lint.mjs`.
 
 ## Device runs with the fixture root
 
