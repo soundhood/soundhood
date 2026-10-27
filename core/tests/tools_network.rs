@@ -341,6 +341,128 @@ fn a_user_name_cannot_smuggle_another_host_past_the_loopback_check() {
   assert!(other_seen.lock().unwrap().is_empty(), "the other host was reached");
 }
 
+fn deno() -> Asset {
+  Asset {
+    tool: Tool::Deno,
+    version: "9.9.9".into(),
+    name: "deno-x86_64-pc-windows-msvc.zip".into(),
+    install_name: "deno.exe".into(),
+    pinned_sha256: None,
+  }
+}
+
+fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
+  let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+  let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+  for (name, body) in entries {
+    if let Some(dir) = name.strip_suffix('/') {
+      w.add_directory(dir, opts).unwrap();
+    } else {
+      w.start_file(*name, opts).unwrap();
+      w.write_all(body).unwrap();
+    }
+  }
+  w.finish().unwrap().into_inner()
+}
+
+/// Serves `zip` as deno 9.9.9 for Windows, with a matching coreutils checksum file.
+fn deno_release(zip: Vec<u8>) -> Handler {
+  let sums = format!("{}  deno-x86_64-pc-windows-msvc.zip\n", sha(&zip));
+  Arc::new(move |p: &str| {
+    if p.ends_with(".zip.sha256sum") {
+      Reply::Body(sums.clone().into_bytes())
+    } else if p.ends_with(".zip") {
+      Reply::Body(zip.clone())
+    } else {
+      Reply::NotFound
+    }
+  })
+}
+
+fn fetch_deno_zip(entries: &[(&str, &[u8])]) -> (Result<Vec<u8>, Error>, Vec<String>) {
+  let (base, _) = serve("127.0.0.1:0", deno_release(zip_of(entries)));
+  let dest = tempfile::tempdir().unwrap();
+  let r = sidecars::fetch(&deno(), dest.path(), Some(&base)).map(|rep| std::fs::read(rep.path).unwrap());
+  (r, names(dest.path()))
+}
+
+#[test]
+fn the_deno_binary_must_be_the_only_one_and_at_the_top_of_the_zip() {
+  // Accepted: deno.exe at the top, whatever else is beside it.
+  let (r, left) = fetch_deno_zip(&[("LICENSE.md", b"text"), ("deno.exe", b"REAL")]);
+  assert_eq!(r.unwrap(), b"REAL");
+  assert_eq!(left, ["deno.exe"]);
+
+  for entries in [
+    // Two candidates: never pick one of them.
+    &[("decoy/deno.exe", &b"DECOY"[..]), ("deno.exe", b"REAL")][..],
+    &[("deno.exe", b"REAL"), ("decoy/deno.exe", b"DECOY")],
+    &[("deno.exe", b"REAL"), ("DENO.EXE", b"DECOY")],
+    &[("deno.exe", b"REAL"), ("x\\deno.exe", b"DECOY")],
+    // One candidate, but not at the top.
+    &[("decoy/deno.exe", b"DECOY")],
+    &[("./deno.exe", b"DECOY")],
+    &[("Deno.exe", b"DECOY")],
+    // A folder by that name.
+    &[("deno.exe/", b"")],
+  ] {
+    let (r, left) = fetch_deno_zip(entries);
+    let names: Vec<&str> = entries.iter().map(|(n, _)| *n).collect();
+    let err = r.expect_err(&format!("{names:?} was installed"));
+    assert!(matches!(err, Error::Refused(_)), "{names:?}: {err}");
+    assert!(left.is_empty(), "{names:?} left {left:?}");
+  }
+
+  let (r, left) = fetch_deno_zip(&[("README.md", b"no binary here")]);
+  assert!(matches!(r, Err(Error::NotFound(_))), "{r:?}");
+  assert!(left.is_empty());
+}
+
+#[test]
+fn a_zip_naming_deno_twice_at_the_top_is_refused() {
+  // The zip writer refuses duplicate names, so write a placeholder of the same length and patch
+  // it in the local and central headers.
+  let mut zip = zip_of(&[("deno.exe", b"REAL"), ("deno.ex_", b"DECOY")]);
+  let mut patched = 0;
+  for i in 0..zip.len() - 8 {
+    if &zip[i..i + 8] == b"deno.ex_" {
+      zip[i + 7] = b'e';
+      patched += 1;
+    }
+  }
+  assert_eq!(patched, 2);
+  let (base, _) = serve("127.0.0.1:0", deno_release(zip));
+  let dest = tempfile::tempdir().unwrap();
+  let err = sidecars::fetch(&deno(), dest.path(), Some(&base)).expect_err("an archive with two deno.exe was installed");
+  assert!(matches!(&err, Error::Refused(m) if m.contains("same name")), "{err}");
+  assert!(names(dest.path()).is_empty());
+}
+
+#[test]
+fn zip_traversal_entries_never_write_outside_the_destination() {
+  let outer = tempfile::tempdir().unwrap();
+  let dest = outer.path().join("a").join("b");
+  for entry in [
+    "../../escape/deno.exe",
+    "..\\..\\escape\\deno.exe",
+    "/abs/deno.exe",
+    "C:/abs/deno.exe",
+  ] {
+    let (base, _) = serve("127.0.0.1:0", deno_release(zip_of(&[(entry, b"EVIL")])));
+    let r = sidecars::fetch(&deno(), &dest, Some(&base));
+    assert!(
+      matches!(r, Err(Error::Refused(_))),
+      "{entry:?}: {:?}",
+      r.map(|x| x.path)
+    );
+    assert!(
+      !outer.path().join("escape").exists(),
+      "{entry:?} escaped the destination"
+    );
+    assert!(names(&dest).is_empty(), "{entry:?}");
+  }
+}
+
 #[test]
 fn the_good_path_still_installs_from_a_loopback_base() {
   let (base, _) = serve("127.0.0.1:0", ytdlp_release(format!("{}  yt-dlp.exe\n", sha(YT))));

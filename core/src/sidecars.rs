@@ -231,7 +231,7 @@ pub fn fetch(asset: &Asset, dest_dir: &Path, http_base: Option<&str>) -> Result<
         "deno"
       };
       let out = TempFile(dest_dir.join(format!(".{}.unzip", asset.install_name)));
-      extract_one(&download.0, inner, &out.0)?;
+      extract_one(&download.0, inner, &out.0, MAX_DENO_BYTES)?;
       log.push(format!("extracted {inner} from {}", asset.name));
       out
     }
@@ -463,21 +463,48 @@ fn download_hashed(agent: &ureq::Agent, url: &str, path: &Path, max: u64) -> Res
   Ok((hex(&hasher.finalize()), total))
 }
 
-/// Extracts the single entry named `inner` (at any depth) from the verified zip into `out`.
-fn extract_one(zip_path: &Path, inner: &str, out: &Path) -> Result<()> {
+/// Extracts `inner` (`deno` or `deno.exe`) from the verified zip into `out`. The archive must hold
+/// exactly one entry with that file name, and it must sit at the top: a second one anywhere
+/// (`decoy/deno.exe`, `DENO.EXE`), or a single one inside a folder, is refused rather than picked
+/// between. More than `max` extracted bytes is refused too.
+fn extract_one(zip_path: &Path, inner: &str, out: &Path, max: u64) -> Result<()> {
   let bad = |e: zip::result::ZipError| Error::Other(format!("{}: {e}", zip_path.display()));
+  let refuse = |why: String| Error::Refused(format!("the deno archive {why}; nothing installed"));
   let mut archive = zip::ZipArchive::new(File::open(zip_path)?).map_err(bad)?;
+  // The reader keeps one entry per name, so a repeated name would be picked silently.
+  if archive.has_duplicate_names() {
+    return Err(refuse("holds two entries with the same name".into()));
+  }
+  let mut named = Vec::new();
   for i in 0..archive.len() {
-    let mut entry = archive.by_index(i).map_err(bad)?;
-    let name = entry.name().map_err(bad)?.replace('\\', "/");
-    if entry.is_file() && name.rsplit('/').next() == Some(inner) {
-      let mut file = File::create(out)?;
-      std::io::copy(&mut entry, &mut file)?;
-      file.sync_all()?;
-      return Ok(());
+    let entry = archive.by_index_raw(i).map_err(bad)?;
+    let name = entry.name().map_err(bad)?.to_string();
+    let file_name = name
+      .trim_end_matches(['/', '\\'])
+      .rsplit(['/', '\\'])
+      .next()
+      .unwrap_or_default();
+    if file_name.eq_ignore_ascii_case(inner) {
+      named.push((i, name, entry.is_file()));
     }
   }
-  Err(Error::NotFound(format!("{inner} inside {}", zip_path.display())))
+  let index = match named.as_slice() {
+    [] => return Err(Error::NotFound(format!("{inner} inside {}", zip_path.display()))),
+    [(i, name, true)] if name == inner => *i,
+    [(_, name, _)] => return Err(refuse(format!("holds {name:?}, not {inner} at its top"))),
+    many => return Err(refuse(format!("holds {} entries named {inner}", many.len()))),
+  };
+  let entry = archive.by_index(index).map_err(bad)?;
+  if entry.size() > max {
+    return Err(refuse(format!("says {inner} is larger than {max} bytes")));
+  }
+  let mut file = File::create(out)?;
+  let copied = std::io::copy(&mut entry.take(max + 1), &mut file)?;
+  if copied > max {
+    return Err(refuse(format!("holds a {inner} larger than {max} bytes")));
+  }
+  file.sync_all()?;
+  Ok(())
 }
 
 #[cfg(unix)]
@@ -710,6 +737,25 @@ mod tests {
     let (base, _) = serve_raw(reply);
     let err = get_text(&agent_for(&base).unwrap(), &format!("{base}/SHA2-256SUMS")).unwrap_err();
     assert!(matches!(&err, Error::Refused(m) if m.contains("larger than")), "{err}");
+  }
+
+  #[test]
+  fn extraction_stops_at_the_size_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip_path = dir.path().join("deno.zip");
+    let mut w = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    w.start_file("deno", opts).unwrap();
+    w.write_all(&[0u8; 4096]).unwrap();
+    w.finish().unwrap();
+    let out = dir.path().join("deno.out");
+    let err = extract_one(&zip_path, "deno", &out, 1024).unwrap_err();
+    assert!(
+      matches!(&err, Error::Refused(m) if m.contains("larger than 1024 bytes")),
+      "{err}"
+    );
+    extract_one(&zip_path, "deno", &out, 4096).unwrap();
+    assert_eq!(fs::read(&out).unwrap(), [0u8; 4096]);
   }
 
   #[test]
