@@ -31,8 +31,8 @@ export function wordTokens(text) {
   return out;
 }
 
-// The library root on the PC: "<drive>:\Proton Drive\Shared\Albums" in any slash style. The
-// pattern is spelled with classes so this file never contains the path itself.
+// The owner's library root on the PC (a folder inside the Proton Drive sync folder), in
+// any slash style. The pattern is spelled with classes so this file never contains the path.
 const LIBRARY_RE = /Proton(?:\s|%20)Drive[\\/]+Shared[\\/]+Albums/gi;
 
 // Dotted quads not embedded in a longer dotted number (1.10.0.0.1) or a word (v10.0.0.1).
