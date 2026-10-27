@@ -56,6 +56,8 @@ pub fn tilde(path: &Path, home: Option<&Path>) -> String {
 /// absolute paths ("Destination: ..."), and its output goes into "Copy log". Case-insensitive on
 /// Windows (ASCII letters, like `tilde`); a longer folder name (`C:\Users\username` for home
 /// `C:\Users\user`) is left alone.
+// The phone runs yt-dlp in the plugin; only the desktop download forwards its output from here.
+#[cfg_attr(mobile, allow(dead_code))]
 pub fn tilde_in(text: &str, home: Option<&Path>) -> String {
   let Some(home) = home else { return text.to_string() };
   let home = home.to_string_lossy();
