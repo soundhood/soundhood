@@ -7,6 +7,7 @@ import { invoke, addPluginListener } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { batchLogLines, capLog, copyLogText, diagnosticsLines, libraryKey, undoStatus } from "./coreIpc";
 import type { BatchReport, ChangeSummary, Diagnostics, RefreshReport, SelfTestReport } from "./coreIpc";
+import { CHANNEL_REFUSAL, isChannelLink, queueStopStatus } from "./downloads";
 import { checkFolderName, folderNameRefusal } from "./folderName";
 import { SYNC_OFF_LINE, isTestLibrary, shownFolder } from "./testLibrary";
 
@@ -428,6 +429,7 @@ export default function App() {
   function queueLink(text: string): boolean {
     const url = firstUrl(String(text || ""));
     if (!url) { setStatus("No link found in that text"); return false; }
+    if (isChannelLink(url)) { refuseChannelLink(); return false; }
     setQueueDraft({ url, target: dlTarget || DEFAULT_DOWNLOAD_TARGET, playlists: dlPlaylistsRef.current });
     return true;
   }
@@ -577,6 +579,18 @@ export default function App() {
   function clearLog() {
     setDlLogs("");
     quietLogRef.current = "";
+  }
+
+  // Output of the download in flight (its tail), for the reason a queued download stopped.
+  const dlOutputRef = useRef<string>("");
+  function noteDlOutput(text: string) {
+    if (text) dlOutputRef.current = (dlOutputRef.current + text).slice(-4000);
+  }
+
+  /** A channel link is refused where it enters (paste, share, queue, download), in one plain line. */
+  function refuseChannelLink() {
+    appendLog([`[error] ${CHANNEL_REFUSAL}`]);
+    setStatus(CHANNEL_REFUSAL);
   }
 
   // Hidden developer section (brief §5.9 Tools): "Use fixture root", "Run self-test", "Rebuild
@@ -1122,7 +1136,13 @@ export default function App() {
       return false;
     }
     const folderName = check.name;
+    // A queued link may come from the synced queue file, written by another device or an older build.
+    if (isChannelLink(url)) {
+      refuseChannelLink();
+      return false;
+    }
     activeDlRef.current = { target: folderName, playlists, queued };
+    dlOutputRef.current = "";
     setDlBusy(true);
     setDlLogs(queued ? `[soundhood] queued link → ${folderName}${playlists.length ? " + " + playlists.join(", ") : ""}\n` : "");
     const playlist = isPlaylistLink(url);
@@ -1138,6 +1158,7 @@ export default function App() {
           args: { url, outDir, playlist, id },
         });
         setDlLogs((prev) => prev + `\n[done] exit code: ${res.exitCode}\n`);
+        noteDlOutput(res.log || "");
         await finishDownload(res.exitCode, res.files || []);
         return res.exitCode === 0;
       } catch (err) {
@@ -1188,9 +1209,16 @@ export default function App() {
         setStatus(`Downloaded ${filePaths.length} file${filePaths.length === 1 ? "" : "s"}`);
       }
       if (active.queued) {
-        if (exitCode === 0) saveQueue(shareQueueRef.current.filter((q) => q.url !== active.queued!.url));
         activeDlRef.current = { ...active, queued: null };
-        setTimeout(() => nextQueuedRef.current(), 300);
+        if (exitCode === 0) {
+          saveQueue(shareQueueRef.current.filter((q) => q.url !== active.queued!.url));
+          setTimeout(() => nextQueuedRef.current(), 300);
+        } else {
+          // A refusal (bot wall, rate limit) would meet every remaining link too: stop the run here.
+          // The failed link stays queued.
+          queueRunRef.current = [];
+          setStatus(queueStopStatus(dlOutputRef.current, exitCode));
+        }
       }
     } catch (err) {
       setStatus(`Refresh error: ${String(err)}`);
@@ -1224,6 +1252,7 @@ export default function App() {
     let active = true;
     addPluginListener<{ id: string; progress: number; eta?: number; line: string }>("soundhood-ytdl", "progress", (e) => {
       if (typeof e.progress === "number" && e.progress >= 0) setDlProgress(e.progress);
+      if (e.line) noteDlOutput(e.line + "\n");
       if (e.line) setDlLogs((prev) => (prev.length > 20000 ? prev.slice(-12000) : prev) + e.line + "\n");
     }).then((l) => { if (active) un = () => l.unregister(); else l.unregister(); }).catch((e) => setStatus(`Progress events unavailable: ${String(e).slice(0, 100)}`));
     return () => { active = false; if (un) un(); };
@@ -1913,11 +1942,13 @@ export default function App() {
       const uOut = await listen<string>("ytdlp:stdout", (e) => {
         // add newline if missing, to keep logs readable
         const chunk = e.payload.endsWith("\n") ? e.payload : e.payload + "\n";
+        noteDlOutput(chunk);
         setDlLogs((prev) => capLog(prev) + chunk);
       });
 
       const uErr = await listen<string>("ytdlp:stderr", (e) => {
         const chunk = e.payload.endsWith("\n") ? e.payload : e.payload + "\n";
+        noteDlOutput(chunk);
         setDlLogs((prev) => capLog(prev) + chunk);
       });
 
