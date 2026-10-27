@@ -133,6 +133,47 @@ fn round_trip_every_container() {
   }
 }
 
+/// The tier-1 sequence as the write path runs it: hidden temp copy -> tag write -> verify ->
+/// fsync -> atomic replace. Proves lofty can write a hidden file and that the result is the
+/// user's file again (not hidden, new tags, same audio).
+#[test]
+fn write_on_a_hidden_temp_then_replace() {
+  for (ext, _) in CONTAINERS {
+    let (_dir, path) = copy_of(ext);
+    let before = read(&path).unwrap();
+    let tmp = crate::fs::copy_to_tmp(&path, "tagjob").unwrap();
+    let changes = set(|t| {
+      t.title = Some("Tone".into());
+      t.artist = Some("Fixture".into());
+    });
+    write(&tmp, &changes).unwrap();
+    verify(&tmp, &before, &changes).unwrap();
+    assert_eq!(
+      read(&path).unwrap(),
+      before,
+      "{ext}: the original is untouched until the replace"
+    );
+    crate::fs::fsync(&tmp).unwrap();
+    crate::fs::atomic_replace(&tmp, &path).unwrap();
+    assert!(!tmp.exists());
+    let after = read(&path).unwrap();
+    assert_eq!(
+      (after.title.as_str(), after.artist.as_str()),
+      ("Tone", "Fixture"),
+      "{ext}"
+    );
+    #[cfg(windows)]
+    {
+      use std::os::windows::fs::MetadataExt;
+      assert_eq!(
+        std::fs::metadata(&path).unwrap().file_attributes() & 0x2,
+        0,
+        "{ext}: not hidden"
+      );
+    }
+  }
+}
+
 #[test]
 fn creates_the_primary_tag_when_missing() {
   for (ext, _) in CONTAINERS {
