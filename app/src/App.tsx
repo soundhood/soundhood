@@ -5,7 +5,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, addPluginListener } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { batchLogLines, capLog, diagnosticsLines, libraryKey } from "./coreIpc";
+import { batchLogLines, capLog, copyLogText, diagnosticsLines, libraryKey, undoStatus } from "./coreIpc";
 import type { BatchReport, ChangeSummary, Diagnostics, RefreshReport, SelfTestReport } from "./coreIpc";
 import { checkFolderName, folderNameRefusal } from "./folderName";
 
@@ -559,6 +559,19 @@ export default function App() {
   /** Appends lines to the log, keeping only its tail once it grows long. */
   function appendLog(lines: string[]) {
     if (lines.length) setDlLogs((prev) => capLog(prev) + lines.join("\n") + "\n");
+  }
+
+  // Lines kept only for "Copy log": every applied batch (core:batch) and the developer switch. The
+  // visible log keeps what it showed before the rebuild (downloads, Proton, the network check), so
+  // an edit never opens the log panel on the desktop or adds lines to the phone's settings log.
+  const quietLogRef = useRef<string>("");
+  function appendQuietLog(lines: string[]) {
+    if (lines.length) quietLogRef.current = capLog(quietLogRef.current) + lines.join("\n") + "\n";
+  }
+  /** "Clear log": the visible log and the lines kept for copying. */
+  function clearLog() {
+    setDlLogs("");
+    quietLogRef.current = "";
   }
 
   // Hidden developer section (brief §5.9 Tools): "Use fixture root", "Run self-test", "Rebuild
@@ -1209,7 +1222,8 @@ export default function App() {
     } catch (e) {
       head = [`diagnostics: unavailable (${String(e).slice(0, 120)})`];
     }
-    const text = `${head.join("\n")}\n\n${dlLogs}`;
+    // Then the visible log, then the change lines kept out of it (core:batch).
+    const text = copyLogText(head, dlLogs, quietLogRef.current);
     try {
       await navigator.clipboard.writeText(text);
       setStatus("Log copied");
@@ -1589,12 +1603,10 @@ export default function App() {
       const pls = await loadPlaylists(lib);
       if (pls && plView && !pls.some((p) => p.name === plView)) setPlView("");
       await followUndo(report, found, lib);
-      const notDone = (report.skipped?.length ?? 0) + (report.failed?.length ?? 0);
-      setStatus(
-        notDone > 0 || report.aborted
-          ? `Undo: ${report.applied?.length ?? 0} restored, ${notDone} not undone (changed since)`
-          : `Undone: ${change.label}`
-      );
+      // What was left as it was, and why, goes to the visible log ("see the log"); applied lines
+      // stay with the other change lines that only "Copy log" carries.
+      appendLog(batchLogLines({ ...report, applied: [] }));
+      setStatus(undoStatus(report, change.label));
     } catch (err) {
       setStatus(`Undo failed: ${String(err)}`);
     } finally {
@@ -1911,12 +1923,13 @@ export default function App() {
   }, []);
 
   // Every batch the core applies (tag edit, move, delete, playlist change, undo) is reported by
-  // the host as a `core:batch` event: one log line per entry. Same StrictMode-safe pattern.
+  // the host as a `core:batch` event: one line per entry, kept for "Copy log" only, so an edit looks
+  // exactly as it did before the rebuild (no log panel). Same StrictMode-safe pattern.
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
     listen<BatchReport>("core:batch", (e) => {
-      if (e.payload) appendLog(batchLogLines(e.payload));
+      if (e.payload) appendQuietLog(batchLogLines(e.payload));
     })
       .then((u) => {
         if (active) unlisten = u;
@@ -2625,7 +2638,7 @@ export default function App() {
               <button className="btn primaryBtn" onClick={runQueue} disabled={dlBusy}>Download queue ({shareQueue.length})</button>
             ) : null}
             {dlLogs ? <button className="btn" onClick={copyLog} title="Copy the whole log to the clipboard">Copy log</button> : null}
-            {dlLogs ? <button className="btn" onClick={() => setDlLogs("")}>Clear log</button> : null}
+            {dlLogs ? <button className="btn" onClick={clearLog}>Clear log</button> : null}
           </div>
           {shareQueue.length ? (
             <div className="queueBox">
@@ -2710,7 +2723,7 @@ export default function App() {
             Copy log
           </button>
         ) : null}
-        <button className="btn" onClick={() => setDlLogs("")} disabled={!dlLogs}>
+        <button className="btn" onClick={clearLog} disabled={!dlLogs}>
           Clear logs
         </button>
         {shareQueue.length ? (
