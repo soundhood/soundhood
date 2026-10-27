@@ -342,7 +342,8 @@ fn playlist_plan(spec: &FixtureSpec, tracks: &[Planned]) -> Vec<PlaylistFile> {
     .map(|&name| {
       let entries = match name {
         "Favourites" => entries(&|i| i % 4 == 0),
-        "Focus" => entries(&|i| i % 5 == 1),
+        // Every 7th track, so the playlist spans folders and formats.
+        "Focus" => entries(&|i| i % 7 == 1),
         // Playlist order is not file order: this one runs backwards.
         "Late Night" => {
           let mut e = entries(&|i| i % 3 == 2);
