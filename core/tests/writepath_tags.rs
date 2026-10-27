@@ -39,7 +39,14 @@ fn a_tag_edit_writes_a_journal_pair_and_undoes_cleanly() {
     artist: Some(before.artist.clone()), // unchanged: not part of the write
     ..TagSet::default()
   };
-  let rep = apply(&lib, vec![Op::WriteTags { rel: r.clone(), changes }], &ApplyOptions::default());
+  let rep = apply(
+    &lib,
+    vec![Op::WriteTags {
+      rel: r.clone(),
+      changes,
+    }],
+    &ApplyOptions::default(),
+  );
   assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
   assert_eq!(rep.applied[0].label, format!("Edited tags of {}", r.file_name()));
   assert!(rep.skipped.is_empty() && rep.failed.is_empty() && !rep.aborted);
@@ -64,7 +71,10 @@ fn a_tag_edit_writes_a_journal_pair_and_undoes_cleanly() {
   assert_eq!(e.kind, Kind::Tags);
   assert_eq!(e.source, "user");
   assert_eq!(e.batch, rep.batch);
-  assert_eq!(e.file_hash_before.as_deref(), Some(blake3::hash(&original).to_hex().as_str()));
+  assert_eq!(
+    e.file_hash_before.as_deref(),
+    Some(blake3::hash(&original).to_hex().as_str())
+  );
   assert_eq!(
     e.file_hash_after.as_deref(),
     Some(soundhood_core::fs::file_hash(&abs).unwrap().as_str())
@@ -84,7 +94,10 @@ fn a_tag_edit_writes_a_journal_pair_and_undoes_cleanly() {
   let undo_entry = entries(&lib).pop().unwrap();
   assert_eq!(undo_entry.source, format!("undo:{}", rep.batch));
   assert!(undo_entry.committed);
-  assert!(undo::last_change(&lib).unwrap().is_none(), "undone, and an undo is not offered");
+  assert!(
+    undo::last_change(&lib).unwrap().is_none(),
+    "undone, and an undo is not offered"
+  );
   assert!(matches!(undo::undo_batch(&lib, &rep.batch), Err(Error::Refused(_))));
 }
 
@@ -104,7 +117,14 @@ fn every_container_round_trips_through_write_and_undo() {
       year: Some("1999".into()),
       comment: Some("https://example.invalid/x".into()),
     };
-    let rep = apply(&lib, vec![Op::WriteTags { rel: r.clone(), changes }], &ApplyOptions::default());
+    let rep = apply(
+      &lib,
+      vec![Op::WriteTags {
+        rel: r.clone(),
+        changes,
+      }],
+      &ApplyOptions::default(),
+    );
     assert_eq!(rep.applied.len(), 1, "{ext}: {}", show(&rep));
     let after = tags::read(&abs).unwrap();
     assert_eq!(
@@ -218,7 +238,11 @@ fn three_failed_checks_in_a_row_abort_the_batch_and_leave_every_file_untouched()
   let rep = apply(&lib, ops, &ApplyOptions::default());
   assert!(rep.aborted, "{}", show(&rep));
   assert_eq!(rep.failed.len(), 3, "{}", show(&rep));
-  assert!(rep.failed.iter().all(|f| f.error.starts_with("not changed")), "{}", show(&rep));
+  assert!(
+    rep.failed.iter().all(|f| f.error.starts_with("not changed")),
+    "{}",
+    show(&rep)
+  );
   assert!(rep.applied.is_empty());
   assert_eq!(rep.skipped.len(), 1);
   assert!(rep.skipped[0].reason.starts_with("not attempted"));

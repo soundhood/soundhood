@@ -81,17 +81,38 @@ pub struct PlaylistChange {
 /// One requested change. A batch is a `Vec<Op>` applied in order by [`tagwrite::apply`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
-  WriteTags { rel: RelPath, changes: TagSet },
+  WriteTags {
+    rel: RelPath,
+    changes: TagSet,
+  },
   /// Into the first-level folder `to_folder`, keeping the file name; never over an existing file.
-  Move { rel: RelPath, to_folder: String },
-  Rename { rel: RelPath, to: RelPath },
+  Move {
+    rel: RelPath,
+    to_folder: String,
+  },
+  Rename {
+    rel: RelPath,
+    to: RelPath,
+  },
   /// To the bin; playlists are updated in the same batch.
-  Delete { rel: RelPath },
-  PlaylistAdd { name: String, rels: Vec<RelPath> },
-  PlaylistRemove { name: String, rels: Vec<RelPath> },
-  PlaylistCreate { name: String },
+  Delete {
+    rel: RelPath,
+  },
+  PlaylistAdd {
+    name: String,
+    rels: Vec<RelPath>,
+  },
+  PlaylistRemove {
+    name: String,
+    rels: Vec<RelPath>,
+  },
+  PlaylistCreate {
+    name: String,
+  },
   /// The `.m3u8` goes to the bin.
-  PlaylistDelete { name: String },
+  PlaylistDelete {
+    name: String,
+  },
   PlaylistsFromFolders,
 }
 
@@ -219,12 +240,40 @@ mod tests {
   #[test]
   fn folder_names_the_library_would_trip_over_are_refused() {
     for bad in [
-      "", " ", ".", "..", ".hidden", "a/b", "a\\b", "x:y", "what?", "tab\there", "CON", "con", "Nul.txt",
-      "com1", "LPT9", "lpt1.mp3", "Rock.", "Rock. ", "_Playlists", "_soundhood", "_PLAYLISTS",
+      "",
+      " ",
+      ".",
+      "..",
+      ".hidden",
+      "a/b",
+      "a\\b",
+      "x:y",
+      "what?",
+      "tab\there",
+      "CON",
+      "con",
+      "Nul.txt",
+      "com1",
+      "LPT9",
+      "lpt1.mp3",
+      "Rock.",
+      "Rock. ",
+      "_Playlists",
+      "_soundhood",
+      "_PLAYLISTS",
     ] {
       assert!(validate_folder_name(bad).is_err(), "{bad:?} must be refused");
     }
-    for good in ["Chill", " Chill ", "Rock & Roll", "COM10", "Console", "CONcerts", "a.b", "Café"] {
+    for good in [
+      "Chill",
+      " Chill ",
+      "Rock & Roll",
+      "COM10",
+      "Console",
+      "CONcerts",
+      "a.b",
+      "Café",
+    ] {
       assert!(validate_folder_name(good).is_ok(), "{good:?} must be accepted");
     }
     assert_eq!(validate_folder_name("  Chill ").unwrap(), "Chill");

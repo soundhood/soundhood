@@ -212,7 +212,11 @@ mod tests {
     f.write_all(b"{\"id\":\"torn\",\"ts\":1").unwrap();
     drop(f);
     append(&l, &entry(&l, "e2", ts + 1, true)).unwrap();
-    let ids: Vec<String> = read_device(d.path(), &l.device).unwrap().into_iter().map(|e| e.id).collect();
+    let ids: Vec<String> = read_device(d.path(), &l.device)
+      .unwrap()
+      .into_iter()
+      .map(|e| e.id)
+      .collect();
     assert_eq!(ids, vec!["e1", "e2"]);
   }
 
@@ -227,7 +231,11 @@ mod tests {
     append(&phone, &entry(&phone, "f1", oct + 5, true)).unwrap();
     append(&pc, &entry(&pc, "p2", nov, true)).unwrap();
     assert!(d.path().join("_Soundhood/journal/pc/2025-11.jsonl").is_file());
-    let pc_ids: Vec<String> = read_device(d.path(), &pc.device).unwrap().into_iter().map(|e| e.id).collect();
+    let pc_ids: Vec<String> = read_device(d.path(), &pc.device)
+      .unwrap()
+      .into_iter()
+      .map(|e| e.id)
+      .collect();
     assert_eq!(pc_ids, vec!["p1", "p2"]);
     let all: Vec<String> = read_all(d.path()).unwrap().into_iter().map(|e| e.id).collect();
     assert_eq!(all, vec!["p1", "f1", "p2"]);
@@ -239,7 +247,10 @@ mod tests {
     let d = tempfile::tempdir().unwrap();
     let l = lib(d.path(), "pc");
     let other = lib(d.path(), "phone");
-    assert!(matches!(append(&l, &entry(&other, "x", 1, true)), Err(Error::Refused(_))));
+    assert!(matches!(
+      append(&l, &entry(&other, "x", 1, true)),
+      Err(Error::Refused(_))
+    ));
     let bad = lib(d.path(), "../escape");
     assert!(append(&bad, &entry(&bad, "x", 1, true)).is_err());
     assert!(!d.path().join("_Soundhood").exists());

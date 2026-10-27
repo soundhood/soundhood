@@ -18,7 +18,12 @@ fn playlist_bytes(lib: &Library) -> BTreeMap<String, Vec<u8>> {
     .unwrap()
     .map(|e| e.unwrap())
     .filter(|e| e.file_type().unwrap().is_file())
-    .map(|e| (e.file_name().to_string_lossy().to_string(), std::fs::read(e.path()).unwrap()))
+    .map(|e| {
+      (
+        e.file_name().to_string_lossy().to_string(),
+        std::fs::read(e.path()).unwrap(),
+      )
+    })
     .collect()
 }
 
@@ -26,7 +31,12 @@ fn playlist_bytes(lib: &Library) -> BTreeMap<String, Vec<u8>> {
 /// lyrics files next to it.
 fn favourite_with_lyrics(lib: &Library) -> (RelPath, String) {
   let fav = playlist::read(&lib.root, "Favourites").unwrap();
-  let r = fav.entries.iter().map(|e| rel(e)).find(|r| r.parent().is_some()).unwrap();
+  let r = fav
+    .entries
+    .iter()
+    .map(|e| rel(e))
+    .find(|r| r.parent().is_some())
+    .unwrap();
   let target = ["Evenings", "Ambient"]
     .into_iter()
     .find(|f| r.top_folder() != Some(f))
@@ -80,7 +90,11 @@ fn a_move_carries_playlists_and_lyrics_and_undo_puts_everything_back() {
   assert_eq!(fav_after[pos], to.as_str(), "replaced in place");
   assert_eq!(fav_after.len(), fav_before.len());
   for pl in playlist::list(&lib.root).unwrap() {
-    assert!(!pl.entries.iter().any(|e| e == r.as_str()), "{} still names the old path", pl.name);
+    assert!(
+      !pl.entries.iter().any(|e| e == r.as_str()),
+      "{} still names the old path",
+      pl.name
+    );
   }
   assert!(list_tmp_files(&lib.root).unwrap().is_empty());
 
@@ -101,7 +115,10 @@ fn a_move_carries_playlists_and_lyrics_and_undo_puts_everything_back() {
 
   let u = undo::undo_batch(&lib, &rep.batch).unwrap();
   assert!(u.failed.is_empty() && u.skipped.is_empty(), "{}", show(&u));
-  assert!(u.applied.iter().any(|a| a.label.starts_with(&format!("Moved {} back to", r.file_name()))));
+  assert!(u
+    .applied
+    .iter()
+    .any(|a| a.label.starts_with(&format!("Moved {} back to", r.file_name()))));
   assert_eq!(read_bytes(&lib, &r), audio);
   assert_eq!(read_bytes(&lib, &companion(&r, "lrc")), lrc);
   assert!(lib.abs(&companion(&r, "txt")).is_file());
@@ -133,7 +150,10 @@ fn a_move_never_overwrites_and_refuses_bad_folder_names() {
     &ApplyOptions::default(),
   );
   assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
-  assert_eq!(rep.failed[0].error, format!("{} already exists in {target}", r.file_name()));
+  assert_eq!(
+    rep.failed[0].error,
+    format!("{} already exists in {target}", r.file_name())
+  );
   assert_eq!(std::fs::read(&taken).unwrap(), b"someone else");
   check_nothing_changed("taken name");
   std::fs::remove_file(&taken).unwrap();
@@ -164,11 +184,25 @@ fn a_move_never_overwrites_and_refuses_bad_folder_names() {
     }],
     &ApplyOptions::default(),
   );
-  assert_eq!(rep.failed[0].error, format!("{} already exists in {own}", r.file_name()));
+  assert_eq!(
+    rep.failed[0].error,
+    format!("{} already exists in {own}", r.file_name())
+  );
   check_nothing_changed("same folder");
 
   for bad in [
-    "", "..", ".", ".hidden", "a/b", "a\\b", "CON", "nul.txt", "Rock.", "_Playlists", "_soundhood", "x?",
+    "",
+    "..",
+    ".",
+    ".hidden",
+    "a/b",
+    "a\\b",
+    "CON",
+    "nul.txt",
+    "Rock.",
+    "_Playlists",
+    "_soundhood",
+    "x?",
   ] {
     let rep = apply(
       &lib,
@@ -200,9 +234,17 @@ fn a_move_is_refused_while_a_playlist_cannot_be_read() {
     &ApplyOptions::default(),
   );
   assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
-  assert!(rep.failed[0].error.contains("playlists could not be read"), "{}", show(&rep));
+  assert!(
+    rep.failed[0].error.contains("playlists could not be read"),
+    "{}",
+    show(&rep)
+  );
   assert!(lib.abs(&r).is_file(), "not moved");
-  assert_eq!(playlist_bytes(&lib), lists, "no playlist written, the unreadable one least of all");
+  assert_eq!(
+    playlist_bytes(&lib),
+    lists,
+    "no playlist written, the unreadable one least of all"
+  );
 }
 
 #[test]
@@ -221,9 +263,19 @@ fn renames_follow_playlists_and_allow_a_case_change() {
     &ApplyOptions::default(),
   );
   assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
-  assert_eq!(rep.applied[0].label, format!("Renamed {} to {}", r.file_name(), to.file_name()));
-  assert!(lib.abs(&companion(&to, "lrc")).is_file(), "lyrics renamed with the track");
-  assert!(playlist::read(&lib.root, "Favourites").unwrap().entries.iter().any(|e| e == to.as_str()));
+  assert_eq!(
+    rep.applied[0].label,
+    format!("Renamed {} to {}", r.file_name(), to.file_name())
+  );
+  assert!(
+    lib.abs(&companion(&to, "lrc")).is_file(),
+    "lyrics renamed with the track"
+  );
+  assert!(playlist::read(&lib.root, "Favourites")
+    .unwrap()
+    .entries
+    .iter()
+    .any(|e| e == to.as_str()));
 
   // Only the case changes: allowed, the file keeps its bytes.
   let upper = dir.join(&to.file_name().to_uppercase()).unwrap();
@@ -264,7 +316,11 @@ fn renames_follow_playlists_and_allow_a_case_change() {
   }
   assert!(lib.abs(&r).is_file());
   assert!(lib.abs(&companion(&r, "lrc")).is_file());
-  assert!(playlist::read(&lib.root, "Favourites").unwrap().entries.iter().any(|e| e == r.as_str()));
+  assert!(playlist::read(&lib.root, "Favourites")
+    .unwrap()
+    .entries
+    .iter()
+    .any(|e| e == r.as_str()));
 }
 
 #[test]
@@ -279,7 +335,10 @@ fn a_delete_bins_the_track_its_lyrics_and_its_playlist_lines_and_undo_restores_t
   assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
   assert_eq!(rep.applied[0].label, format!("Deleted {} (in the bin)", r.file_name()));
   assert!(!lib.abs(&r).exists() && !lib.abs(&companion(&r, "lrc")).exists());
-  let e = entries(&lib).into_iter().find(|e| e.path_before.as_ref() == Some(&r)).unwrap();
+  let e = entries(&lib)
+    .into_iter()
+    .find(|e| e.path_before.as_ref() == Some(&r))
+    .unwrap();
   assert_eq!(e.kind, Kind::Delete);
   let bin = e.bin.clone().expect("where it went");
   let bin_rel = bin.bin_rel.clone().unwrap();
@@ -295,7 +354,10 @@ fn a_delete_bins_the_track_its_lyrics_and_its_playlist_lines_and_undo_restores_t
 
   let u = undo::undo_batch(&lib, &rep.batch).unwrap();
   assert!(u.failed.is_empty() && u.skipped.is_empty(), "{}", show(&u));
-  assert!(u.applied.iter().any(|a| a.label == format!("Restored {} from the bin", r.file_name())));
+  assert!(u
+    .applied
+    .iter()
+    .any(|a| a.label == format!("Restored {} from the bin", r.file_name())));
   assert_eq!(read_bytes(&lib, &r), audio);
   assert!(lib.abs(&companion(&r, "lrc")).is_file());
   assert_eq!(playlist_bytes(&lib), lists, "lines back in place, byte-identical");
@@ -322,7 +384,11 @@ fn undoing_a_delete_after_its_playlist_changed_appends_the_track_again() {
   let u = undo::undo_batch(&lib, &rep.batch).unwrap();
   assert!(u.failed.is_empty(), "{}", show(&u));
   let fav = playlist::read(&lib.root, "Favourites").unwrap().entries;
-  assert_eq!(fav.last().map(String::as_str), Some(r.as_str()), "back as a member, at the end");
+  assert_eq!(
+    fav.last().map(String::as_str),
+    Some(r.as_str()),
+    "back as a member, at the end"
+  );
   assert!(fav.iter().any(|e| e == other.as_str()), "the later change is kept");
 }
 
@@ -343,7 +409,10 @@ fn a_root_track_named_with_a_hash_keeps_its_playlist_line() {
   assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
   let file = lib.root.join("_Playlists/Hash Tags.m3u8");
   assert_eq!(std::fs::read(&file).unwrap(), b"#EXTM3U\n./#1 Crush - Someone.mp3\n");
-  assert_eq!(playlist::read(&lib.root, "Hash Tags").unwrap().entries, vec![hash.as_str()]);
+  assert_eq!(
+    playlist::read(&lib.root, "Hash Tags").unwrap().entries,
+    vec![hash.as_str()]
+  );
 
   let rep = apply(
     &lib,

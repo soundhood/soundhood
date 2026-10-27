@@ -15,7 +15,12 @@ fn one(lib: &Library, op: Op) -> BatchReport {
 }
 
 fn tracks_in(lib: &Library, list: &str) -> Vec<RelPath> {
-  playlist::read(&lib.root, list).unwrap().entries.iter().map(|e| rel(e)).collect()
+  playlist::read(&lib.root, list)
+    .unwrap()
+    .entries
+    .iter()
+    .map(|e| rel(e))
+    .collect()
 }
 
 #[test]
@@ -77,21 +82,37 @@ fn add_remove_create_delete_each_journal_and_undo_back_to_the_start() {
     },
   );
   assert_eq!(rep.skipped[0].reason, "playlist already exists");
-  let rep = one(&lib, Op::PlaylistCreate { name: "Night Bus".into() });
+  let rep = one(
+    &lib,
+    Op::PlaylistCreate {
+      name: "Night Bus".into(),
+    },
+  );
   assert_eq!(rep.applied[0].label, "Created playlist Night Bus");
-  assert_eq!(std::fs::read(lib.root.join("_Playlists/Night Bus.m3u8")).unwrap(), b"#EXTM3U\n");
+  assert_eq!(
+    std::fs::read(lib.root.join("_Playlists/Night Bus.m3u8")).unwrap(),
+    b"#EXTM3U\n"
+  );
 
-  let rep = one(&lib, Op::PlaylistDelete { name: "Road Trip".into() });
+  let rep = one(
+    &lib,
+    Op::PlaylistDelete {
+      name: "Road Trip".into(),
+    },
+  );
   assert_eq!(rep.applied[0].label, "Deleted playlist Road Trip");
   assert!(!file.exists());
   let e = entries(&lib).pop().unwrap();
   assert_eq!(e.kind, Kind::PlaylistDelete);
   assert!(e.bin.unwrap().bin_rel.unwrap().as_str().starts_with("_Soundhood/.bin/"));
 
-  let missing = one(&lib, Op::PlaylistRemove {
-    name: "Nope".into(),
-    rels: vec![a.clone()],
-  });
+  let missing = one(
+    &lib,
+    Op::PlaylistRemove {
+      name: "Nope".into(),
+      rels: vec![a.clone()],
+    },
+  );
   assert_eq!(missing.failed[0].error, "No playlist named Nope");
   assert!(!lib.root.join("_Playlists/Nope.m3u8").exists(), "no ghost playlist");
 
@@ -100,7 +121,12 @@ fn add_remove_create_delete_each_journal_and_undo_back_to_the_start() {
   while let Some(last) = undo::last_change(&lib).unwrap() {
     labels.push(last.label.clone());
     let u = undo::undo_batch(&lib, &last.batch).unwrap();
-    assert!(u.failed.is_empty() && u.skipped.is_empty(), "{}: {}", last.label, show(&u));
+    assert!(
+      u.failed.is_empty() && u.skipped.is_empty(),
+      "{}: {}",
+      last.label,
+      show(&u)
+    );
   }
   assert_eq!(
     labels,

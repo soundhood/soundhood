@@ -52,8 +52,10 @@ fn fifty_tag_writes_and_renames_then_undo_restore_the_library() {
   let before = manifest::build(&lib.root).unwrap();
   let tracks: Vec<RelPath> = report.tracks.iter().map(|t| rel(&t.rel)).collect();
   assert_eq!(tracks.len(), 50);
-  let tags_before: BTreeMap<RelPath, TagRead> =
-    tracks.iter().map(|r| (r.clone(), tags::read(&lib.abs(r)).unwrap())).collect();
+  let tags_before: BTreeMap<RelPath, TagRead> = tracks
+    .iter()
+    .map(|r| (r.clone(), tags::read(&lib.abs(r)).unwrap()))
+    .collect();
 
   let mut ops = Vec::new();
   let mut tagged = Vec::new();
@@ -78,7 +80,11 @@ fn fifty_tag_writes_and_renames_then_undo_restore_the_library() {
   }
   let rep = apply(&lib, ops, &ApplyOptions::default());
   assert_eq!(rep.applied.len(), 50, "{}", show(&rep));
-  assert!(rep.failed.is_empty() && rep.skipped.is_empty() && !rep.aborted, "{}", show(&rep));
+  assert!(
+    rep.failed.is_empty() && rep.skipped.is_empty() && !rep.aborted,
+    "{}",
+    show(&rep)
+  );
   assert!(temps(&lib.root).is_empty());
   assert_playlists_resolve(&lib);
   let during = manifest::build(&lib.root).unwrap();
@@ -98,7 +104,11 @@ fn fifty_tag_writes_and_renames_then_undo_restore_the_library() {
 
   let u = undo::undo_batch(&lib, &rep.batch).unwrap();
   assert_eq!(u.applied.len(), 50, "{}", show(&u));
-  assert!(u.failed.is_empty() && u.skipped.is_empty() && !u.aborted, "{}", show(&u));
+  assert!(
+    u.failed.is_empty() && u.skipped.is_empty() && !u.aborted,
+    "{}",
+    show(&u)
+  );
   assert!(temps(&lib.root).is_empty());
   assert_playlists_resolve(&lib);
 
@@ -106,7 +116,10 @@ fn fifty_tag_writes_and_renames_then_undo_restore_the_library() {
   let allowed: Vec<String> = tagged.iter().map(|r| format!("changed: {r}")).collect();
   let diff = manifest::diff(&before, &after);
   let unexpected: Vec<&String> = diff.iter().filter(|d| !allowed.contains(d)).collect();
-  assert!(unexpected.is_empty(), "only tag-rewritten files may differ: {unexpected:?}");
+  assert!(
+    unexpected.is_empty(),
+    "only tag-rewritten files may differ: {unexpected:?}"
+  );
   for r in &tracks {
     assert_eq!(
       essence(&tags::read(&lib.abs(r)).unwrap()),
@@ -179,7 +192,11 @@ fn read_only_and_held_open_files_are_skipped_without_aborting() {
   let rep = apply(&lib, ops, &ApplyOptions::default());
   assert!(!rep.aborted, "{}", show(&rep));
   assert!(rep.failed.is_empty(), "{}", show(&rep));
-  let skipped: Vec<(&str, &str)> = rep.skipped.iter().map(|s| (s.path.as_str(), s.reason.as_str())).collect();
+  let skipped: Vec<(&str, &str)> = rep
+    .skipped
+    .iter()
+    .map(|s| (s.path.as_str(), s.reason.as_str()))
+    .collect();
   assert!(skipped.contains(&(read_only.as_str(), "read-only file")), "{skipped:?}");
   assert_eq!(read_bytes(&lib, read_only), ro_bytes);
   if let Some((r, bytes, f)) = held {
@@ -229,9 +246,9 @@ fn startup_cleanup_removes_every_leftover_temp_and_nothing_else() {
     std::fs::write(abs, b"x").unwrap();
   };
   let orphans = [
-    "Ambient/.soundhood-tmp-aaaa.m4a",     // its write never committed
-    "Archive/.soundhood-tmp-bbbb.mp3",     // its write committed: a leftover
-    "Evenings/.soundhood-tmp-cccc.opus",   // no entry names it
+    "Ambient/.soundhood-tmp-aaaa.m4a",        // its write never committed
+    "Archive/.soundhood-tmp-bbbb.mp3",        // its write committed: a leftover
+    "Evenings/.soundhood-tmp-cccc.opus",      // no entry names it
     "_Playlists/.soundhood-tmp-aaaa-p0.m3u8", // a playlist rewrite's temp
   ];
   let keep = [
@@ -264,9 +281,16 @@ fn startup_cleanup_removes_every_leftover_temp_and_nothing_else() {
   assert!(note(orphans[0]).contains("never committed"));
   assert!(note(orphans[1]).contains("had committed"));
   assert!(note(orphans[2]).contains("no journal entry"));
-  assert!(cleanup_orphans(&lib).unwrap().is_empty(), "nothing left the second time");
+  assert!(
+    cleanup_orphans(&lib).unwrap().is_empty(),
+    "nothing left the second time"
+  );
   let last = undo::last_change(&lib).unwrap();
-  assert_eq!(last.map(|l| l.batch), Some("b-old".to_string()), "a cleanup is not a change to undo");
+  assert_eq!(
+    last.map(|l| l.batch),
+    Some("b-old".to_string()),
+    "a cleanup is not a change to undo"
+  );
 }
 
 #[test]
@@ -287,10 +311,18 @@ fn landing_copies_checks_and_never_overwrites() {
   assert!(temps(&lib.root).is_empty());
   let e = entries(&lib).pop().unwrap();
   assert_eq!(e.kind, Kind::Ingest);
-  assert_eq!(e.file_hash_after.as_deref(), Some(blake3::hash(&bytes).to_hex().as_str()));
+  assert_eq!(
+    e.file_hash_after.as_deref(),
+    Some(blake3::hash(&bytes).to_hex().as_str())
+  );
 
   std::fs::write(&staged, b"another download").unwrap();
-  let again = land(&lib, &staged, &rel("downloads/new song - someone.M4A"), &ApplyOptions::default());
+  let again = land(
+    &lib,
+    &staged,
+    &rel("downloads/new song - someone.M4A"),
+    &ApplyOptions::default(),
+  );
   assert_eq!(again.failed.len(), 1, "{}", show(&again));
   assert!(again.failed[0].error.contains("already exists"));
   assert_eq!(read_bytes(&lib, &dest), bytes);
@@ -332,11 +364,17 @@ fn last_change_walks_back_and_counts_an_undo_from_another_device() {
   };
   let u = undo::undo_batch(&phone, &second.batch).unwrap();
   assert_eq!(u.applied.len(), 1, "{}", show(&u));
-  assert!(lib.root.join("_Soundhood/journal/phone").is_dir(), "written to the phone's own journal");
+  assert!(
+    lib.root.join("_Soundhood/journal/phone").is_dir(),
+    "written to the phone's own journal"
+  );
   assert_eq!(
     undo::last_change(&lib).unwrap().unwrap().batch,
     first.batch,
     "this device sees that its newest change was undone elsewhere"
   );
-  assert!(undo::last_change(&phone).unwrap().is_none(), "the phone made no change of its own");
+  assert!(
+    undo::last_change(&phone).unwrap().is_none(),
+    "the phone made no change of its own"
+  );
 }

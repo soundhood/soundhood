@@ -132,7 +132,10 @@ fn entries_starting_with_hash_survive_a_round_trip() {
   write(root.path(), "Hash", &entries, "h1").unwrap();
   let path = root.path().join("_Playlists/Hash.m3u8");
   let bytes = std::fs::read(&path).unwrap();
-  assert_eq!(bytes, b"#EXTM3U\n./#1 Crush - Someone.mp3\n./#Faves/x.mp3\nChill/a.mp3\n");
+  assert_eq!(
+    bytes,
+    b"#EXTM3U\n./#1 Crush - Someone.mp3\n./#Faves/x.mp3\nChill/a.mp3\n"
+  );
   let back = read(root.path(), "Hash").unwrap();
   assert_eq!(back.entries, entries);
   // Re-serialising what was read is byte-identical, and the path is found as a member.
@@ -178,7 +181,10 @@ fn unreadable_playlists_are_errors_not_absent() {
   std::fs::create_dir_all(dir.join("Folder.m3u8")).unwrap();
   let err = read(root.path(), "Folder").unwrap_err();
   assert!(!matches!(err, Error::NotFound(_)), "{err}");
-  assert!(list(root.path()).unwrap().is_empty(), "a folder is not listed as a playlist");
+  assert!(
+    list(root.path()).unwrap().is_empty(),
+    "a folder is not listed as a playlist"
+  );
 }
 
 /// A playlist held open without read sharing (a sync client mid-upload) is an error, not empty.

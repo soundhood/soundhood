@@ -14,8 +14,8 @@ use super::{
 use crate::error::{Error, Result};
 use crate::fs::{self, BinRecord};
 use crate::model::{Library, Platform, PlaylistFile, RelPath, TagSet};
-use crate::tags::{self, TagRead};
 use crate::playlist;
+use crate::tags::{self, TagRead};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -119,7 +119,10 @@ pub fn cleanup_orphans(lib: &Library) -> Result<Vec<RelPath>> {
     if fs::remove_file(&lib.abs(&rel)).is_err() {
       continue;
     }
-    let mut e = b.entry(Kind::Cleanup, format!("Removed the leftover temp file {}", rel.file_name()));
+    let mut e = b.entry(
+      Kind::Cleanup,
+      format!("Removed the leftover temp file {}", rel.file_name()),
+    );
     e.path_before = Some(rel.clone());
     e.committed = true;
     e.note = Some(format!("orphaned temp: {state}"));
@@ -446,7 +449,10 @@ fn validate_target(to: &RelPath) -> Result<()> {
     return Err(Error::InvalidPath(format!("{to} is inside the app's own folder")));
   }
   if !fs::is_audio_file(to.file_name()) {
-    return Err(Error::InvalidPath(format!("{} is not an audio file name", to.file_name())));
+    return Err(Error::InvalidPath(format!(
+      "{} is not an audio file name",
+      to.file_name()
+    )));
   }
   Ok(())
 }
@@ -455,10 +461,14 @@ fn validate_target(to: &RelPath) -> Result<()> {
 fn check_file(abs: &Path, path: &str) -> Option<Outcome> {
   match std::fs::metadata(abs) {
     Ok(m) if m.is_file() => m.permissions().readonly().then(|| Outcome::skipped(path, READ_ONLY)),
-    Ok(_) => Some(Outcome::failed(path, Error::InvalidPath(format!("{path} is not a file")))),
-    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-      Some(Outcome::failed(path, Error::NotFound(format!("{path} is not there any more"))))
-    }
+    Ok(_) => Some(Outcome::failed(
+      path,
+      Error::InvalidPath(format!("{path} is not a file")),
+    )),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Outcome::failed(
+      path,
+      Error::NotFound(format!("{path} is not there any more")),
+    )),
     Err(e) => Some(Outcome::failed(path, e.into())),
   }
 }
@@ -642,8 +652,7 @@ pub(crate) fn relocate(
   fault::point("after_replace");
   if let Err((err, written)) = rewrite_playlists(lib, &e.id, &mut e.playlists_touched) {
     // Put everything back so the library stays consistent (both steps run either way).
-    let undone =
-      restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::rename_no_clobber(&dst, &src));
+    let undone = restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::rename_no_clobber(&dst, &src));
     let msg = match undone {
       Ok(()) => format!("a playlist could not be updated ({}); nothing was moved", message(&err)),
       Err(back) => format!(
@@ -732,7 +741,10 @@ pub(crate) fn delete(
   if let Err((err, written)) = rewrite_playlists(lib, &e.id, &mut e.playlists_touched) {
     let undone = restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::restore_from_bin(lib, &rec));
     let msg = match undone {
-      Ok(()) => format!("a playlist could not be updated ({}); nothing was deleted", message(&err)),
+      Ok(()) => format!(
+        "a playlist could not be updated ({}); nothing was deleted",
+        message(&err)
+      ),
       Err(back) => format!(
         "a playlist could not be updated ({}), and the file could not be brought back from the bin ({})",
         message(&err),
@@ -810,8 +822,12 @@ pub(crate) fn playlist_changes(
   if !fs::is_audio_file(from.file_name()) {
     return Ok(Vec::new()); // playlists only list tracks
   }
-  let found = playlist::containing(root, from)
-    .map_err(|e| Error::Refused(format!("the playlists could not be read, so nothing was changed: {}", message(&e))))?;
+  let found = playlist::containing(root, from).map_err(|e| {
+    Error::Refused(format!(
+      "the playlists could not be read, so nothing was changed: {}",
+      message(&e)
+    ))
+  })?;
   let mut out = Vec::new();
   for pl in found {
     let abs = writable_playlist(root, &pl)?;
@@ -1128,7 +1144,10 @@ fn land_one(b: &mut Batch, staged: &Path, dest: &RelPath) -> Outcome {
     let _ = fs::remove_file(&tmp);
     return Outcome::Failed {
       path: path.to_string(),
-      err: Error::Verify(format!("the copy of {} in the library does not match the download", dest.file_name())),
+      err: Error::Verify(format!(
+        "the copy of {} in the library does not match the download",
+        dest.file_name()
+      )),
       counts: true,
     };
   }

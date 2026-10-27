@@ -59,7 +59,14 @@ pub(crate) fn of(root: &Path, track: &RelPath) -> Result<Vec<Companion>> {
       if lower.strip_prefix(track_stem.as_str()) == Some(suffix) {
         // The on-disk spelling of the suffix: the same number of chars at the end of the name.
         let n = suffix.chars().count();
-        let on_disk: String = name.chars().rev().take(n).collect::<Vec<_>>().into_iter().rev().collect();
+        let on_disk: String = name
+          .chars()
+          .rev()
+          .take(n)
+          .collect::<Vec<_>>()
+          .into_iter()
+          .rev()
+          .collect();
         let rel = match track.parent() {
           Some(p) => p.join(&name)?,
           None => RelPath::new(&name)?,
