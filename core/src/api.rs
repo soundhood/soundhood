@@ -28,9 +28,15 @@ pub struct OpenReport {
 
 impl Core {
   /// Opens the library at `root`: device id from `app_data_dir`, index in `app_data_dir`, orphaned
-  /// temp files from interrupted writes cleaned up (journaled).
-  pub fn open(root: &Path, app_data_dir: &Path) -> Result<(Core, OpenReport)> {
-    let _ = (root, app_data_dir);
+  /// temp files from interrupted writes cleaned up (journaled). `legacy_cache_dir` is where the
+  /// pre-rebuild JSON tag cache lived; it is deleted after the first successful index refresh.
+  pub fn open(root: &Path, app_data_dir: &Path, legacy_cache_dir: Option<&Path>) -> Result<(Core, OpenReport)> {
+    let _ = (root, app_data_dir, legacy_cache_dir);
+    todo!("core-writepath: implement")
+  }
+
+  /// Where this device's index lives (for diagnostics and "Copy log").
+  pub fn index_path(&self) -> PathBuf {
     todo!("core-writepath: implement")
   }
 
