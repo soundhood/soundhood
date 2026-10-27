@@ -6,6 +6,7 @@ use super::{rename_no_clobber, APP_DIR};
 use crate::error::{Error, Result};
 use crate::model::{Library, RelPath};
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_os = "android"))]
 use std::path::Path;
 
 /// Which bin a deleted file went to.
@@ -204,6 +205,7 @@ mod tests {
   use super::*;
   use crate::model::{DeviceId, Platform};
   use std::fs;
+  use std::path::Path;
 
   fn lib(root: &Path) -> Library {
     Library {
