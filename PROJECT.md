@@ -40,8 +40,9 @@ Musicolet is the functional reference, Spotify the layout reference.
 
 ## Scope
 
-Windows and Android fully; Linux built and smoke-tested in CI; macOS built but untested on hardware;
-iOS deferred (no file-system access or download helper is possible there for a sideloaded app).
+Windows and Android fully. By Phase 7, Linux is built and smoke-tested in CI and macOS is built but
+untested on hardware. iOS is deferred: a sideloaded app there gets neither the file access nor the
+download helper this design needs.
 
 ## Phases
 

@@ -36,8 +36,9 @@ The scan skips `_Soundhood/`, `_Playlists/`, folders whose name starts with a do
 temp files.
 
 **Paths** inside the library are written root-relative: forward slashes, no leading slash, no `.` or
-`..` segments, Unicode NFC. They compare case-insensitively (Windows does, Proton Drive's web view does
-not), so `Chill/Song - Artist.m4a` and `chill/song - artist.M4A` name the same track.
+`..` segments, Unicode NFC. They compare case-insensitively, because Windows treats names that differ
+only in case as the same file (Proton Drive's web view does not): `Chill/Song - Artist.m4a` and
+`chill/song - artist.M4A` name the same track.
 
 ## Playlists
 
