@@ -64,7 +64,7 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo fmt -p soundhood-core -- --check
       # The desktop host embeds app/dist at compile time and refuses to build without its sidecars;
-      # clippy needs neither the real UI nor real binaries.
+      # clippy and the host tests need neither the real UI nor real binaries.
       - name: Placeholder frontend and sidecars
         shell: bash
         run: |
@@ -73,13 +73,16 @@ jobs:
             echo '<!doctype html><title>clippy</title>' > app/dist/index.html
           fi
           node .github/scripts/sidecars.mjs stub
-      - name: cargo clippy --workspace -- -D warnings
-        run: cargo clippy --workspace --locked -- -D warnings
+      # --all-targets: tests, examples and benches are linted too, not only the libraries.
+      - name: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo test (host and ytdl plugin)
+        run: cargo test -p soundhood -p tauri-plugin-soundhood-ytdl --locked
 
   android-core:
-    name: core check (aarch64-linux-android)
+    name: core check and host clippy (aarch64-linux-android)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Android NDK ${{ env.NDK_VERSION }}
@@ -91,6 +94,7 @@ jobs:
           local-cache: true
       - uses: ./.github/actions/rust
         with:
+          components: clippy
           targets: aarch64-linux-android
           cache-key: android-core
       - name: Install cargo-ndk
@@ -101,6 +105,22 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: cargo ndk -t arm64-v8a check -p soundhood-core --locked
+      # Same placeholders as the clippy job: the host embeds app/dist and tauri-build looks for the
+      # sidecars named in tauri.conf.json.
+      - name: Placeholder frontend and sidecars
+        shell: bash
+        run: |
+          if [ ! -f app/dist/index.html ]; then
+            mkdir -p app/dist
+            echo '<!doctype html><title>clippy</title>' > app/dist/index.html
+          fi
+          node .github/scripts/sidecars.mjs stub
+      # The phone-only Rust (cfg(mobile): the plugin's mobile.rs, the host's Android paths) is
+      # compiled only for an Android target, so the desktop clippy job never sees it.
+      - name: cargo ndk -t arm64-v8a clippy (host and ytdl plugin)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: cargo ndk -t arm64-v8a clippy -p soundhood -p tauri-plugin-soundhood-ytdl --locked -- -D warnings
 
   web:
     name: web gates and lints
@@ -115,6 +135,11 @@ jobs:
           cache-dependency-path: |
             app/package-lock.json
             tools/package-lock.json
+      # app/ first: `npm run typecheck` in tools/ type-checks ../app and needs its node_modules
+      # (react, @types/react, @tauri-apps/api).
+      - name: app - npm ci
+        working-directory: app
+        run: npm ci
       - name: tools - npm ci
         working-directory: tools
         run: npm ci
@@ -127,9 +152,6 @@ jobs:
       - name: tools - test (Vitest)
         working-directory: tools
         run: npm run test
-      - name: app - npm ci
-        working-directory: app
-        run: npm ci
       - name: app - build
         working-directory: app
         run: npm run build
@@ -175,14 +197,14 @@ jobs:
       - name: Blue scan
         if: ${{ !cancelled() && (steps.visual.outcome == 'success' || steps.visual.outcome == 'failure') }}
         run: node tools/blue-scan.mjs
+      # The reporter is a plain list; the expected, actual and diff images of every failing
+      # screenshot land in the config's outputDir, tools/screenshot/test-results/.
       - name: Upload the diff report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: visual-diff-report
-          path: |
-            tools/playwright-report/
-            tools/test-results/
+          path: tools/screenshot/test-results/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -249,10 +271,11 @@ jobs:
       - name: app - npm ci
         working-directory: app
         run: npm ci
-      # gradlew is committed without the executable bit (it was added from Windows).
+      # gradlew is committed executable (mode 100755); this keeps the job working if a commit from
+      # Windows ever drops the bit.
       - name: Make gradlew executable
         run: chmod +x app/src-tauri/gen/android/gradlew
-      - name: npm run tauri android build -- --debug
+      - name: tauri android build --debug --apk --target aarch64
         working-directory: app
         env:
           NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
