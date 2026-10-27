@@ -1,0 +1,52 @@
+[package]
+name = "soundhood-core"
+version = "0.1.0"
+description = "Soundhood core: library model, the one write path, index, tags, playlists"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.89"
+
+[lib]
+name = "soundhood_core"
+
+[[bin]]
+name = "soundhood-tools"
+path = "src/bin/soundhood-tools.rs"
+required-features = ["tools"]
+
+[features]
+default = []
+# Network lookups (AcoustID, MusicBrainz, LRCLIB, ...) — off unless a host enables it.
+online = ["dep:ureq"]
+# Desktop sidecar manager: fetch + verify yt-dlp and deno from upstream releases.
+sidecars = ["dep:ureq", "dep:sha2", "dep:zip"]
+# The soundhood-tools CLI (manifest, fixture library, sidecar fetch, self-test).
+tools = ["sidecars"]
+# Test-only crash points inside the write path (kill-mid-write tests).
+fault-injection = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+lofty = "0.25.5"
+rusqlite = { version = "0.41", features = ["bundled"] }
+blake3 = "1.8"
+unicode-normalization = "0.1.26"
+walkdir = "2.5"
+rayon = "1"
+uuid = { version = "1", features = ["v4"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
+# No Opus decoder exists in symphonia 0.6; Opus files are verified through lofty's properties.
+symphonia = { version = "0.6.1", default-features = false, features = ["aac", "isomp4", "mp3", "flac", "ogg", "vorbis", "alac"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+ureq = { version = "3.5", optional = true, default-features = false, features = ["rustls", "rustls-webpki-roots", "gzip"] }
+sha2 = { version = "0.11", optional = true }
+zip = { version = "9", optional = true, default-features = false, features = ["deflate"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+trash = "5"
+
+[dev-dependencies]
+tempfile = "3"
