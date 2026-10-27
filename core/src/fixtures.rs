@@ -142,8 +142,10 @@ const PLAYLISTS: [&str; 5] = ["Favourites", "Focus", "Late Night", "Mixed Format
 /// A made-up 11-character video id for the "[id]" junk name.
 const FAKE_VIDEO_ID: &str = "Xk3vQ9pLm2A";
 
-/// What to generate. `Default` is the library the Playwright harness and the evidence screenshots
-/// use: 50 tracks, 5 folders, 5 playlists, messy names on.
+/// What to generate. `Default` is the library `soundhood-tools fixture-lib` writes and the app's
+/// "Use fixture root" switch installs: 50 tracks, 5 folders, 5 playlists, messy names on.
+/// `soundhood-tools harness-json` exports the same library for the Playwright harness
+/// ([`export_harness_json`]), so device evidence and harness baselines can show one library.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FixtureSpec {
   pub tracks: usize,
@@ -536,15 +538,103 @@ pub fn generate(dest: &Path, spec: &FixtureSpec) -> Result<FixtureReport> {
   })
 }
 
-/// The library as the UI would receive it, for the Playwright harness: `{ tracks, playlists }`,
-/// track paths under the neutral `JSON_ROOT`, sorted like the old scan (folder, then file name),
-/// artist falling back to a filename side that names a known artist, like the old scan.
+/// The library as the UI would receive it from `scan_music_folder` and `list_playlists`:
+/// `{ tracks, playlists }`, track paths under the neutral `JSON_ROOT`, sorted like the old scan
+/// (folder, then file name), artist falling back to a filename side that names a known artist,
+/// like the old scan.
 pub fn export_json(report: &FixtureReport) -> String {
   #[derive(Serialize)]
   struct Export<'a> {
     tracks: Vec<Track>,
     playlists: &'a [PlaylistFile],
   }
+  let mut tracks = scanned(report);
+  tracks.sort_by(|a, b| a.playlist.cmp(&b.playlist).then(a.name.cmp(&b.name)));
+  serde_json::to_string_pretty(&Export {
+    tracks,
+    playlists: &report.playlists,
+  })
+  .unwrap_or_default()
+}
+
+/// Where the Playwright harness roots the library when it plays the phone.
+pub const HARNESS_ANDROID_ROOT: &str = "/storage/emulated/0/Music";
+
+/// The same library in the screenshot harness's own format (`tools/screenshot/fixture-library.json`):
+/// `{ about, root, androidRoot, tracks: [{ folder, file, title, artist, duration_secs, cover }],
+/// playlists }`, tracks in generation order, `folder` the file's parent folder ("" in the root),
+/// title and artist as the scan shows them. The harness draws its own covers, so `cover` names
+/// one of its patterns in the track's colour family (`aqua-rings`, `grey-grid`, ...), always the
+/// same pattern for the same embedded cover; `null` for a track without art.
+pub fn export_harness_json(report: &FixtureReport) -> String {
+  #[derive(Serialize)]
+  struct HarnessTrack<'a> {
+    folder: &'a str,
+    file: &'a str,
+    title: String,
+    artist: String,
+    duration_secs: u64,
+    cover: Option<&'static str>,
+  }
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct Harness<'a> {
+    about: &'static str,
+    root: &'static str,
+    android_root: &'static str,
+    tracks: Vec<HarnessTrack<'a>>,
+    playlists: &'a [PlaylistFile],
+  }
+  let tracks = report
+    .tracks
+    .iter()
+    .zip(scanned(report))
+    .map(|(t, scan)| {
+      let (folder, file) = t.rel.rsplit_once('/').unwrap_or(("", &t.rel));
+      HarnessTrack {
+        folder,
+        file,
+        title: scan.title,
+        artist: scan.artist,
+        duration_secs: scan.duration_secs,
+        cover: t.cover.map(|c| match c {
+          Cover::Aqua => "aqua-rings",
+          Cover::Purple => "purple-bands",
+          Cover::Grey(v) if v < 0x60 => "grey-grid",
+          Cover::Grey(v) if v < 0xa0 => "grey-bands",
+          Cover::Grey(_) => "grey-rings",
+        }),
+      }
+    })
+    .collect();
+  let mut out = serde_json::to_string_pretty(&Harness {
+    about: "Made-up library for the screenshot harness: core's fixture library (the one 'Use fixture root' \
+            installs), exported by `soundhood-tools harness-json`. Paths are relative to the library root; the \
+            mock re-roots them per platform.",
+    root: JSON_ROOT,
+    android_root: HARNESS_ANDROID_ROOT,
+    tracks,
+    playlists: &report.playlists,
+  })
+  .unwrap_or_default();
+  out.push('\n');
+  out
+}
+
+/// Generates the default fixture library in a fresh scratch folder under `scratch_parent`, returns
+/// its [`export_harness_json`], and removes the folder again.
+pub fn harness_json_in(scratch_parent: &Path) -> Result<String> {
+  let scratch = scratch_parent.join(format!("soundhood-harness-{}", std::process::id()));
+  let result = generate(&scratch, &FixtureSpec::default()).map(|r| export_harness_json(&r));
+  // Only ever a folder this function generated (the marker proves it).
+  if scratch.join(MARKER).is_file() {
+    let _ = std::fs::remove_dir_all(&scratch);
+  }
+  result
+}
+
+/// Each fixture track as the host's scan reports it, in generation order.
+fn scanned(report: &FixtureReport) -> Vec<Track> {
   let known: HashSet<String> = report
     .tracks
     .iter()
@@ -558,7 +648,7 @@ pub fn export_json(report: &FixtureReport) -> String {
     })
     .filter(|a| !a.is_empty())
     .collect();
-  let mut tracks: Vec<Track> = report
+  report
     .tracks
     .iter()
     .map(|t| {
@@ -582,13 +672,7 @@ pub fn export_json(report: &FixtureReport) -> String {
         duration_secs: t.duration_secs,
       }
     })
-    .collect();
-  tracks.sort_by(|a, b| a.playlist.cmp(&b.playlist).then(a.name.cmp(&b.name)));
-  serde_json::to_string_pretty(&Export {
-    tracks,
-    playlists: &report.playlists,
-  })
-  .unwrap_or_default()
+    .collect()
 }
 
 /// "Song - Artist" first, then "Artist - Song": the side that is a known artist (old host rule).
@@ -1073,6 +1157,70 @@ mod tests {
     // The untagged track gets its artist from the file name, like the old scan.
     let untagged = tracks.iter().find(|t| t["title"] == "").unwrap();
     assert!(!untagged["artist"].as_str().unwrap().is_empty(), "{untagged}");
+  }
+
+  #[test]
+  fn harness_json_is_the_same_library_in_the_harness_format() {
+    let t = tempfile::tempdir().unwrap();
+    let r = generate(t.path(), &FixtureSpec::default()).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&export_harness_json(&r)).unwrap();
+    assert_eq!(v["root"], JSON_ROOT);
+    assert_eq!(v["androidRoot"], HARNESS_ANDROID_ROOT);
+    assert!(v["about"].as_str().unwrap().contains("harness-json"));
+    let tracks = v["tracks"].as_array().unwrap();
+    assert_eq!(tracks.len(), r.tracks.len());
+    let mut rels = HashSet::new();
+    for (j, fx) in tracks.iter().zip(&r.tracks) {
+      let keys: Vec<&str> = j.as_object().unwrap().keys().map(String::as_str).collect();
+      assert_eq!(keys.len(), 6, "{keys:?}");
+      let (folder, file) = (j["folder"].as_str().unwrap(), j["file"].as_str().unwrap());
+      let rel = if folder.is_empty() {
+        file.to_string()
+      } else {
+        format!("{folder}/{file}")
+      };
+      // The harness rebuilds each path as folder + "/" + file: it must land on the real file.
+      assert_eq!(rel, fx.rel);
+      assert!(t.path().join(&rel).is_file(), "{rel}");
+      assert_eq!(j["duration_secs"], fx.duration_secs);
+      match j["cover"].as_str() {
+        None => assert!(fx.cover.is_none(), "{rel}"),
+        Some(key) => {
+          let (colour, pattern) = key.split_once('-').unwrap();
+          assert!(["aqua", "purple", "grey"].contains(&colour) && ["rings", "bands", "grid"].contains(&pattern));
+          assert_eq!(
+            colour,
+            format!("{:?}", fx.cover.unwrap())
+              .to_lowercase()
+              .split('(')
+              .next()
+              .unwrap()
+          );
+        }
+      }
+      rels.insert(rel);
+    }
+    // The byte-identical duplicate pair shows the same cover.
+    assert_eq!(tracks[26]["cover"], tracks[27]["cover"]);
+    // The untagged track gets its artist from the file name, like the scan.
+    assert!(tracks.iter().any(|t| t["title"] == "" && t["artist"] != ""));
+    let playlists = v["playlists"].as_array().unwrap();
+    let names: Vec<&str> = playlists.iter().map(|p| p["name"].as_str().unwrap()).collect();
+    assert_eq!(names, PLAYLISTS);
+    for p in playlists {
+      for e in p["entries"].as_array().unwrap() {
+        assert!(rels.contains(e.as_str().unwrap()), "{e}");
+      }
+    }
+  }
+
+  #[test]
+  fn harness_json_in_cleans_up_its_scratch_library() {
+    let parent = tempfile::tempdir().unwrap();
+    let a = harness_json_in(parent.path()).unwrap();
+    let b = harness_json_in(parent.path()).unwrap();
+    assert_eq!(a, b, "deterministic");
+    assert_eq!(std::fs::read_dir(parent.path()).unwrap().count(), 0);
   }
 
   #[test]

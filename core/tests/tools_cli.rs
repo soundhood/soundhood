@@ -83,6 +83,20 @@ fn missing_manifest_file_is_a_failure_not_a_usage_error() {
 }
 
 #[test]
+fn harness_json_writes_the_screenshot_fixture() {
+  let t = tempfile::tempdir().unwrap();
+  let out = t.path().join("fixture-library.json");
+  let o = tools(&[Path::new("harness-json"), &out]);
+  assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+  assert!(stdout(&o).starts_with("Screenshot harness fixture written to "));
+  let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+  assert_eq!(v["tracks"].as_array().unwrap().len(), 50);
+  assert_eq!(v["playlists"].as_array().unwrap().len(), 5);
+  assert_eq!(v["root"], "C:/Music");
+  assert_eq!(s(&["harness-json"]).status.code(), Some(2));
+}
+
+#[test]
 fn self_test_passes() {
   let o = s(&["self-test"]);
   let out = stdout(&o);
