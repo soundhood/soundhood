@@ -27,7 +27,14 @@ pub fn list(root: &Path) -> Result<Vec<PlaylistFile>> {
   let mut out = Vec::new();
   for entry in rd {
     let path = entry?.path();
-    if !path.is_file() {
+    // Only an entry that vanished meanwhile is passed over: any other failure to look at a
+    // playlist is an error, so no caller mistakes an unreadable playlist for an absent one.
+    let meta = match std::fs::metadata(&path) {
+      Ok(meta) => meta,
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+      Err(e) => return Err(e.into()),
+    };
+    if !meta.is_file() {
       continue;
     }
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -56,12 +63,17 @@ pub fn list(root: &Path) -> Result<Vec<PlaylistFile>> {
   Ok(out)
 }
 
-/// The playlist `name` (`_Playlists/<clean name>.m3u8`). `Error::NotFound` when it does not exist.
+/// The playlist `name` (`_Playlists/<clean name>.m3u8`). `Error::NotFound` only when it does not
+/// exist: a playlist that exists but cannot be read (locked, not UTF-8, a folder of that name) is
+/// another error, so the write path never takes it for absent and writes over it.
 pub fn read(root: &Path, name: &str) -> Result<PlaylistFile> {
   let rel = file_rel(name)?;
   let path = rel.to_abs(root);
-  if !path.is_file() {
-    return Err(Error::NotFound(rel.to_string()));
+  match std::fs::metadata(&path) {
+    Ok(meta) if meta.is_file() => {}
+    Ok(_) => return Err(Error::Other(format!("{rel} is a folder, not a playlist"))),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(Error::NotFound(rel.to_string())),
+    Err(e) => return Err(e.into()),
   }
   Ok(PlaylistFile {
     name: sanitize_name(name)?,
@@ -89,9 +101,9 @@ pub fn sanitize_name(raw: &str) -> Result<String> {
   Ok(name.to_string())
 }
 
-/// Lines of an m3u/m3u8 file: BOM stripped, trimmed, blank and `#` lines skipped, `\` -> `/`.
-/// Anything else is kept exactly. Not UTF-8 is an error (decoding lossily would corrupt the names
-/// on the next write).
+/// Lines of an m3u/m3u8 file: BOM stripped, trimmed, blank and `#` lines skipped, `\` -> `/`, one
+/// leading `./` removed (how [`render`] protects a path that starts with `#`). Anything else is kept
+/// exactly. Not UTF-8 is an error (decoding lossily would corrupt the names on the next write).
 fn read_file(path: &Path) -> Result<Vec<String>> {
   let bytes = std::fs::read(path)?;
   let text = String::from_utf8(bytes).map_err(|_| Error::other(format!("{} is not UTF-8 text", path.display())))?;
@@ -103,7 +115,13 @@ fn parse(text: &str) -> Vec<String> {
     .lines()
     .map(|l| l.trim_start_matches('\u{feff}').trim())
     .filter(|l| !l.is_empty() && !l.starts_with('#'))
-    .map(|l| l.replace('\\', "/"))
+    .map(|l| {
+      let l = l.replace('\\', "/");
+      match l.strip_prefix("./") {
+        Some(rest) => rest.to_string(),
+        None => l,
+      }
+    })
     .collect()
 }
 
@@ -152,10 +170,15 @@ pub fn with_path_replaced(entries: &[String], from: &RelPath, to: Option<&RelPat
     .collect()
 }
 
-/// The exact file contents: `#EXTM3U\n` + one entry per line, each ending in `\n`.
+/// The exact file contents: `#EXTM3U\n` + one entry per line, each ending in `\n`. An entry that
+/// starts with `#` (a root-level `#1 Song.mp3`) is written as `./#1 Song.mp3`, or every reader
+/// would skip it as a comment; [`read`] strips the `./` again. Other entries go out as they are.
 pub fn render(entries: &[String]) -> String {
   let mut out = String::from("#EXTM3U\n");
   for e in entries {
+    if e.starts_with('#') {
+      out.push_str("./");
+    }
     out.push_str(e);
     out.push('\n');
   }
@@ -209,12 +232,13 @@ pub fn plan_from_folders(root: &Path, stamps: &[FileStamp]) -> Result<Vec<Playli
 }
 
 /// The sole m3u8 writer: write-then-rename through a hidden temp in `_Playlists/`. Writes `entries`
-/// exactly as given. Refuses (`Error::InvalidPath`) a line the reader could not give back
-/// unchanged: empty, padded with spaces, multi-line, or starting with `#` (read as a comment).
+/// laid out by [`render`] (a `#` entry gets its `./`). Refuses (`Error::InvalidPath`) a line the
+/// reader could not give back unchanged: empty, padded with spaces, multi-line, or starting with
+/// `./` (the reader strips it).
 #[cfg_attr(not(test), allow(dead_code))] // ingest::tagwrite (zone core-writepath) is the caller
 pub(crate) fn write(root: &Path, name: &str, entries: &[String], job: &str) -> Result<()> {
   for e in entries {
-    if e.is_empty() || e.trim() != e || e.contains(['\n', '\r']) || e.starts_with('#') || e.starts_with('\u{feff}') {
+    if e.is_empty() || e.trim() != e || e.contains(['\n', '\r']) || e.starts_with("./") || e.starts_with('\u{feff}') {
       return Err(Error::InvalidPath(format!("cannot be a playlist line: {e:?}")));
     }
   }
