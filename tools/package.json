@@ -12,7 +12,7 @@
     "lint": "cd .. && eslint --config tools/eslint.config.js app/src",
     "test": "vitest run",
     "test:visual": "playwright test --config screenshot/playwright.config.mjs",
-    "test:visual:update": "playwright test --config screenshot/playwright.config.mjs --update-snapshots",
+    "test:visual:update": "playwright test --config screenshot/playwright.config.mjs --update-snapshots=all",
     "evidence:baseline": "node screenshot/copy-evidence.mjs",
     "lint:tokens": "node token-lint.mjs",
     "lint:blue": "node blue-scan.mjs",
