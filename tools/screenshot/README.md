@@ -17,7 +17,7 @@ npm run evidence:baseline     # copy them to docs/evidence/phase-0/baseline/
 |---|---|
 | `playwright.config.mjs` | viewports (desktop 1280x800, 1920x1080 as `windows`; phone 390x844, tablet 834x1194 as `android`), dev server on a free port, diff threshold 0.2 % |
 | `harness.mjs` | the `app` fixture: bundles `mock-entry.mjs` with esbuild and injects it with `page.addInitScript`, serves desktop audio URLs, waits for IPC to settle, fails on unmocked commands or page errors |
-| `mock-entry.mjs` | runs in the page before the app: `mockIPC` (with event mocking), `mockConvertFileSrc("windows")`, `HTMLMediaElement.play` stubbed |
+| `mock-entry.mjs` | runs in the page before the app: `mockIPC` (with event mocking), `mockConvertFileSrc("windows")`, `HTMLMediaElement.play` stubbed; the Phase 0 commands (`last_change`, `undo_last` followed by a `core:batch` event, `rebuild_index`, `dev_fixture_root`, `self_test`, `diagnostics`) answer from a journal that starts empty, which a test can set through `window.__soundhoodMock`; `window.__soundhoodEmit(event, payload)` sends a host event |
 | `fixture.mjs`, `wav.mjs` | scan / playlist results as the host returns them, generated cover PNGs, silent WAV audio |
 | `baseline.spec.mjs` | the screens: desktop library with a playlist open and a track playing; phone browse, tracks, settings sheet, full player |
 | `__screenshots__/<os>/` | committed baselines, one set per OS (fonts differ); only `win32` exists so far |
