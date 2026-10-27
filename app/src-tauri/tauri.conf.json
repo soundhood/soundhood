@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:tools && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -39,7 +39,8 @@
   ],
   "externalBin": [
     "bin/yt-dlp",
-    "bin/deno"
+    "bin/deno",
+    "bin/soundhood-tools"
   ]
 }
 }
