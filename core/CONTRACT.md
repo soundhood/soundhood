@@ -254,3 +254,33 @@ messy names. Used by tests, by `soundhood-tools fixture-lib <dir>`, and by the a
 ## api — `src/api.rs` (lead)
 
 The facade the hosts call. See the file.
+
+## Host IPC (Phase 0) — lead-owned, binding for the host and the UI
+
+Unchanged names and shapes (the UI keeps calling them exactly as today):
+`scan_music_folder {dir}` → `Track[]` · `list_playlists {libraryDir}` → `PlaylistFile[]` ·
+`playlists_from_folders {libraryDir}` → `PlaylistFile[]` ·
+`playlist_add | playlist_remove | playlist_create {args:{libraryDir, name, paths?}}` → `PlaylistFile` ·
+`playlist_delete {args:{libraryDir, name}}` → void · `move_track {args:{path, libraryDir, targetFolder}}` → `Track` ·
+`delete_track {args:{path, libraryDir}}` → void · `write_tags {args:{path, libraryDir, title, artist}}` → `Track` ·
+`read_file_bytes {path}` → raw bytes · `cover_art {path}` → raw bytes · `queue_read {libraryDir}` → string ·
+`queue_write {libraryDir, json}` → void · `platform` → string ·
+`ytdlp_download_audio {args:{url, libraryDir, targetFolder, playlist}}` + events `ytdlp:stdout|stderr|files|done`.
+
+Behaviour behind the same shapes:
+- every mutating command goes through `soundhood_core::api::Core` (journal + verify + bin); a single-op command
+  whose op was skipped or failed returns `Err("<reason>")` (e.g. "file in use", "read-only file",
+  "already exists in <folder>").
+- `delete_track` on Android goes to `<root>/_Soundhood/.bin/<yyyy-mm>/<rel>` (undoable), no longer a hard delete.
+- after each mutating command the host emits the event `core:batch` with the `BatchReport`.
+
+Removed: `fix_tags_from_filenames`.
+
+New:
+- `last_change {libraryDir}` → `{batch, ts, label, count} | null`
+- `undo_last {libraryDir}` → `BatchReport {batch, applied:[{label, path_before, path_after}], skipped:[{path, reason}], failed:[{path, error}], aborted}`
+- `rebuild_index {libraryDir}` → `{total, read, removed, millis}`
+- `dev_fixture_root {enable}` → `{root}` (enable: generate under `<app data>/fixture-library` if absent and return its path; disable: `""`)
+- `self_test` → `{passed, failed, lines: string[]}`
+- `diagnostics {libraryDir?}` → `{appVersion, platform, os, deviceId, indexPath, orphansRemoved: string[], sidecars: string}`
+  (the user's home directory replaced by `~` in every path)
