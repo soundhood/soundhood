@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 use crate::fs;
 use crate::model::{Library, RelPath};
 use crate::playlist;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// The most recent batch on THIS device that is not an undo and was not undone yet.
 pub fn last_change(lib: &Library) -> Result<Option<ChangeSummary>> {
@@ -104,11 +104,15 @@ fn with_companions<'a>(entries: &[&'a JournalEntry]) -> Vec<(&'a JournalEntry, V
 
 /// Entries grouped by batch, batches in the order they first appear.
 fn group_by_batch(entries: &[JournalEntry]) -> Vec<(&str, Vec<&JournalEntry>)> {
+  let mut at: HashMap<&str, usize> = HashMap::new();
   let mut out: Vec<(&str, Vec<&JournalEntry>)> = Vec::new();
   for e in entries {
-    match out.iter_mut().find(|(b, _)| *b == e.batch) {
-      Some((_, list)) => list.push(e),
-      None => out.push((e.batch.as_str(), vec![e])),
+    match at.get(e.batch.as_str()) {
+      Some(&i) => out[i].1.push(e),
+      None => {
+        at.insert(e.batch.as_str(), out.len());
+        out.push((e.batch.as_str(), vec![e]));
+      }
     }
   }
   out
