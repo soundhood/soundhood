@@ -11,8 +11,8 @@ pub(crate) use bin::{restore_from_bin, to_app_bin, to_bin};
 pub use bin::{BinKind, BinRecord};
 #[allow(unused_imports)] // the write helpers are reached from ingest::tagwrite (zone core-writepath)
 pub(crate) use write::{
-  atomic_replace, copy_to_tmp, create_hidden, fsync, remove_file, rename_no_clobber, stage_copy, stage_finish,
-  stage_move, tmp_path,
+  atomic_replace, copy_to_tmp, create_hidden, fsync, is_locked, remove_file, rename_no_clobber, stage_copy,
+  stage_finish, stage_move, temp_entry_id, tmp_path,
 };
 
 use crate::error::{Error, Result};
@@ -193,7 +193,9 @@ pub fn device_id(app_data_dir: &Path) -> Result<DeviceId> {
 }
 
 /// Every `.soundhood-tmp-*` file under the root (including `_Soundhood/` and `_Playlists/`; not
-/// inside dot-folders, where the core never writes), sorted.
+/// inside dot-folders, where the core never writes), sorted. Like [`scan_report`], a folder that
+/// cannot be listed costs that folder only (the core cannot have written a temp it cannot list
+/// either); only an unreadable root is an error.
 pub fn list_tmp_files(root: &Path) -> Result<Vec<RelPath>> {
   let mut out = Vec::new();
   let walk = WalkDir::new(root)
@@ -201,9 +203,15 @@ pub fn list_tmp_files(root: &Path) -> Result<Vec<RelPath>> {
     .into_iter()
     .filter_entry(|e| e.depth() == 0 || !e.file_type().is_dir() || !e.file_name().to_string_lossy().starts_with('.'));
   for entry in walk {
-    let entry = entry.map_err(walk_error)?;
+    let entry = match entry {
+      Ok(entry) => entry,
+      Err(e) if e.depth() == 0 => return Err(walk_error(e)),
+      Err(_) => continue,
+    };
     if entry.file_type().is_file() && entry.file_name().to_string_lossy().starts_with(TMP_PREFIX) {
-      out.push(RelPath::from_abs(root, entry.path())?);
+      if let Ok(rel) = RelPath::from_abs(root, entry.path()) {
+        out.push(rel);
+      }
     }
   }
   out.sort();

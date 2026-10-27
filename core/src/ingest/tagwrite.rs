@@ -95,12 +95,16 @@ pub fn land(lib: &Library, staged: &Path, dest: &RelPath, opts: &ApplyOptions) -
 /// Startup: remove orphaned .soundhood-tmp-* files whose journal entry never committed (or that no
 /// entry names), journaling each removal as Kind::Cleanup. Returns what was removed.
 ///
-/// A temp whose entry did commit is a leftover after its rename and goes too, so every temp under
-/// the root is removed; the journal line records which case it was. A temp that cannot be removed
-/// now (another program holds it) is left for the next start. Nothing but `.soundhood-tmp-*` files
-/// is ever touched.
+/// A temp whose entry did commit is a leftover after its rename and goes too, so every temp the
+/// core made is removed; the journal line records which case it was. Only names of the exact shape
+/// the core gives its temps count (`fs::temp_entry_id`): a user's own file that merely starts with
+/// the prefix is left alone. A temp that cannot be removed now (another program holds it) is left
+/// for the next start.
 pub fn cleanup_orphans(lib: &Library) -> Result<Vec<RelPath>> {
-  let temps = fs::list_tmp_files(&lib.root)?;
+  let temps: Vec<RelPath> = fs::list_tmp_files(&lib.root)?
+    .into_iter()
+    .filter(|rel| fs::temp_entry_id(rel.file_name()).is_some())
+    .collect();
   if temps.is_empty() {
     return Ok(Vec::new());
   }
@@ -110,8 +114,7 @@ pub fn cleanup_orphans(lib: &Library) -> Result<Vec<RelPath>> {
   let b = Batch::new(lib, "cleanup", &[]);
   let mut removed = Vec::new();
   for rel in temps {
-    let entry_id = job_entry(rel.file_name());
-    let state = match entry_id {
+    let state = match fs::temp_entry_id(rel.file_name()) {
       Some(id) if committed.contains(id) => "its write had committed",
       Some(id) if known.contains(id) => "its write never committed",
       _ => "no journal entry names it",
@@ -130,13 +133,6 @@ pub fn cleanup_orphans(lib: &Library) -> Result<Vec<RelPath>> {
     removed.push(rel);
   }
   Ok(removed)
-}
-
-/// The journal entry id inside a temp name: `.soundhood-tmp-<id>[-<suffix>][.<ext>]`.
-fn job_entry(file_name: &str) -> Option<&str> {
-  let job = file_name.strip_prefix(fs::TMP_PREFIX)?;
-  let end = job.find(['-', '.']).unwrap_or(job.len());
-  Some(&job[..end]).filter(|id| !id.is_empty())
 }
 
 /// What one op came to inside the batch, before it is written into the report.
@@ -486,9 +482,12 @@ fn taken_outcome(path: &str, dest: &RelPath, undoing: bool) -> Outcome {
 }
 
 /// An error from opening or renaming a file another program holds becomes a skip, never a failure.
+/// That includes a read the OS refuses because a program holds the file exclusively (a sharing or
+/// lock violation, EBUSY): reading tags or hashing the original comes first and hits it first.
 fn skip_or_fail(path: &str, err: Error) -> Outcome {
   match err {
     Error::InUse(_) => Outcome::skipped(path, FILE_IN_USE),
+    Error::Io(e) if fs::is_locked(&e) => Outcome::skipped(path, FILE_IN_USE),
     Error::Refused(m) if m.starts_with("read-only") => Outcome::skipped(path, READ_ONLY),
     err => Outcome::failed(path, err),
   }
@@ -1194,15 +1193,6 @@ fn land_one(b: &mut Batch, staged: &Path, dest: &RelPath) -> Outcome {
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  #[test]
-  fn temp_names_map_back_to_their_entry() {
-    assert_eq!(job_entry(".soundhood-tmp-abc123.m4a"), Some("abc123"));
-    assert_eq!(job_entry(".soundhood-tmp-abc123-p0.m3u8"), Some("abc123"));
-    assert_eq!(job_entry(".soundhood-tmp-abc123"), Some("abc123"));
-    assert_eq!(job_entry(".soundhood-tmp-.m4a"), None);
-    assert_eq!(job_entry("song.m4a"), None);
-  }
 
   #[test]
   fn effective_keeps_only_real_changes() {

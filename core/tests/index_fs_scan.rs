@@ -94,3 +94,29 @@ fn only_the_root_itself_is_an_error() {
     );
   };
 }
+
+/// Startup cleanup looks for leftover temps with the same kind of walk: a protected folder
+/// anywhere under the root costs that folder, and the library still opens (it used to fail every
+/// command for that root).
+#[test]
+fn an_unreadable_folder_does_not_stop_the_temp_search_or_opening_the_library() {
+  let d = tempfile::tempdir().unwrap();
+  let r = d.path();
+  let temp = "Chill/.soundhood-tmp-0123456789abcdef0123456789abcdef.m4a";
+  touch(r, "Chill/B - Song.m4a");
+  touch(r, temp);
+  touch(r, "System Volume Information/tracking.log");
+  let protected = r.join("System Volume Information");
+  let Some(_lock) = Locked::new(&protected) else {
+    eprintln!("this account can read any folder; nothing to test");
+    return;
+  };
+  let temps: Vec<String> = fs::list_tmp_files(r).unwrap().into_iter().map(String::from).collect();
+  assert_eq!(temps, [temp]);
+
+  let app = tempfile::tempdir().unwrap();
+  let (core, report) = soundhood_core::api::Core::open(r, app.path(), None).unwrap();
+  assert_eq!(report.orphans_removed, [temp]);
+  let names: Vec<String> = core.scan().unwrap().into_iter().map(|t| t.name).collect();
+  assert_eq!(names, ["B - Song.m4a"]);
+}
