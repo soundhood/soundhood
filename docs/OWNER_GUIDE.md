@@ -63,9 +63,9 @@ Check that the new app is signed with the same key as the app already on the pho
 $apk = (Get-ChildItem .\app\src-tauri\gen\android\app\build\outputs\apk -Recurse -Filter *.apk | Sort-Object LastWriteTime | Select-Object -Last 1).FullName
 $id = (Get-Content .\app\src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).identifier
 $apksigner = (Get-ChildItem "$env:ANDROID_HOME\build-tools\*\apksigner.bat" | Sort-Object FullName | Select-Object -Last 1).FullName
-adb pull ((adb shell pm path $id | Select-Object -First 1) -replace '^package:', '') "$env:TEMP\soundhood-installed.apk" | Out-Null
-$old = & $apksigner verify --print-certs "$env:TEMP\soundhood-installed.apk" | Select-String 'SHA-256'
-$new = & $apksigner verify --print-certs $apk | Select-String 'SHA-256'
+adb pull ((adb shell pm path $id | Select-Object -First 1) -replace '^package:', '').Trim() "$env:TEMP\soundhood-installed.apk" | Out-Null
+$old = (& $apksigner verify --print-certs "$env:TEMP\soundhood-installed.apk" | Select-String 'SHA-256').Line
+$new = (& $apksigner verify --print-certs $apk | Select-String 'SHA-256').Line
 if ("$old" -ne "" -and "$old" -eq "$new") { "Same key: OK to install" } else { "DIFFERENT KEY: do not install" }
 ```
 

@@ -154,9 +154,9 @@ attached; both lines printed at the end must be identical:
 $id = (Get-Content app\src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).identifier
 $apksigner = Get-ChildItem "$env:ANDROID_HOME\build-tools\*\apksigner.bat" | Sort-Object FullName | Select-Object -Last 1
 $newApk = "<path to the new .apk>"
-adb pull ((adb shell pm path $id | Select-Object -First 1) -replace '^package:', '') installed.apk
-& $apksigner verify --print-certs installed.apk | Select-String 'SHA-256'
-& $apksigner verify --print-certs $newApk | Select-String 'SHA-256'
+adb pull ((adb shell pm path $id | Select-Object -First 1) -replace '^package:', '').Trim() "$env:TEMP\installed.apk"
+(& $apksigner verify --print-certs "$env:TEMP\installed.apk" | Select-String 'SHA-256').Line
+(& $apksigner verify --print-certs $newApk | Select-String 'SHA-256').Line
 ```
 
 ## Dev-loop traps
