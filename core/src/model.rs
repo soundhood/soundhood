@@ -5,22 +5,23 @@ use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 
-/// A path relative to the library root: NFC, forward slashes, no leading slash, no `.`/`..`
-/// segments, never empty. This is exactly the form written into `_Playlists/*.m3u8` lines, so a
-/// `RelPath` compares byte-for-byte with a playlist entry (after NFC).
+/// A path relative to the library root: the exact on-disk characters, forward slashes, no leading
+/// slash, no `.`/`..` segments, never empty. NOT normalised: NTFS treats NFC and NFD names as
+/// different files, so an NFD name must stay NFD or it no longer opens. Comparisons go through
+/// [`RelPath::key`] (NFC + lower-case).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct RelPath(String);
 
 impl RelPath {
-  /// Normalises `\` to `/`, strips leading/trailing slashes, applies NFC, and rejects empty,
-  /// `.`/`..` segments and absolute paths (drive letters, UNC).
+  /// Normalises `\` to `/`, strips leading/trailing slashes, and rejects empty, `.`/`..` segments
+  /// and absolute paths (drive letters, UNC). Keeps the characters otherwise as given (no NFC).
   pub fn new(s: &str) -> Result<RelPath> {
     let s = s.trim_start_matches('\u{feff}').replace('\\', "/");
     if s.starts_with("//") || s.as_bytes().get(1) == Some(&b':') {
       return Err(Error::InvalidPath(format!("absolute path is not root-relative: {s}")));
     }
-    let s: String = s.trim_matches('/').nfc().collect();
+    let s = s.trim_matches('/');
     if s.is_empty() {
       return Err(Error::InvalidPath("empty path".into()));
     }
@@ -103,10 +104,11 @@ impl RelPath {
     RelPath::new(&format!("{}/{}", self.0, name))
   }
 
-  /// Comparison key: lower-cased. Windows and the Proton web UI disagree on case, so membership
-  /// and collision checks compare keys, never raw strings.
+  /// Comparison key: NFC + lower-cased. Windows and the Proton web UI disagree on case, and
+  /// macOS/Android sources may hand over NFD, so membership and collision checks compare keys,
+  /// never raw strings.
   pub fn key(&self) -> String {
-    self.0.to_lowercase()
+    self.0.nfc().collect::<String>().to_lowercase()
   }
 
   /// True for anything under `_Soundhood/` (bookkeeping, the Android bin) or `_Playlists/`.
@@ -238,8 +240,11 @@ mod tests {
     assert!(RelPath::new("../x").is_err());
     assert!(RelPath::new("C:/Music/x.mp3").is_err());
     assert!(RelPath::new("").is_err());
-    // NFD "é" (e + U+0301) becomes NFC U+00E9
-    assert_eq!(RelPath::new("Beyonce\u{301}.mp3").unwrap().as_str(), "Beyonc\u{e9}.mp3");
+    // NFD "é" (e + U+0301) is kept as-is: the on-disk name is NFD and must still open.
+    let nfd = RelPath::new("Beyonce\u{301}.mp3").unwrap();
+    assert_eq!(nfd.as_str(), "Beyonce\u{301}.mp3");
+    // ...but compares equal to the NFC spelling through key().
+    assert_eq!(nfd.key(), RelPath::new("BEYONC\u{c9}.MP3").unwrap().key());
   }
 
   #[test]
