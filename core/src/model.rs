@@ -44,13 +44,20 @@ impl RelPath {
       return Self::from_components(rel);
     }
     if cfg!(windows) {
-      let (r, a) = (root.to_string_lossy().replace('\\', "/"), abs.to_string_lossy().replace('\\', "/"));
+      let (r, a) = (
+        root.to_string_lossy().replace('\\', "/"),
+        abs.to_string_lossy().replace('\\', "/"),
+      );
       let r = r.trim_end_matches('/');
       if a.len() > r.len() && a[..r.len()].eq_ignore_ascii_case(r) && a.as_bytes()[r.len()] == b'/' {
         return RelPath::new(&a[r.len() + 1..]);
       }
     }
-    Err(Error::InvalidPath(format!("{} is not inside {}", abs.display(), root.display())))
+    Err(Error::InvalidPath(format!(
+      "{} is not inside {}",
+      abs.display(),
+      root.display()
+    )))
   }
 
   fn from_components(rel: &Path) -> Result<RelPath> {
@@ -238,7 +245,10 @@ mod tests {
   #[test]
   fn relpath_from_abs() {
     let root = Path::new("/lib");
-    assert_eq!(RelPath::from_abs(root, Path::new("/lib/a/b.mp3")).unwrap().as_str(), "a/b.mp3");
+    assert_eq!(
+      RelPath::from_abs(root, Path::new("/lib/a/b.mp3")).unwrap().as_str(),
+      "a/b.mp3"
+    );
     assert!(RelPath::from_abs(root, Path::new("/other/b.mp3")).is_err());
   }
 

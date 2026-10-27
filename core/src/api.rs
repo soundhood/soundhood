@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// One open library on one device. Hosts keep one `Core` per library root.
+#[allow(dead_code)] // fields are used once the Phase 0 bodies land
 pub struct Core {
   pub lib: Library,
   index: Index,
