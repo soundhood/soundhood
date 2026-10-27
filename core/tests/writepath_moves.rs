@@ -431,3 +431,66 @@ fn a_root_track_named_with_a_hash_keeps_its_playlist_line() {
   assert!(u.failed.is_empty() && u.skipped.is_empty(), "{}", show(&u));
   assert_eq!(std::fs::read(&file).unwrap(), b"#EXTM3U\n./#1 Crush - Someone.mp3\n");
 }
+
+/// Undo never forces: a move is not reversed over a file that took the old place (and its lyrics
+/// stay with it rather than going back alone), and an edit of a file that is gone is skipped.
+#[test]
+fn undo_never_forces_a_move_back_or_touches_a_missing_file() {
+  let (_d, lib, report) = fixture_lib(20, false);
+  let (r, target) = favourite_with_lyrics(&lib);
+  let rep = apply(
+    &lib,
+    vec![Op::Move {
+      rel: r.clone(),
+      to_folder: target.clone(),
+    }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
+  let to = rel(&format!("{target}/{}", r.file_name()));
+  std::fs::write(lib.abs(&r), b"a new file in the old place").unwrap();
+  let lists = playlist_bytes(&lib);
+
+  let u = undo::undo_batch(&lib, &rep.batch).unwrap();
+  assert!(u.applied.is_empty() && u.failed.is_empty(), "{}", show(&u));
+  assert_eq!(u.skipped.len(), 1, "{}", show(&u));
+  assert_eq!(
+    u.skipped[0].reason,
+    format!(
+      "not undone: {} already exists in {}",
+      r.file_name(),
+      r.parent().unwrap()
+    )
+  );
+  assert_eq!(read_bytes(&lib, &r), b"a new file in the old place");
+  assert!(lib.abs(&to).is_file());
+  assert!(
+    lib.abs(&companion(&to, "lrc")).is_file(),
+    "the lyrics stay with their track"
+  );
+  assert!(!lib.abs(&companion(&r, "lrc")).exists());
+  assert_eq!(playlist_bytes(&lib), lists);
+  assert!(
+    undo::last_change(&lib).unwrap().is_some(),
+    "nothing was undone, so it is still offered"
+  );
+
+  let other = track_with_ext(&report, "flac");
+  let edit = apply(
+    &lib,
+    vec![Op::WriteTags {
+      rel: other.clone(),
+      changes: soundhood_core::model::TagSet {
+        title: Some("Edited".into()),
+        ..Default::default()
+      },
+    }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(edit.applied.len(), 1);
+  let gone = apply(&lib, vec![Op::Delete { rel: other.clone() }], &ApplyOptions::default());
+  assert_eq!(gone.applied.len(), 1);
+  let u = undo::undo_batch(&lib, &edit.batch).unwrap();
+  assert!(u.applied.is_empty() && u.failed.is_empty(), "{}", show(&u));
+  assert_eq!(u.skipped[0].reason, "changed since — not undone");
+}

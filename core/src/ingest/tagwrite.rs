@@ -457,19 +457,31 @@ fn validate_target(to: &RelPath) -> Result<()> {
   Ok(())
 }
 
-/// `None` when `abs` is a regular, writable file; otherwise the outcome that refuses it.
-fn check_file(abs: &Path, path: &str) -> Option<Outcome> {
+/// `None` when `abs` is a regular, writable file; otherwise the outcome that refuses it. For an
+/// undo (`undoing`), a file that is gone is one that changed since: skipped, not failed.
+fn check_file(abs: &Path, path: &str, undoing: bool) -> Option<Outcome> {
   match std::fs::metadata(abs) {
     Ok(m) if m.is_file() => m.permissions().readonly().then(|| Outcome::skipped(path, READ_ONLY)),
     Ok(_) => Some(Outcome::failed(
       path,
       Error::InvalidPath(format!("{path} is not a file")),
     )),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound && undoing => Some(Outcome::skipped(path, CHANGED_SINCE)),
     Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Outcome::failed(
       path,
       Error::NotFound(format!("{path} is not there any more")),
     )),
     Err(e) => Some(Outcome::failed(path, e.into())),
+  }
+}
+
+/// A taken destination: a failure for a user's request, a skip for an undo (nothing is forced).
+fn taken_outcome(path: &str, dest: &RelPath, undoing: bool) -> Outcome {
+  let msg = format!("{} already exists in {}", dest.file_name(), folder_label(dest));
+  if undoing {
+    Outcome::skipped(path, &format!("not undone: {msg}"))
+  } else {
+    Outcome::failed(path, Error::Exists(msg))
   }
 }
 
@@ -507,23 +519,23 @@ pub(crate) fn write_tags(
 ) -> Outcome {
   let path = rel.as_str();
   let abs = b.lib.abs(rel);
-  if let Some(o) = check_file(&abs, path) {
+  if let Some(o) = check_file(&abs, path, expect_hash.is_some()) {
     return o;
   }
   let before = match tags::read(&abs) {
     Ok(t) => t,
     Err(e) => return skip_or_fail(path, e),
   };
-  let changes = effective(changes, &before);
-  if changes.is_empty() {
-    return Outcome::no_change(path, "no change");
-  }
   let hash_before = match fs::file_hash(&abs) {
     Ok(h) => h,
     Err(e) => return skip_or_fail(path, e),
   };
   if expect_hash.is_some_and(|want| want != hash_before) {
     return Outcome::skipped(path, CHANGED_SINCE);
+  }
+  let changes = effective(changes, &before);
+  if changes.is_empty() {
+    return Outcome::no_change(path, "no change");
   }
   let mut e = b.entry(Kind::Tags, label.clone());
   e.path_before = Some(rel.clone());
@@ -599,15 +611,22 @@ pub(crate) fn relocate(
 ) -> Outcome {
   let path = from.as_str();
   let lib = b.lib;
+  let undoing = expect_hash.is_some();
   let (src, dst) = (lib.abs(from), lib.abs(to));
-  if let Some(o) = check_file(&src, path) {
+  if let Some(o) = check_file(&src, path, undoing) {
     return o;
+  }
+  let hash = match fs::file_hash(&src) {
+    Ok(h) => h,
+    Err(e) => return skip_or_fail(path, e),
+  };
+  if expect_hash.is_some_and(|want| want != hash) {
+    return Outcome::skipped(path, CHANGED_SINCE);
   }
   // A case or normalisation change of the same name is a rename, not a collision.
   let taken = |dest: &RelPath, own: &RelPath| dest.key() != own.key() && lib.abs(dest).symlink_metadata().is_ok();
   if taken(to, from) {
-    let msg = format!("{} already exists in {}", to.file_name(), folder_label(to));
-    return Outcome::failed(path, Error::Exists(msg));
+    return taken_outcome(path, to, undoing);
   }
   let mut follow = Vec::new();
   if with_companions {
@@ -621,8 +640,7 @@ pub(crate) fn relocate(
         Err(e) => return Outcome::failed(path, e),
       };
       if taken(&c_to, &c.rel) {
-        let msg = format!("{} already exists in {}", c_to.file_name(), folder_label(&c_to));
-        return Outcome::failed(path, Error::Exists(msg));
+        return taken_outcome(path, &c_to, undoing);
       }
       follow.push((c.rel, c_to));
     }
@@ -631,13 +649,6 @@ pub(crate) fn relocate(
     Ok(c) => c,
     Err(e) => return Outcome::failed(path, e),
   };
-  let hash = match fs::file_hash(&src) {
-    Ok(h) => h,
-    Err(e) => return skip_or_fail(path, e),
-  };
-  if expect_hash.is_some_and(|want| want != hash) {
-    return Outcome::skipped(path, CHANGED_SINCE);
-  }
   let mut e = b.entry(kind, label.clone());
   e.path_before = Some(from.clone());
   e.path_after = Some(to.clone());
@@ -646,8 +657,11 @@ pub(crate) fn relocate(
   if let Err(o) = preimage(lib, &e, path) {
     return o;
   }
-  if let Err(err) = fs::rename_no_clobber(&src, &dst) {
-    return skip_or_fail(path, err);
+  match fs::rename_no_clobber(&src, &dst) {
+    Ok(()) => {}
+    // Taken meanwhile, or by a name only the folder listing folds to the same (case-sensitive disks).
+    Err(Error::Exists(_)) => return taken_outcome(path, to, undoing),
+    Err(err) => return skip_or_fail(path, err),
   }
   fault::point("after_replace");
   if let Err((err, written)) = rewrite_playlists(lib, &e.id, &mut e.playlists_touched) {
@@ -704,8 +718,15 @@ pub(crate) fn delete(
   let path = rel.as_str();
   let lib = b.lib;
   let abs = lib.abs(rel);
-  if let Some(o) = check_file(&abs, path) {
+  if let Some(o) = check_file(&abs, path, expect_hash.is_some()) {
     return o;
+  }
+  let hash = match fs::file_hash(&abs) {
+    Ok(h) => h,
+    Err(e) => return skip_or_fail(path, e),
+  };
+  if expect_hash.is_some_and(|want| want != hash) {
+    return Outcome::skipped(path, CHANGED_SINCE);
   }
   let comps = if with_companions {
     match companions::of(&lib.root, rel) {
@@ -719,13 +740,6 @@ pub(crate) fn delete(
     Ok(c) => c,
     Err(e) => return Outcome::failed(path, e),
   };
-  let hash = match fs::file_hash(&abs) {
-    Ok(h) => h,
-    Err(e) => return skip_or_fail(path, e),
-  };
-  if expect_hash.is_some_and(|want| want != hash) {
-    return Outcome::skipped(path, CHANGED_SINCE);
-  }
   let mut e = b.entry(Kind::Delete, label.clone());
   e.path_before = Some(rel.clone());
   e.file_hash_before = Some(hash);
@@ -778,7 +792,7 @@ pub(crate) fn delete(
 }
 
 /// A side part's skip or failure as one report row of the op it belongs to.
-fn side_failure(o: Outcome, what: &str) -> Failed {
+pub(crate) fn side_failure(o: Outcome, what: &str) -> Failed {
   match o {
     Outcome::Skipped { path, reason } | Outcome::NoChange { path, reason } => Failed {
       path,

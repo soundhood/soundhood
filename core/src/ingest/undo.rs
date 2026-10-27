@@ -4,8 +4,8 @@
 //! undone"); nothing is forced.
 
 use super::tagwrite::{
-  commit, content_hash, delete, playlist_state, preimage, relocate, write_playlist, write_tags, Batch, Outcome,
-  PlaylistState, CHANGED_SINCE, FILE_IN_USE,
+  commit, content_hash, delete, playlist_state, preimage, relocate, side_failure, write_playlist, write_tags, Batch,
+  Outcome, PlaylistState, CHANGED_SINCE, FILE_IN_USE,
 };
 use super::{
   fault, folder_label, journal, message, Applied, BatchReport, ChangeSummary, Failed, JournalEntry, Kind,
@@ -62,16 +62,44 @@ pub fn undo_batch(lib: &Library, batch: &str) -> Result<BatchReport> {
     return Err(Error::NotFound(format!("no change {batch} to undo")));
   }
   let mut b = Batch::new(lib, &source, &[]);
-  for e in entries.into_iter().rev() {
+  for (main, lyrics) in with_companions(&entries).into_iter().rev() {
     if b.stopped {
-      let path = entry_path(e);
+      let path = entry_path(main);
       b.not_attempted(path);
       continue;
     }
-    let outcome = undo_entry(&mut b, e);
+    let outcome = undo_entry(&mut b, main);
+    let track_undone = matches!(outcome, Outcome::Done { .. });
     b.record(outcome);
+    // A track's lyrics files go back only with it, so the two are never split up.
+    if !track_undone {
+      continue;
+    }
+    for c in lyrics.into_iter().rev() {
+      match undo_entry(&mut b, c) {
+        Outcome::Done { .. } | Outcome::NoChange { .. } => {}
+        stop @ Outcome::Stop { .. } => {
+          b.record(stop);
+          break;
+        }
+        other => b.report.failed.push(side_failure(other, "lyrics file not put back")),
+      }
+    }
   }
   Ok(b.report)
+}
+
+/// Each entry with the lyrics-file entries that followed it in the batch (they were journaled
+/// right after their track).
+fn with_companions<'a>(entries: &[&'a JournalEntry]) -> Vec<(&'a JournalEntry, Vec<&'a JournalEntry>)> {
+  let mut out: Vec<(&JournalEntry, Vec<&JournalEntry>)> = Vec::new();
+  for &e in entries {
+    match out.last_mut() {
+      Some((_, lyrics)) if is_companion(e) => lyrics.push(e),
+      _ => out.push((e, Vec::new())),
+    }
+  }
+  out
 }
 
 /// Entries grouped by batch, batches in the order they first appear.
