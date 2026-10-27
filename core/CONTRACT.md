@@ -8,7 +8,9 @@ keep the signatures shown here. A needed signature change or a new dependency is
 Conventions for every module:
 
 - Errors: `crate::Result<T>` / `crate::Error`. No `unwrap()` on I/O or user data outside tests.
-- Paths: user-file positions are `RelPath` (NFC, forward slashes). Absolute paths only at the edges
+- Paths: user-file positions are `RelPath` (forward slashes, characters exactly as on disk — never
+  NFC-normalise an existing name: NTFS treats an NFD name and its NFC twin as two files). Compare with
+  `RelPath::key()` / `model::path_key()` (NFC + lower-case). Absolute paths only at the edges
   (`Library::abs`).
 - Every function that writes, renames, moves or deletes a **user file** (audio or
   `_Playlists/**/*.m3u8`) is `pub(crate)` and is called only from `ingest::tagwrite`.
@@ -91,7 +93,9 @@ pub fn tagset_of(r: &TagRead) -> TagSet;                  // full pre-image for 
 
 Ported from the host **behaviour-identical** (format: `#EXTM3U\n` + one entry per line + `\n`, LF;
 reader strips BOM, trims, skips blanks and `#` lines, turns `\` into `/`; membership compares
-case-insensitively; names sanitised like `sanitize_folder_name`). Added: NFC on read and write.
+case-insensitively; names sanitised like `sanitize_folder_name`). Added: comparisons use NFC +
+lower-case keys; entries are read and written byte-exact, so re-serialising an existing playlist is
+byte-identical (including an NFD entry).
 
 ```rust
 pub fn list(root: &Path) -> Result<Vec<PlaylistFile>>;    // sorted by lower-cased name; .m3u8 and .m3u

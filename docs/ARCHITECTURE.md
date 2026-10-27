@@ -44,8 +44,8 @@ bundled webpki roots, because the Android system certificate store is not readab
 
 | Module | Responsibility |
 |---|---|
-| `model` | `Track`, `RelPath` (NFC, forward slashes), ids, shared value types |
-| `fs` | root handling, rel_path <-> absolute, NFC canonicalisation, scan, same-volume staging move, orphan-temp cleanup, Android bin |
+| `model` | `Track`, `RelPath` (forward slashes, on-disk characters; NFC only in comparison keys), ids, shared value types |
+| `fs` | root handling, rel_path <-> absolute, scan, same-volume staging move, orphan-temp cleanup, Android bin |
 | `tags` | lofty wrapper: read, and the verified write used by `tagwrite` |
 | `index` | rusqlite (bundled, FTS5), `schema.sql` + numbered migrations, change detection, queries |
 | `playlist` | m3u8 read/write (write-then-rename), membership updates on move/rename/delete, player state |

@@ -5,22 +5,24 @@ use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 
-/// A path relative to the library root: NFC, forward slashes, no leading slash, no `.`/`..`
-/// segments, never empty. This is exactly the form written into `_Playlists/*.m3u8` lines, so a
-/// `RelPath` compares byte-for-byte with a playlist entry (after NFC).
+/// A path relative to the library root: forward slashes, no leading slash, no `.`/`..` segments,
+/// never empty. The characters are kept exactly as they are on disk — including decomposed (NFD)
+/// names, which NTFS treats as different files from their NFC twins — so a `RelPath` is exactly
+/// the line written into `_Playlists/*.m3u8`. Comparisons go through [`RelPath::key`], which
+/// applies NFC and lower-casing; only names the app creates itself are written in NFC.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct RelPath(String);
 
 impl RelPath {
-  /// Normalises `\` to `/`, strips leading/trailing slashes, applies NFC, and rejects empty,
-  /// `.`/`..` segments and absolute paths (drive letters, UNC).
+  /// Turns `\` into `/`, strips a BOM and leading/trailing slashes, and rejects empty paths,
+  /// `.`/`..` segments and absolute paths (drive letters, UNC). Never changes other characters.
   pub fn new(s: &str) -> Result<RelPath> {
     let s = s.trim_start_matches('\u{feff}').replace('\\', "/");
     if s.starts_with("//") || s.as_bytes().get(1) == Some(&b':') {
       return Err(Error::InvalidPath(format!("absolute path is not root-relative: {s}")));
     }
-    let s: String = s.trim_matches('/').nfc().collect();
+    let s = s.trim_matches('/');
     if s.is_empty() {
       return Err(Error::InvalidPath("empty path".into()));
     }
@@ -49,8 +51,10 @@ impl RelPath {
         abs.to_string_lossy().replace('\\', "/"),
       );
       let r = r.trim_end_matches('/');
-      if a.len() > r.len() && a[..r.len()].eq_ignore_ascii_case(r) && a.as_bytes()[r.len()] == b'/' {
-        return RelPath::new(&a[r.len() + 1..]);
+      if let (Some(head), Some(rest)) = (a.get(..r.len()), a.get(r.len()..)) {
+        if head.eq_ignore_ascii_case(r) && rest.starts_with('/') && rest.len() > 1 {
+          return RelPath::new(&rest[1..]);
+        }
       }
     }
     Err(Error::InvalidPath(format!(
@@ -103,10 +107,10 @@ impl RelPath {
     RelPath::new(&format!("{}/{}", self.0, name))
   }
 
-  /// Comparison key: lower-cased. Windows and the Proton web UI disagree on case, so membership
-  /// and collision checks compare keys, never raw strings.
+  /// Comparison key: NFC + lower-cased. Windows and the Proton web UI disagree on case, and the same
+  /// title can arrive in NFC or NFD, so membership and collision checks compare keys, never raw strings.
   pub fn key(&self) -> String {
-    self.0.to_lowercase()
+    path_key(&self.0)
   }
 
   /// True for anything under `_Soundhood/` (bookkeeping, the Android bin) or `_Playlists/`.
@@ -114,6 +118,11 @@ impl RelPath {
     let top = self.top_folder().unwrap_or("");
     top.eq_ignore_ascii_case("_Soundhood") || top.eq_ignore_ascii_case("_Playlists")
   }
+}
+
+/// The comparison key for any path or playlist line: `\` -> `/`, NFC, lower-cased.
+pub fn path_key(s: &str) -> String {
+  s.replace('\\', "/").nfc().collect::<String>().to_lowercase()
 }
 
 impl TryFrom<String> for RelPath {
@@ -238,8 +247,13 @@ mod tests {
     assert!(RelPath::new("../x").is_err());
     assert!(RelPath::new("C:/Music/x.mp3").is_err());
     assert!(RelPath::new("").is_err());
-    // NFD "é" (e + U+0301) becomes NFC U+00E9
-    assert_eq!(RelPath::new("Beyonce\u{301}.mp3").unwrap().as_str(), "Beyonc\u{e9}.mp3");
+    // NFD stays NFD on disk form (NTFS treats it as a different name), but keys compare equal
+    let nfd = RelPath::new("Beyonce\u{301}.mp3").unwrap();
+    let nfc = RelPath::new("Beyonc\u{e9}.mp3").unwrap();
+    assert_eq!(nfd.as_str(), "Beyonce\u{301}.mp3");
+    assert_ne!(nfd, nfc);
+    assert_eq!(nfd.key(), nfc.key());
+    assert_eq!(RelPath::new("A/B.MP3").unwrap().key(), "a/b.mp3");
   }
 
   #[test]
