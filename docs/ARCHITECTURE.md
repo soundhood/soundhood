@@ -82,7 +82,7 @@ on Android. Every delete is journaled.
 ## Hosts
 
 - **Desktop (Tauri)**: commands wrap core; yt-dlp + deno run as sidecars verified against upstream
-  checksums ([LEGAL](LEGAL.md)); playback moves to libmpv (runtime-loaded) in Phase 3 with the HTML5
+  checksums ([LEGAL](../LEGAL.md)); playback moves to libmpv (runtime-loaded) in Phase 3 with the HTML5
   engine kept as a fallback.
 - **Android (Tauri + Kotlin plugins)**: `soundhood-ytdl` runs yt-dlp (youtubedl-android), the in-app
   relay proxy and rclone for Proton Drive; from Phase 3 `soundhood-player` hosts a Media3

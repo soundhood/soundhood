@@ -112,9 +112,19 @@ impl Core {
     todo!("core-writepath: implement")
   }
 
-  /// Runs the bundled normaliser/format fixture corpus through this build; for "Run self-test".
-  pub fn self_test() -> SelfTestReport {
-    todo!("tools: implement")
+  /// Runs the bundled fixture checks through this build ("Run self-test"). `scratch_dir` must be
+  /// app-writable: the phone cannot write to the system temp dir, so the host passes its cache dir.
+  pub fn self_test(scratch_dir: &Path) -> SelfTestReport {
+    let lines = crate::fixtures::self_test_lines_in(scratch_dir);
+    let failed = lines.iter().filter(|(ok, _)| !ok).count();
+    SelfTestReport {
+      passed: lines.len() - failed,
+      failed,
+      lines: lines
+        .into_iter()
+        .map(|(ok, l)| format!("{} {l}", if ok { "PASS" } else { "FAIL" }))
+        .collect(),
+    }
   }
 
   pub fn rel(&self, abs: &Path) -> Result<RelPath> {

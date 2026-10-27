@@ -255,6 +255,21 @@ Generates the fixture library from template audio embedded with `include_bytes!`
 messy names. Used by tests, by `soundhood-tools fixture-lib <dir>`, and by the app's
 "Use fixture root" developer switch.
 
+### As built in wave 1 (tools zone)
+
+- `ytdlp::args::build(&DownloadArgs) -> Result<Vec<String>>` — the pre-rebuild desktop argv byte-for-byte;
+  refuses a link starting with `-`. `ytdlp::pins` — `MIN_YTDLP_VERSION`, bootstrap yt-dlp per triple, deno 2.9.8
+  per triple (SHA-256), `compare_versions`, `ytdlp_version_allowed`. `ytdlp::errors::{classify, classify_output,
+  corpus}` → `Classified { kind, error }`.
+- `sidecars::{fetch(&Asset, &Path, Option<&str>) -> Result<FetchReport>, host_triple(), exe_name()}`; `Asset::
+  {ytdlp_bootstrap, ytdlp_release, deno_pinned, installed_as}`. Refuses plain HTTP except loopback, checksum before
+  asset, pin must equal the published hash, downgrade refused before any request.
+- `manifest::{build, diff, read, write}`. `fixtures::{FixtureSpec, FixtureReport, generate, export_json,
+  self_test_lines, self_test_lines_in, MARKER, JSON_ROOT}`. `Core::self_test(scratch_dir)` wraps
+  `self_test_lines_in`.
+- lofty 0.25 writes ID3v2 frames from a generic `Tag` in HashMap order (bytes differ run to run): `file_hash_after`
+  is not reproducible across identical writes; the fixture generator sorts frames to stay deterministic.
+
 ## sync — `src/sync/` (Phase 2 stub)
 
 `SyncProvider` trait only, per the build brief §4.6.
