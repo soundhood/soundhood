@@ -27,3 +27,16 @@ re-litigated; later entries may refine them. Newest phase at the bottom of each 
 | 2026-10-27 | **Decided:** versioning by merge order: each phase merge to `main` bumps the minor; only Phase 7 sets 1.0.0 | Phases 2 and 3 may land in either order | build brief §4.8 |
 | 2026-10-27 | Baseline: the October working tree (cookies, rclone tuning, tag cache) committed as `1bc30ab` on top of `53b33fb` before any rebuild work | start from what runs on both devices | `git log` |
 | 2026-10-27 | Baseline builds from a clean tree: desktop NSIS installer 3m08s, Android release APK 4m29s, both green; the release APK comes out **unsigned** | signing must be wired in Phase 0 so one key installs over the existing app | build logs |
+
+## Phase 0
+
+| Date | Decision | Reason | Evidence |
+|---|---|---|---|
+| 2026-10-27 | Root Cargo workspace (`core`, `app/src-tauri`, the ytdl plugin); `Cargo.lock` moves to the root, so build artefacts move from `app/src-tauri/target/` to `<repo>/target/` | one lock and one target dir for core + hosts | `cargo check --workspace` green |
+| 2026-10-27 | Rust style is 2-space indentation, 120 columns (`rustfmt.toml`) | matches the existing host code | — |
+| 2026-10-27 | Pinned for Phase 0: tauri 2.12.5, lofty 0.25.5, rusqlite 0.41.0 (`bundled`), symphonia 0.6.1, blake3 1.8, ureq 3.5 (rustls + webpki roots), sha2 0.11, zip 9, image 0.25 | current stable releases; versions verified on crates.io the same day | crates.io API |
+| 2026-10-27 | symphonia 0.6 has **no Opus decoder**: the write path verifies Opus files through lofty's stream properties instead of a decode; "Analyse library" will treat Opus like HE-AAC (ffmpeg fallback on desktop with its own `audio_hash_version`, "not analysed" on the phone) | the brief listed an `opus` feature that does not exist | symphonia 0.6.1 feature list |
+| 2026-10-27 | `soundhood-core` compiles for `aarch64-linux-android` with the bundled SQLite and blake3's C/asm backends; blake3 `pure` is not needed | NDK 30 + cargo-ndk 4.1.2 | `cargo ndk -t arm64-v8a check -p soundhood-core` green in 14 s |
+| 2026-10-27 | Commits from the rebuild are authored as "Soundhood" (repo-local `user.name`); the existing GitHub no-reply address stays, so GitHub still links them to the owner's account. Older history keeps its author names; rewriting public history is left to the owner | the public repo should not carry the owner's name | `git config user.name` |
+| 2026-10-27 | The per-device download queue (`download-queue.<device-id>.json` with done-markers) moves to Phase 2 with the ingest work; Phase 0 keeps the single `download-queue.json` exactly as it behaves today | a half-migrated queue would re-download finished links forever on the other device | queue merge semantics in the current UI |
+| 2026-10-27 | Known writers still outside the journal after Phase 0, scheduled: yt-dlp output on both devices (creates new files only; Phase 2 ingest), rclone `copy` on the phone (can overwrite a file whose size differs; Phase 6 sync plan with `--ignore-existing` and tombstones). Tracked in [OPEN](OPEN.md) | Phase 0 rewires the commands the brief lists; downloads and sync have their own phases | brief §7 |
