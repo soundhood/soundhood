@@ -7,8 +7,9 @@ circumvention, no telemetry; the only sync is your own Proton Drive.
 
 ## What this is
 
-- A player that treats your own files as the source of truth and edits them carefully: every change
-  to a music file or playlist is journaled and can be undone.
+- A player that treats your own files as the source of truth and edits them carefully: every edit
+  the app makes to a music file or playlist (tags, moves, deletes, playlist changes) is journaled and
+  can be undone; downloads and phone sync join that path in later phases ([OPEN](docs/OPEN.md)).
 - Playlists as plain `.m3u8` files (a song can be in many), artists from tags, folders as storage.
 - An optional helper: share or paste a YouTube link, pick a folder and playlists, get a tagged audio
   file (yt-dlp and ffmpeg).
@@ -43,5 +44,7 @@ hardware); iOS is deferred. What changed: [CHANGELOG](CHANGELOG.md). What is not
 
 ## Building
 
-Short version, from `app/`: `npm ci`, then `npm run tauri dev`. Everything else, including the phone,
-is in [DEV](docs/DEV.md).
+A fresh clone needs a short preparation first (the UI bundle and the helper programs:
+[DEV](docs/DEV.md#after-a-fresh-clone)); then, from `app/`, `npm run tauri dev`. The dev window uses
+the installed app's settings and data unless you give it a test identity
+([DEV](docs/DEV.md#desktop)). Everything else, including the phone, is in [DEV](docs/DEV.md).
