@@ -144,7 +144,7 @@ fn site_wait_seconds(l: &str) -> Option<u32> {
 
 fn has_http_5xx(l: &str) -> bool {
   l.match_indices("http error 5").any(|(i, m)| {
-    let tail = l[i + m.len()..].as_bytes();
+    let tail = &l.as_bytes()[i + m.len()..];
     tail.len() >= 2 && tail[0].is_ascii_digit() && tail[1].is_ascii_digit()
   })
 }
