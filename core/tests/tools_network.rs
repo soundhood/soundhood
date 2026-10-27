@@ -19,6 +19,7 @@ enum Reply {
   Big(u64),
   /// Pre-compressed bytes sent with Content-Encoding: gzip.
   Gzip(Vec<u8>),
+  Redirect(String),
   NotFound,
 }
 
@@ -64,6 +65,9 @@ fn serve(addr: &str, h: Handler) -> (String, Arc<Mutex<Vec<String>>>) {
           }
           r
         }
+        Reply::Redirect(to) => stream.write_all(
+          format!("HTTP/1.1 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes(),
+        ),
         Reply::NotFound => {
           stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
         }
@@ -297,4 +301,51 @@ fn sums_naming_another_file_refuses() {
     assert!(r.is_err(), "accepted a SUMS line that names another file: {line:?}");
     assert!(names(dest.path()).is_empty(), "{line:?}");
   }
+}
+
+#[test]
+fn a_loopback_base_never_follows_a_redirect() {
+  let (other, other_seen) = serve("127.0.0.2:0", ytdlp_release(format!("{}  yt-dlp.exe\n", sha(YT))));
+  for target in [other.clone(), "http://127.0.0.1:1".to_string()] {
+    let (base, seen) = serve(
+      "127.0.0.1:0",
+      Arc::new(move |p: &str| Reply::Redirect(format!("{target}{p}"))),
+    );
+    let dest = tempfile::tempdir().unwrap();
+    let err = sidecars::fetch(&ytdlp(), dest.path(), Some(&base)).unwrap_err();
+    assert!(err.to_string().contains("redirected (302)"), "{err}");
+    assert_eq!(seen.lock().unwrap().len(), 1, "stopped at the checksum request");
+    assert!(names(dest.path()).is_empty());
+  }
+  assert!(other_seen.lock().unwrap().is_empty(), "the other host was reached");
+}
+
+#[test]
+fn a_user_name_cannot_smuggle_another_host_past_the_loopback_check() {
+  let (other, other_seen) = serve("127.0.0.2:0", ytdlp_release(format!("{}  yt-dlp.exe\n", sha(YT))));
+  let host_port = other.trim_start_matches("http://").to_string();
+  for base in [
+    format!("http://localhost:1@{host_port}"),
+    format!("http://127.0.0.1:80@{host_port}"),
+    format!("http://127.0.0.1@{host_port}"),
+    format!("http://u:p@{host_port}"),
+  ] {
+    let dest = tempfile::tempdir().unwrap();
+    let err = sidecars::fetch(&ytdlp(), dest.path(), Some(&base)).unwrap_err();
+    assert!(
+      matches!(&err, Error::Refused(m) if m.contains("user name or password")),
+      "{base}: {err}"
+    );
+    assert!(names(dest.path()).is_empty());
+  }
+  assert!(other_seen.lock().unwrap().is_empty(), "the other host was reached");
+}
+
+#[test]
+fn the_good_path_still_installs_from_a_loopback_base() {
+  let (base, _) = serve("127.0.0.1:0", ytdlp_release(format!("{}  yt-dlp.exe\n", sha(YT))));
+  let dest = tempfile::tempdir().unwrap();
+  let report = sidecars::fetch(&ytdlp(), dest.path(), Some(&base)).unwrap();
+  assert_eq!(std::fs::read(&report.path).unwrap(), YT);
+  assert_eq!(names(dest.path()), ["yt-dlp.exe"]);
 }

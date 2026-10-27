@@ -32,6 +32,9 @@ const MAX_CHECKSUM_BYTES: u64 = 1 << 20;
 /// Whole-request limit on top of the per-read timeout, so a server that trickles bytes cannot
 /// hold a fetch open forever.
 const TIMEOUT_GLOBAL: Duration = Duration::from_secs(30 * 60);
+/// Redirects followed for an https base (GitHub sends release assets on to its download host);
+/// every hop must be https too.
+const MAX_REDIRECTS: u32 = 5;
 
 /// Which sidecar an asset belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -303,32 +306,81 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// TLS only, except plain HTTP to a loopback test server.
+/// Plain HTTP never follows a redirect: from a test server on this computer, a redirect can only
+/// lead somewhere else, in the clear.
 fn agent_for(base: &str) -> Result<ureq::Agent> {
-  let https = base.starts_with("https://");
-  let loopback = ["http://127.0.0.1", "http://localhost", "http://[::1]"]
-    .iter()
-    .any(|p| {
-      base
-        .strip_prefix(p)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with([':', '/']))
-    });
-  if !https && !loopback {
-    return Err(Error::Refused(format!(
-      "sidecars are only fetched over https, not {base}"
-    )));
-  }
+  let https = check_base(base)?;
   let mut cfg = ureq::Agent::config_builder()
     .https_only(https)
+    .max_redirects(if https { MAX_REDIRECTS } else { 0 })
     // The hash is of the bytes as published: ask for them as they are, never compressed.
     .accept_encoding("identity")
     .timeout_connect(Some(Duration::from_secs(30)))
     .timeout_per_read(Some(Duration::from_secs(60)))
     .timeout_global(Some(TIMEOUT_GLOBAL))
     .user_agent(format!("Soundhood/{} (sidecar manager)", env!("CARGO_PKG_VERSION")));
-  if loopback {
+  if !https {
     cfg = cfg.proxy(None);
   }
   Ok(cfg.build().new_agent())
+}
+
+/// Hosts plain HTTP may reach: a test server on this computer.
+const LOOPBACK_HOSTS: [&str; 3] = ["127.0.0.1", "localhost", "[::1]"];
+
+/// Checks `scheme://host[:port][/path]` and says whether it is https (`false`: plain HTTP to a
+/// loopback host). The host is taken the way an HTTP client reads it, and anything two parsers
+/// could read differently is refused rather than guessed: a user name or password (`user@`), a
+/// percent sign in the host, a backslash, `?`, `#`, spaces and control characters.
+fn check_base(base: &str) -> Result<bool> {
+  let refuse = |why: &str| Error::Refused(format!("{base} is not a usable address for the helpers: {why}"));
+  if base
+    .chars()
+    .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '\\' | '?' | '#'))
+  {
+    return Err(refuse("only a scheme, a host, a port and a path are allowed"));
+  }
+  let (scheme, rest) = base.split_once("://").ok_or_else(|| refuse("it has no https://"))?;
+  let https = match scheme.to_ascii_lowercase().as_str() {
+    "https" => true,
+    "http" => false,
+    _ => return Err(refuse("only https is allowed")),
+  };
+  let authority = rest.split('/').next().unwrap_or_default();
+  if authority.contains('@') {
+    return Err(refuse("a user name or password is not allowed"));
+  }
+  if authority.contains('%') {
+    return Err(refuse("a percent sign is not allowed in the host"));
+  }
+  let (host, port) = match authority.strip_prefix('[') {
+    Some(v6) => {
+      let end = v6.find(']').ok_or_else(|| refuse("the [ of the host is not closed"))?;
+      (format!("[{}]", &v6[..end]), &v6[end + 1..])
+    }
+    None => {
+      let end = authority.find(':').unwrap_or(authority.len());
+      (authority[..end].to_string(), &authority[end..])
+    }
+  };
+  if host.is_empty() || host == "[]" {
+    return Err(refuse("it has no host"));
+  }
+  if !port.is_empty() {
+    let digits = port.strip_prefix(':').unwrap_or_default();
+    let valid = (1..=5).contains(&digits.len())
+      && digits.bytes().all(|b| b.is_ascii_digit())
+      && digits.parse::<u16>().is_ok_and(|p| p != 0);
+    if !valid {
+      return Err(refuse("the port is not a number from 1 to 65535"));
+    }
+  }
+  if !https && !LOOPBACK_HOSTS.contains(&host.to_ascii_lowercase().as_str()) {
+    return Err(Error::Refused(format!(
+      "sidecars are only fetched over https, not {base}"
+    )));
+  }
+  Ok(https)
 }
 
 fn http_error(url: &str, e: ureq::Error) -> Error {
@@ -338,10 +390,23 @@ fn http_error(url: &str, e: ureq::Error) -> Error {
   }
 }
 
+/// GET `url`; anything but `200 OK` is an error. With redirects off (plain HTTP), a redirect
+/// arrives here as a 3xx and is refused.
+fn get(agent: &ureq::Agent, url: &str) -> Result<ureq::http::Response<ureq::Body>> {
+  let resp = agent.get(url).call().map_err(|e| http_error(url, e))?;
+  match resp.status().as_u16() {
+    200 => Ok(resp),
+    s @ 300..=399 => Err(Error::Refused(format!(
+      "GET {url}: the server redirected ({s}); a test server on this computer is never followed elsewhere"
+    ))),
+    s => Err(Error::Other(format!("GET {url}: unexpected answer {s}"))),
+  }
+}
+
 /// The checksum file as text, refused past `MAX_CHECKSUM_BYTES` (counted after any decoding the
 /// HTTP client does, so a compressed answer cannot expand without bound).
 fn get_text(agent: &ureq::Agent, url: &str) -> Result<String> {
-  let resp = agent.get(url).call().map_err(|e| match http_error(url, e) {
+  let resp = get(agent, url).map_err(|e| match e {
     Error::NotFound(u) => Error::Refused(format!("no published checksum at {u}")),
     other => other,
   })?;
@@ -371,7 +436,7 @@ fn download_hashed(agent: &ureq::Agent, url: &str, path: &Path, max: u64) -> Res
       "{url} is larger than the {max} byte limit for this helper; nothing installed"
     ))
   };
-  let resp = agent.get(url).call().map_err(|e| http_error(url, e))?;
+  let resp = get(agent, url)?;
   if resp.body().content_length().is_some_and(|len| len > max) {
     return Err(too_big());
   }
@@ -656,5 +721,59 @@ mod tests {
       agent_for("http://127.0.0.1.example.com"),
       Err(Error::Refused(_))
     ));
+  }
+
+  #[test]
+  fn base_addresses_are_parsed_not_prefix_matched() {
+    for (base, https) in [
+      ("https://github.com", true),
+      ("HTTPS://github.com/", true),
+      ("https://mirror.example:8443/releases", true),
+      ("http://127.0.0.1", false),
+      ("http://127.0.0.1:9/", false),
+      ("http://LOCALHOST:65535/x/y", false),
+      ("http://[::1]:8080", false),
+      ("http://[::1]", false),
+    ] {
+      assert_eq!(check_base(base).ok(), Some(https), "{base}");
+    }
+    for base in [
+      // A user name (or password) in front of another host.
+      "http://localhost:1@127.0.0.2:8080",
+      "http://127.0.0.1:80@mirror.example",
+      "http://127.0.0.1@mirror.example/",
+      "https://user:pass@github.com",
+      "https://github.com@mirror.example",
+      // Lookalikes and other loopback spellings that are not in the list.
+      "http://127.0.0.2",
+      "http://127.1",
+      "http://localhost.",
+      "http://localhost.example.com",
+      "http://[::1].example.com",
+      "http://[::2]",
+      "http://0x7f000001",
+      // Things another parser could read differently.
+      "http://127.0.0.1%2f@mirror.example",
+      "http://127.0.0.1\\@mirror.example",
+      "http://127.0.0.1#@mirror.example",
+      "http://127.0.0.1?@mirror.example",
+      "http://127.0.0.1 /",
+      "http://127.0.0.1:/",
+      "http://127.0.0.1:0",
+      "http://127.0.0.1:65536",
+      "http://127.0.0.1:80:90",
+      "http://[::1",
+      "http://",
+      "https://",
+      "https:///path",
+      "ftp://127.0.0.1",
+      "127.0.0.1:8080",
+      "file:///C:/x",
+    ] {
+      assert!(
+        matches!(check_base(base), Err(Error::Refused(_))),
+        "{base:?} must be refused"
+      );
+    }
   }
 }
