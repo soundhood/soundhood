@@ -20,6 +20,19 @@ use std::time::Duration;
 /// Where releases are fetched from unless a test or mirror overrides it.
 pub const RELEASES_BASE: &str = "https://github.com";
 
+/// Largest yt-dlp download accepted. The real executables are about 20 to 40 MB; a bigger answer
+/// is a broken or hostile server, and the fetch stops before it fills the disk.
+pub const MAX_YTDLP_BYTES: u64 = 100 << 20;
+/// Largest deno zip accepted (the real ones are about 45 MB).
+pub const MAX_DENO_ZIP_BYTES: u64 = 200 << 20;
+/// Largest deno binary extracted from a zip (the real one is about 130 MB).
+pub const MAX_DENO_BYTES: u64 = 400 << 20;
+/// Largest checksum file read; a real one is a few kB.
+const MAX_CHECKSUM_BYTES: u64 = 1 << 20;
+/// Whole-request limit on top of the per-read timeout, so a server that trickles bytes cannot
+/// hold a fetch open forever.
+const TIMEOUT_GLOBAL: Duration = Duration::from_secs(30 * 60);
+
 /// Which sidecar an asset belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +90,14 @@ impl Asset {
   pub fn installed_as(mut self, install_name: impl Into<String>) -> Asset {
     self.install_name = install_name.into();
     self
+  }
+
+  /// The download size limit for this asset.
+  fn max_bytes(&self) -> u64 {
+    match self.tool {
+      Tool::YtDlp => MAX_YTDLP_BYTES,
+      Tool::Deno => MAX_DENO_ZIP_BYTES,
+    }
   }
 
   fn release_dir(&self, base: &str) -> String {
@@ -150,7 +171,9 @@ pub struct FetchReport {
 
 /// Fetches `asset` into `dest_dir/<install_name>` and verifies it; `http_base` overrides
 /// `RELEASES_BASE` (tests, mirrors). Refuses (`Error::Refused`) a yt-dlp below the pinned minimum,
-/// a missing or unusable checksum, any hash mismatch, and plain HTTP to anything but loopback.
+/// a missing or unusable checksum, any hash mismatch, a download above the tool's size limit, an
+/// address with a user name or password in it, and plain HTTP to anything but loopback (which
+/// also never follows a redirect).
 pub fn fetch(asset: &Asset, dest_dir: &Path, http_base: Option<&str>) -> Result<FetchReport> {
   if asset.tool == Tool::YtDlp && !pins::ytdlp_version_allowed(&asset.version) {
     return Err(Error::Refused(format!(
@@ -187,7 +210,7 @@ pub fn fetch(asset: &Asset, dest_dir: &Path, http_base: Option<&str>) -> Result<
 
   fs::create_dir_all(dest_dir)?;
   let download = TempFile(dest_dir.join(format!(".{}.part", asset.install_name)));
-  let (actual, bytes) = download_hashed(&agent, &url, &download.0)?;
+  let (actual, bytes) = download_hashed(&agent, &url, &download.0, asset.max_bytes())?;
   log.push(format!("actual   sha256 {actual} ({bytes} bytes)"));
   if actual != expected {
     return Err(Error::Refused(format!(
@@ -296,8 +319,11 @@ fn agent_for(base: &str) -> Result<ureq::Agent> {
   }
   let mut cfg = ureq::Agent::config_builder()
     .https_only(https)
+    // The hash is of the bytes as published: ask for them as they are, never compressed.
+    .accept_encoding("identity")
     .timeout_connect(Some(Duration::from_secs(30)))
     .timeout_per_read(Some(Duration::from_secs(60)))
+    .timeout_global(Some(TIMEOUT_GLOBAL))
     .user_agent(format!("Soundhood/{} (sidecar manager)", env!("CARGO_PKG_VERSION")));
   if loopback {
     cfg = cfg.proxy(None);
@@ -312,20 +338,43 @@ fn http_error(url: &str, e: ureq::Error) -> Error {
   }
 }
 
+/// The checksum file as text, refused past `MAX_CHECKSUM_BYTES` (counted after any decoding the
+/// HTTP client does, so a compressed answer cannot expand without bound).
 fn get_text(agent: &ureq::Agent, url: &str) -> Result<String> {
-  let mut resp = agent.get(url).call().map_err(|e| match http_error(url, e) {
+  let resp = agent.get(url).call().map_err(|e| match http_error(url, e) {
     Error::NotFound(u) => Error::Refused(format!("no published checksum at {u}")),
     other => other,
   })?;
+  let mut bytes = Vec::new();
   resp
-    .body_mut()
-    .read_to_string()
-    .map_err(|e| Error::Other(format!("GET {url}: {e}")))
+    .into_body()
+    .into_reader()
+    .take(MAX_CHECKSUM_BYTES + 1)
+    .read_to_end(&mut bytes)
+    .map_err(|e| Error::Other(format!("GET {url}: {e}")))?;
+  if bytes.len() as u64 > MAX_CHECKSUM_BYTES {
+    return Err(Error::Refused(format!(
+      "the checksum file at {url} is larger than {} bytes",
+      MAX_CHECKSUM_BYTES
+    )));
+  }
+  String::from_utf8(bytes).map_err(|_| Error::Refused(format!("the checksum file at {url} is not text")))
 }
 
-/// Streams `url` into `path` (fsync'd), returning the SHA-256 hex and the byte count.
-fn download_hashed(agent: &ureq::Agent, url: &str, path: &Path) -> Result<(String, u64)> {
+/// Streams `url` into `path` (fsync'd), returning the SHA-256 hex and the byte count. Refuses a
+/// body larger than `max` bytes: up front from `Content-Length`, otherwise as soon as the running
+/// count passes it, so at most `max` bytes ever reach the disk. The count is of the bytes the
+/// reader yields, after any transparent decompression, which is what a compressed "bomb" inflates.
+fn download_hashed(agent: &ureq::Agent, url: &str, path: &Path, max: u64) -> Result<(String, u64)> {
+  let too_big = || {
+    Error::Refused(format!(
+      "{url} is larger than the {max} byte limit for this helper; nothing installed"
+    ))
+  };
   let resp = agent.get(url).call().map_err(|e| http_error(url, e))?;
+  if resp.body().content_length().is_some_and(|len| len > max) {
+    return Err(too_big());
+  }
   let mut body = resp.into_body().into_reader();
   let mut file = File::create(path)?;
   let mut hasher = Sha256::new();
@@ -338,9 +387,12 @@ fn download_hashed(agent: &ureq::Agent, url: &str, path: &Path) -> Result<(Strin
     if n == 0 {
       break;
     }
+    total += n as u64;
+    if total > max {
+      return Err(too_big());
+    }
     hasher.update(&buf[..n]);
     file.write_all(&buf[..n])?;
-    total += n as u64;
   }
   file.sync_all()?;
   Ok((hex(&hasher.finalize()), total))
@@ -452,6 +504,147 @@ mod tests {
       .pinned_sha256
       .is_none());
     assert!(Asset::deno_pinned("aarch64-linux-android").is_err());
+  }
+
+  /// Answers every connection on 127.0.0.1 with the raw bytes `reply`, then closes it. Returns the
+  /// base URL and the request heads seen.
+  fn serve_raw(reply: Vec<u8>) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{BufRead, BufReader};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { continue };
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut head = String::new();
+        loop {
+          let mut line = String::new();
+          if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+            break;
+          }
+          head.push_str(&line);
+        }
+        log.lock().unwrap().push(head);
+        let _ = stream.write_all(&reply);
+      }
+    });
+    (base, seen)
+  }
+
+  /// A gzip member whose one fixed-Huffman deflate block expands to `n` zero bytes: a literal,
+  /// then length-258 / distance-1 copies, about 13 bits on the wire per 258 bytes out. The CRC
+  /// trailer is left zero; a client has to stop long before it gets there.
+  fn gzip_bomb(n: u64) -> Vec<u8> {
+    struct Bits {
+      out: Vec<u8>,
+      acc: u8,
+      len: u32,
+    }
+    impl Bits {
+      fn bit(&mut self, b: u32) {
+        self.acc |= ((b & 1) as u8) << self.len;
+        self.len += 1;
+        if self.len == 8 {
+          self.out.push(self.acc);
+          (self.acc, self.len) = (0, 0);
+        }
+      }
+      /// Header fields go least significant bit first.
+      fn raw(&mut self, v: u32, width: u32) {
+        (0..width).for_each(|i| self.bit(v >> i));
+      }
+      /// Huffman codes go most significant bit first.
+      fn code(&mut self, c: u32, width: u32) {
+        (0..width).rev().for_each(|i| self.bit(c >> i));
+      }
+    }
+    let mut b = Bits {
+      out: vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff],
+      acc: 0,
+      len: 0,
+    };
+    b.raw(1, 1); // last block
+    b.raw(1, 2); // fixed Huffman codes
+    b.code(0x30, 8); // literal 0
+    let mut left = n - 1;
+    while left >= 258 {
+      b.code(0xc5, 8); // length code 285: 258 bytes
+      b.code(0, 5); // distance code 0: 1 byte back
+      left -= 258;
+    }
+    (0..left).for_each(|_| b.code(0x30, 8));
+    b.code(0, 7); // end of block
+    if b.len > 0 {
+      b.out.push(b.acc);
+    }
+    b.out.extend_from_slice(&[0; 4]);
+    b.out.extend_from_slice(&(n as u32).to_le_bytes());
+    b.out
+  }
+
+  #[test]
+  fn assets_are_asked_for_uncompressed() {
+    let (base, seen) = serve_raw(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec());
+    let dir = tempfile::tempdir().unwrap();
+    let agent = agent_for(&base).unwrap();
+    download_hashed(&agent, &format!("{base}/a"), &dir.path().join("a"), 10).unwrap();
+    let head = seen.lock().unwrap()[0].to_ascii_lowercase();
+    assert!(head.contains("\r\naccept-encoding: identity\r\n"), "{head}");
+  }
+
+  #[test]
+  fn a_content_length_above_the_limit_refuses_before_writing() {
+    let (base, _) =
+      serve_raw(b"HTTP/1.1 200 OK\r\nContent-Length: 10000000000\r\nConnection: close\r\n\r\naaaa".to_vec());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a");
+    let err = download_hashed(&agent_for(&base).unwrap(), &format!("{base}/a"), &path, 1024).unwrap_err();
+    assert!(
+      matches!(&err, Error::Refused(m) if m.contains("1024 byte limit")),
+      "{err}"
+    );
+    assert!(!path.exists(), "nothing written");
+  }
+
+  #[test]
+  fn a_body_without_a_length_stops_at_the_limit() {
+    let mut reply = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+    reply.extend(std::iter::repeat_n(b'a', 1 << 20));
+    let (base, _) = serve_raw(reply);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a");
+    let err = download_hashed(&agent_for(&base).unwrap(), &format!("{base}/a"), &path, 64 << 10).unwrap_err();
+    assert!(matches!(err, Error::Refused(_)), "{err}");
+    assert!(fs::metadata(&path).unwrap().len() <= 64 << 10);
+  }
+
+  #[test]
+  fn a_gzip_bomb_is_counted_after_decoding() {
+    let bomb = gzip_bomb(8 << 20);
+    assert!(bomb.len() < 64 << 10, "{} bytes on the wire", bomb.len());
+    let mut reply = format!(
+      "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+      bomb.len()
+    )
+    .into_bytes();
+    reply.extend(bomb);
+    let (base, _) = serve_raw(reply);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a");
+    let err = download_hashed(&agent_for(&base).unwrap(), &format!("{base}/a"), &path, 1 << 20).unwrap_err();
+    assert!(matches!(err, Error::Refused(_)), "{err}");
+    assert!(fs::metadata(&path).unwrap().len() <= 1 << 20);
+  }
+
+  #[test]
+  fn a_checksum_file_past_its_limit_refuses() {
+    let mut reply = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+    reply.extend(std::iter::repeat_n(b'a', (MAX_CHECKSUM_BYTES + 10) as usize));
+    let (base, _) = serve_raw(reply);
+    let err = get_text(&agent_for(&base).unwrap(), &format!("{base}/SHA2-256SUMS")).unwrap_err();
+    assert!(matches!(&err, Error::Refused(m) if m.contains("larger than")), "{err}");
   }
 
   #[test]
