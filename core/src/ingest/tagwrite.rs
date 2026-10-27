@@ -544,7 +544,10 @@ pub(crate) fn write_tags(
       let _ = fs::remove_file(&tmp);
       return Outcome::Failed {
         path: path.to_string(),
-        err,
+        err: Error::Verify(format!(
+          "not changed: the rewritten copy did not check out ({})",
+          message(&err)
+        )),
         counts: true,
       };
     }
