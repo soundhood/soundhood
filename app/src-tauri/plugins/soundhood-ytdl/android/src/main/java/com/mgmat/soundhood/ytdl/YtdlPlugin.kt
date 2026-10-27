@@ -94,6 +94,18 @@ class YtdlPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun download(invoke: Invoke) {
     val args = invoke.parseArgs(DownloadArgs::class.java)
+    // Only a web link reaches yt-dlp: never an option such as --exec, a local file or another
+    // scheme (the link may come from a share or the synced queue file). And never an output folder
+    // with a ".." segment, which would land files outside the library.
+    val scheme = args.url.take(8).lowercase()
+    if (!(scheme.startsWith("http://") || scheme.startsWith("https://"))) {
+      invoke.reject("Not a web link: ${args.url}")
+      return
+    }
+    if (args.outDir.split('/', '\\').any { it == ".." }) {
+      invoke.reject("Refusing a download folder with '..': ${args.outDir}")
+      return
+    }
     Log.i(TAG, "download: ${args.url} -> ${args.outDir} (playlist=${args.playlist})")
     thread(name = "ytdl-download") {
       val err = ensureInit()
@@ -337,7 +349,11 @@ step("https youtube robots", lambda: urllib.request.urlopen("https://www.youtube
           "--tpslimit", "4", "--tpslimit-burst", "8", "--retries", "5", "--low-level-retries", "20",
           "--stats", "2s", "--stats-one-line", "--stats-log-level", "NOTICE", "-v",
           "--exclude", "**/.thumbnails/**", "--exclude", ".nomedia", "--exclude", "**/*.tmp", "--exclude", "**/*.part",
-          "--exclude", ".stfolder/**", "--exclude", ".stignore", "--exclude", "**/desktop.ini", "--exclude", "**/Thumbs.db"
+          "--exclude", ".stfolder/**", "--exclude", ".stignore", "--exclude", "**/desktop.ini", "--exclude", "**/Thumbs.db",
+          // Soundhood's own per-device files that must never travel: the phone's bin (deleted
+          // tracks), conflict copies and snapshots, and the hidden temp files of an in-progress write.
+          "--exclude", "_Soundhood/.bin/**", "--exclude", "_Soundhood/conflicts/**",
+          "--exclude", "_Soundhood/snapshots/**", "--exclude", "**/.soundhood-tmp-*"
         )
         val steps = ArrayList<Pair<String, List<String>>>()
         if (args.direction == "down" || args.direction == "both") steps.add("down" to (listOf("copy", remote, local) + common))

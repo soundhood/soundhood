@@ -17,8 +17,8 @@ impl<R: Runtime> Ytdl<R> {
   pub fn download(&self, _args: DownloadArgs) -> crate::Result<DownloadResult> {
     Err(crate::Error::Message("On the desktop, downloads use the bundled yt-dlp sidecar".into()))
   }
-  pub fn cancel(&self, _args: CancelArgs) -> crate::Result<()> {
-    Ok(())
+  pub fn cancel(&self, _args: CancelArgs) -> crate::Result<CancelResult> {
+    Ok(CancelResult { cancelled: false })
   }
   pub fn version(&self) -> crate::Result<VersionResult> {
     Err(crate::Error::Message("not on desktop".into()))
