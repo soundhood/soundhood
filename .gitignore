@@ -1,2 +1,31 @@
 /target/
 /.claude/
+
+# Python bytecode (scripts/patch-android.py)
+__pycache__/
+*.py[cod]
+
+# Node, Playwright
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+
+# Signing material and secrets never live in the repository (see docs/DEV.md, "Signing")
+*.jks
+*.keystore
+*.p12
+keystore.properties
+key.properties
+cookies.txt
+.env
+.env.*
+
+# Build outputs copied out of their build folders by hand
+*.apk
+*.aab
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
