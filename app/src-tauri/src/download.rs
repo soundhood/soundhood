@@ -56,7 +56,7 @@ mod desktop {
   use crate::paths::tilde;
   use crate::sidecar;
   use crate::state::home_dir;
-  use soundhood_core::ytdlp::args::{build, DownloadArgs};
+  use soundhood_core::ytdlp::args::{build, is_web_link, DownloadArgs};
   use std::path::{Path, PathBuf};
   use tauri::{AppHandle, Emitter, Manager};
   use tauri_plugin_shell::process::CommandEvent;
@@ -71,6 +71,11 @@ mod desktop {
     };
     if !base_dir.is_dir() {
       return Err(format!("Music folder does not exist: {}", base_dir.display()));
+    }
+    // `build` refuses it too; checking first means a bad link creates no folder.
+    let url = args.url.trim().to_string();
+    if !is_web_link(&url) {
+      return Err(format!("Not a web link: {url}"));
     }
 
     let target = sanitize_folder_name(args.target_folder.as_deref().unwrap_or("Downloads"))?;
@@ -95,7 +100,7 @@ mod desktop {
     }
 
     let argv = build(&DownloadArgs {
-      url: args.url.trim().to_string(),
+      url,
       playlist: args.playlist,
       deno: sidecars.deno.path.clone(),
       ffmpeg: sidecars.ffmpeg.as_ref().map(|f| f.path.clone()),
