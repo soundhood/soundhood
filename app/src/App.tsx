@@ -5,6 +5,9 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, addPluginListener } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { batchLogLines, capLog, diagnosticsLines, libraryKey } from "./coreIpc";
+import type { BatchReport, ChangeSummary, Diagnostics, RefreshReport, SelfTestReport } from "./coreIpc";
+import { checkFolderName, folderNameRefusal } from "./folderName";
 
 type Track = {
   path: string;
@@ -53,6 +56,10 @@ const KEY_DOWNLOAD_PLAYLISTS = "download_playlists";
 // Links shared into the app (phone share sheet) waiting to be downloaded — the phone has no downloader yet.
 const KEY_SHARE_QUEUE = "share_queue";
 const KEY_LAST_SYNC = "last_sync";
+// Hidden developer section: 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop).
+const KEY_DEV_MODE = "dev_mode";
+// The real library while "Use fixture root" points the app at the generated fixture library.
+const KEY_REAL_LIBRARY_DIR = "real_library_dir";
 type QueuedLink = { url: string; added: number; target?: string; playlists?: string[] };
 /** A pure playlist link (list= without a specific video) downloads every entry. */
 function isPlaylistLink(url: string): boolean {
@@ -359,11 +366,8 @@ export default function App() {
   const anchorRef = useRef<string>("");
   // Track awaiting delete confirmation (the in-app "are you sure" box).
   const [confirmDelete, setConfirmDelete] = useState<Track[] | null>(null);
-  // Tag editor (single track) and the batch "tags from filenames" confirmation.
+  // Tag editor (single track).
   const [editTags, setEditTags] = useState<{ track: Track; title: string; artist: string } | null>(null);
-  const [confirmFix, setConfirmFix] = useState<boolean>(false);
-  const [fixBusy, setFixBusy] = useState<boolean>(false);
-  const [fixReport, setFixReport] = useState<{ updated: number; skipped: number; failed: string[] } | null>(null);
   const [currentName, setCurrentName] = useState<string>("");
   const [currentPlaylist, setCurrentPlaylist] = useState<string>("");
 
@@ -425,7 +429,12 @@ export default function App() {
   function confirmQueueDraft(downloadNow: boolean) {
     const d = queueDraft;
     if (!d) return;
-    const item: QueuedLink = { url: d.url, added: Date.now(), target: d.target, playlists: d.playlists };
+    const check = checkFolderName(d.target || DEFAULT_DOWNLOAD_TARGET);
+    if (!check.ok) {
+      setStatus(folderNameRefusal(d.target, check.reason));
+      return;
+    }
+    const item: QueuedLink = { url: d.url, added: Date.now(), target: check.name, playlists: d.playlists };
     const cur = shareQueueRef.current.filter((q) => q.url !== d.url);
     saveQueue([item, ...cur]);
     setSharedLink(d.url);
@@ -531,6 +540,128 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder]);
 
+  // "Undo last change": the newest change on this device that can still be undone (from the
+  // journal), re-read after every command that writes, after a rescan and after an undo.
+  const [lastChange, setLastChange] = useState<ChangeSummary | null>(null);
+  const [undoBusy, setUndoBusy] = useState<boolean>(false);
+  const lastChangeSeqRef = useRef<number>(0);
+  async function refreshLastChange(lib: string = folderRef.current) {
+    const seq = ++lastChangeSeqRef.current; // only the newest answer counts
+    if (!lib) { setLastChange(null); return; }
+    try {
+      const c = await invoke<ChangeSummary | null>("last_change", { libraryDir: lib });
+      if (seq === lastChangeSeqRef.current) setLastChange(c ?? null);
+    } catch {
+      if (seq === lastChangeSeqRef.current) setLastChange(null);
+    }
+  }
+
+  /** Appends lines to the log, keeping only its tail once it grows long. */
+  function appendLog(lines: string[]) {
+    if (lines.length) setDlLogs((prev) => capLog(prev) + lines.join("\n") + "\n");
+  }
+
+  // Hidden developer section (brief §5.9 Tools): "Use fixture root", "Run self-test", "Rebuild
+  // index". Shown after 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop); remembered.
+  const [devMode, setDevMode] = useState<boolean>(false);
+  const devModeRef = useRef<boolean>(false);
+  devModeRef.current = devMode;
+  const [fixtureOn, setFixtureOn] = useState<boolean>(false);
+  const [devBusy, setDevBusy] = useState<"" | "fixture" | "selftest" | "rebuild">("");
+  const statusTapsRef = useRef<{ n: number; at: number }>({ n: 0, at: 0 });
+
+  async function toggleDevMode() {
+    const next = !devModeRef.current;
+    devModeRef.current = next;
+    setDevMode(next);
+    setStatus(next ? "Developer tools on" : "Developer tools off");
+    try {
+      const store = await storePromise;
+      await store.set(KEY_DEV_MODE, next);
+      await store.save();
+    } catch { /* non-fatal: it still applies for this session */ }
+  }
+
+  // Seven taps in a row on the phone's status pill, each within 1.5 s of the previous one.
+  function onStatusTap() {
+    if (!isMobile) return;
+    const now = Date.now();
+    const taps = statusTapsRef.current;
+    taps.n = now - taps.at < 1500 ? taps.n + 1 : 1;
+    taps.at = now;
+    if (taps.n >= 7) {
+      taps.n = 0;
+      toggleDevMode();
+    }
+  }
+
+  // "Use fixture root": on = remember the real library, point the app at the generated fixture
+  // library (created by the host on first use); off = go back to the remembered library.
+  async function switchFixtureRoot(enable: boolean) {
+    if (devBusy) return;
+    setDevBusy("fixture");
+    try {
+      const store = await storePromise;
+      if (enable) {
+        const real = folderRef.current;
+        const r = await invoke<{ root: string }>("dev_fixture_root", { enable: true });
+        if (!r?.root) throw new Error("the host returned no fixture folder");
+        await store.set(KEY_REAL_LIBRARY_DIR, real);
+        await store.save();
+        setFixtureOn(true);
+        appendLog(["[dev] fixture root on"]);
+        await importFolderPath(r.root);
+      } else {
+        const real = await store.get<string>(KEY_REAL_LIBRARY_DIR);
+        try {
+          await invoke("dev_fixture_root", { enable: false });
+        } catch { /* nothing to switch off on the host */ }
+        await store.set(KEY_REAL_LIBRARY_DIR, "");
+        await store.save();
+        setFixtureOn(false);
+        appendLog(["[dev] fixture root off"]);
+        if (typeof real === "string" && real) await importFolderPath(real);
+        else setStatus("Fixture root off: choose the library folder again");
+      }
+    } catch (e) {
+      setStatus(`Fixture root: ${String(e).slice(0, 120)}`);
+    }
+    setDevBusy("");
+  }
+
+  async function runSelfTest() {
+    if (devBusy) return;
+    setDevBusy("selftest");
+    setStatus("Running the self-test…");
+    try {
+      const r = await invoke<SelfTestReport>("self_test");
+      const summary = `self-test: ${r.passed} passed, ${r.failed} failed`;
+      appendLog([...(r.lines ?? []), summary]);
+      setStatus(summary);
+    } catch (e) {
+      appendLog([`[error] self-test: ${String(e)}`]);
+      setStatus(`Self-test failed: ${String(e).slice(0, 120)}`);
+    }
+    setDevBusy("");
+  }
+
+  async function rebuildIndex() {
+    const lib = folderRef.current;
+    if (devBusy || !lib) return;
+    setDevBusy("rebuild");
+    setStatus("Rebuilding the index…");
+    try {
+      const r = await invoke<RefreshReport>("rebuild_index", { libraryDir: lib });
+      const line = `Index rebuilt: ${r.total} tracks in ${(r.millis / 1000).toFixed(1)} s`;
+      appendLog([`[index] ${line}`]);
+      setStatus(line);
+    } catch (e) {
+      appendLog([`[error] rebuild index: ${String(e)}`]);
+      setStatus(`Rebuild failed: ${String(e).slice(0, 120)}`);
+    }
+    setDevBusy("");
+  }
+
   // Folders offered as download targets: every existing playlist folder + the default.
   const targetOptions = useMemo(() => {
     const set = new Set<string>([DEFAULT_DOWNLOAD_TARGET]);
@@ -542,8 +673,13 @@ export default function App() {
   }, [allTracks, dlTarget]);
 
   async function chooseTarget(name: string) {
-    const clean = name.trim();
-    if (!clean) return;
+    if (!name.trim()) return;
+    const check = checkFolderName(name);
+    if (!check.ok) {
+      setStatus(folderNameRefusal(name, check.reason));
+      return;
+    }
+    const clean = check.name;
     setDlTarget(clean);
     setNewFolderMode(false);
     setNewFolderName("");
@@ -652,12 +788,14 @@ export default function App() {
     return pl.entries.some((e) => e.toLowerCase() === k);
   }
 
-  async function loadPlaylists(lib: string) {
+  async function loadPlaylists(lib: string): Promise<PlaylistFile[] | null> {
     try {
       const pls = await invoke<PlaylistFile[]>("list_playlists", { libraryDir: lib });
       setPlaylistFiles(pls);
+      return pls;
     } catch (err) {
       setStatus(`Playlists: ${String(err)}`);
+      return null;
     }
   }
 
@@ -671,6 +809,7 @@ export default function App() {
     } catch (err) {
       setStatus(`Playlists: ${String(err)}`);
     }
+    await refreshLastChange(lib);
   }
 
   async function addToPlaylist(name: string, tracks: Track[]) {
@@ -689,6 +828,7 @@ export default function App() {
     } catch (err) {
       setStatus(`Add failed: ${String(err)}`);
     }
+    await refreshLastChange(lib);
   }
 
   async function removeFromPlaylist(name: string, tracks: Track[]) {
@@ -703,6 +843,7 @@ export default function App() {
     } catch (err) {
       setStatus(`Remove failed: ${String(err)}`);
     }
+    await refreshLastChange(lib);
   }
 
   async function createPlaylist(name: string) {
@@ -722,6 +863,7 @@ export default function App() {
     } catch (err) {
       setStatus(`Create failed: ${String(err)}`);
     }
+    await refreshLastChange(lib);
   }
 
   async function deletePlaylist(name: string) {
@@ -731,12 +873,14 @@ export default function App() {
       await invoke("playlist_delete", { args: { libraryDir: lib, name } });
       setPlaylistFiles((prev) => prev.filter((p) => p.name !== name));
       if (plView === name) setPlView("");
-      setStatus(`Playlist "${name}" moved to the Recycle Bin (tracks untouched)`);
+      // Phone: the app's own bin inside the library; desktop: the system Recycle Bin. Both undoable.
+      setStatus(`Playlist "${name}" moved to ${isMobile ? "the bin" : "the Recycle Bin"} (tracks untouched)`);
     } catch (err) {
       setStatus(`Delete failed: ${String(err)}`);
     } finally {
       setConfirmDeletePlaylist("");
     }
+    await refreshLastChange(lib);
   }
 
   function openPlaylistView(name: string) {
@@ -857,6 +1001,7 @@ export default function App() {
     } catch (err) {
       setStatus(`Scan error: ${String(err)}`);
     }
+    await refreshLastChange(lib);
   }
 
   // Mobile: type the folder path instead of picking it.
@@ -880,6 +1025,7 @@ export default function App() {
     } catch (err) {
       setStatus(`Scan error: ${String(err)}`);
     }
+    await refreshLastChange(dir);
   }
 
   async function importFolder() {
@@ -904,6 +1050,7 @@ export default function App() {
       setQuery("");
       setStatus(`Found ${found.length} tracks`);
       await loadPlaylists(picked);
+      await refreshLastChange(picked);
     } catch (err) {
       setStatus(`Scan error: ${String(err)}`);
     }
@@ -922,7 +1069,16 @@ export default function App() {
       setDlLogs("[error] Pick your Music folder first (Import) — downloads land in a playlist folder under it.\n");
       return false;
     }
-    const folderName = target || DEFAULT_DOWNLOAD_TARGET;
+    // The target may come from the synced queue file (written on another device): check it before
+    // it becomes part of a path.
+    const check = checkFolderName(target || DEFAULT_DOWNLOAD_TARGET);
+    if (!check.ok) {
+      const refusal = folderNameRefusal(target, check.reason);
+      appendLog([`[error] ${refusal}`]);
+      setStatus(refusal);
+      return false;
+    }
+    const folderName = check.name;
     activeDlRef.current = { target: folderName, playlists, queued };
     setDlBusy(true);
     setDlLogs(queued ? `[soundhood] queued link → ${folderName}${playlists.length ? " + " + playlists.join(", ") : ""}\n` : "");
@@ -996,6 +1152,7 @@ export default function App() {
     } catch (err) {
       setStatus(`Refresh error: ${String(err)}`);
     }
+    await refreshLastChange(lib);
   }
 
   // Desktop: work through the queued links one after another (each with its own destination).
@@ -1045,7 +1202,14 @@ export default function App() {
   }
   const [ytdlpBusy, setYtdlpBusy] = useState<boolean>(false);
   async function copyLog() {
-    const text = dlLogs;
+    // The app/device details go on top, so a pasted log says which build and device it came from.
+    let head: string[];
+    try {
+      head = diagnosticsLines(await invoke<Diagnostics>("diagnostics", { libraryDir: folderRef.current || null }));
+    } catch (e) {
+      head = [`diagnostics: unavailable (${String(e).slice(0, 120)})`];
+    }
+    const text = `${head.join("\n")}\n\n${dlLogs}`;
     try {
       await navigator.clipboard.writeText(text);
       setStatus("Log copied");
@@ -1131,6 +1295,7 @@ export default function App() {
       setDlLogs((prev) => prev + `[proton] ${String(e)}\n`);
     }
     setProtonBusy("");
+    await refreshLastChange(lib);
   }
   async function netcheck() {
     setYtdlpBusy(true);
@@ -1166,6 +1331,7 @@ export default function App() {
   function loadAndPlay(t: Track) {
     const audio = audioRef.current;
     if (!audio) return;
+    reloadAbortRef.current?.abort(); // a newer track wins over a pending reload
 
     const src = convertFileSrc(t.path);
     setCurrentPath(t.path);
@@ -1254,12 +1420,87 @@ export default function App() {
     }
   }
 
-  // Move any track into another playlist folder. If it is the one playing, the player
-  // is re-pointed at the new path without losing the position; otherwise playback is untouched.
+  // Write safety for the playing track: before its file is rewritten or moved, the player lets go
+  // of it (no open handle, no range read of a half-replaced file), and afterwards it reloads the
+  // file at the saved position, resuming if it was playing.
+  const currentPathRef = useRef<string>("");
+  currentPathRef.current = currentPath;
+  type HeldPlayback = { pos: number; wasPlaying: boolean; viaBytes: boolean };
+  // A pending reload's listeners, dropped when something else is loaded first.
+  const reloadAbortRef = useRef<AbortController | null>(null);
+
+  /** Stops and releases the player when `path` is the track it holds; null otherwise. */
+  function releasePlayingTrack(path: string): HeldPlayback | null {
+    const audio = audioRef.current;
+    if (!audio || !path || path !== currentPathRef.current) return null;
+    reloadAbortRef.current?.abort();
+    // The phone always plays from the file's bytes; the desktop too once the file URL was refused.
+    const held = { pos: audio.currentTime || 0, wasPlaying: !audio.paused, viaBytes: isMobile || audio.src.startsWith("blob:") };
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    setIsPlaying(false);
+    return held;
+  }
+
+  /** Loads `path` into the released player the same way it was playing, at the saved position. */
+  async function reloadHeldTrack(held: HeldPlayback, path: string) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const ac = new AbortController();
+    reloadAbortRef.current = ac;
+    try {
+      let src: string;
+      if (held.viaBytes) {
+        const buf = await invoke<ArrayBuffer>("read_file_bytes", { path });
+        if (ac.signal.aborted) return;
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        src = URL.createObjectURL(new Blob([buf], { type: mimeFor(path) }));
+        blobUrlRef.current = src;
+      } else {
+        src = convertFileSrc(path);
+      }
+      const resume = () => {
+        ac.abort();
+        audio.currentTime = held.pos;
+        setProgress(held.pos);
+        if (held.wasPlaying) audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      };
+      audio.addEventListener("loadedmetadata", resume, { once: true, signal: ac.signal });
+      audio.addEventListener("error", () => ac.abort(), { once: true, signal: ac.signal });
+      audio.src = src;
+      audio.load();
+    } catch (e) {
+      ac.abort();
+      setIsPlaying(false);
+      setStatus(`Can't reload the playing track: ${String(e).slice(0, 120)}`);
+    }
+  }
+
+  /** Stops playback and forgets the current track (its file is gone). */
+  function stopPlayer() {
+    reloadAbortRef.current?.abort();
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    setIsPlaying(false);
+    setCurrentPath("");
+    setCurrentName("");
+    setCurrentPlaylist("");
+    setProgress(0);
+    setDuration(0);
+  }
+
+  // Move any track into another playlist folder. If it is the one playing, the player lets go of
+  // the file during the move and picks it up at its new path at the same position.
   async function moveTrackTo(fromPath: string, target: string) {
     const lib = folderRef.current;
     if (!fromPath || !lib || !target) return;
 
+    const held = releasePlayingTrack(fromPath);
     try {
       const moved = await invoke<Track>("move_track", {
         args: { path: fromPath, libraryDir: lib, targetFolder: target },
@@ -1276,33 +1517,22 @@ export default function App() {
         return next;
       });
       setStatus(`Moved "${displayName(moved.name)}" to ${moved.playlist}`);
-      await loadPlaylists(lib); // playlist files were updated on the Rust side
 
-      if (fromPath !== currentPath) return;
-
-      setCurrentPath(moved.path);
-      setCurrentPlaylist(moved.playlist);
-
-      // Re-point the player at the new path, keeping the position.
-      const audio = audioRef.current;
-      if (audio) {
-        const pos = audio.currentTime;
-        const wasPlaying = !audio.paused;
-        audio.src = convertFileSrc(moved.path);
-        audio.load();
-        audio.onloadedmetadata = () => {
-          setDuration(audio.duration || 0);
-          audio.currentTime = pos;
-          setProgress(pos);
-          if (wasPlaying) audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-        };
+      if (held) {
+        setCurrentPath(moved.path);
+        setCurrentPlaylist(moved.playlist);
+        await reloadHeldTrack(held, moved.path);
       }
+      await loadPlaylists(lib); // playlist files were updated on the Rust side
     } catch (err) {
       setStatus(`Move failed: ${String(err)}`);
+      if (held) await reloadHeldTrack(held, fromPath);
     }
   }
 
-  // Send a track to the Recycle Bin (after the confirmation box). Stops it if it was playing.
+  // Send tracks to the bin (after the confirmation box): the system Recycle Bin on the desktop,
+  // the app's own bin inside the library on the phone; "Undo last change" brings them back.
+  // Stops the player if its track was deleted.
   async function deleteTracks(tracks: Track[]) {
     const lib = folderRef.current;
     if (!lib || tracks.length === 0) return;
@@ -1316,53 +1546,109 @@ export default function App() {
         failed.push(`${displayName(t.name)}: ${String(err)}`);
       }
     }
-    if (done.includes(currentPath)) {
-      const audio = audioRef.current;
-      if (audio) {
-        audio.pause();
-        audio.removeAttribute("src");
-        audio.load();
-      }
-      setIsPlaying(false);
-      setCurrentPath("");
-      setCurrentName("");
-      setCurrentPlaylist("");
-      setProgress(0);
-      setDuration(0);
-    }
+    if (done.includes(currentPath)) stopPlayer();
     const gone = new Set(done);
     setSelectedPaths((prev) => new Set([...prev].filter((p) => !gone.has(p))));
     setAllTracks((prev) => prev.filter((x) => !gone.has(x.path)));
+    const bin = isMobile ? "the bin" : "the Recycle Bin";
     setStatus(
       done.length === 1 && failed.length === 0
-        ? `Moved "${displayName(tracks[0].name)}" to the Recycle Bin`
-        : `Recycle Bin: ${done.length} moved${failed.length ? `, ${failed.length} failed — ${failed[0]}` : ""}`
+        ? `Moved "${displayName(tracks[0].name)}" to ${bin}`
+        : `${isMobile ? "Bin" : "Recycle Bin"}: ${done.length} moved${failed.length ? `, ${failed.length} failed — ${failed[0]}` : ""}`
     );
     await loadPlaylists(lib);
     setConfirmDelete(null);
+    await refreshLastChange(lib);
   }
 
   // Move several files (Folders view). Each move keeps playlists consistent on the Rust side.
   async function moveTracksTo(tracks: Track[], target: string) {
-    for (const t of tracks) {
-      if ((t.playlist || "(root)") !== target) await moveTrackTo(t.path, target);
+    const check = checkFolderName(target);
+    if (!check.ok) {
+      setStatus(folderNameRefusal(target, check.reason));
+      return;
     }
+    for (const t of tracks) {
+      if ((t.playlist || "(root)") !== check.name) await moveTrackTo(t.path, check.name);
+    }
+    await refreshLastChange();
+  }
+
+  // "Undo last change": reverses the newest batch this device made, then re-reads the library so
+  // the lists, the playlists, the selection and the player follow whatever moved back.
+  async function undoLast() {
+    const lib = folderRef.current;
+    const change = lastChange;
+    if (!lib || !change || undoBusy) return;
+    setUndoBusy(true);
+    setStatus("Undoing…");
+    try {
+      const report = await invoke<BatchReport>("undo_last", { libraryDir: lib });
+      const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
+      setAllTracks(found);
+      const pls = await loadPlaylists(lib);
+      if (pls && plView && !pls.some((p) => p.name === plView)) setPlView("");
+      await followUndo(report, found, lib);
+      const notDone = (report.skipped?.length ?? 0) + (report.failed?.length ?? 0);
+      setStatus(
+        notDone > 0 || report.aborted
+          ? `Undo: ${report.applied?.length ?? 0} restored, ${notDone} not undone (changed since)`
+          : `Undone: ${change.label}`
+      );
+    } catch (err) {
+      setStatus(`Undo failed: ${String(err)}`);
+    } finally {
+      setUndoBusy(false);
+    }
+    await refreshLastChange(lib);
+  }
+
+  /** After an undo: remaps the selection and re-points or stops the player for files it moved back or removed. */
+  async function followUndo(report: BatchReport, found: Track[], lib: string) {
+    const byKey = new Map(found.map((t) => [libraryKey(lib, t.path), t] as const));
+    // Library key of a file before the undo -> the track after it (null: the file is gone).
+    const moved = new Map<string, Track | null>();
+    for (const a of report.applied ?? []) {
+      if (!a.path_before) continue;
+      moved.set(libraryKey(lib, a.path_before), a.path_after ? byKey.get(libraryKey(lib, a.path_after)) ?? null : null);
+    }
+    setSelectedPaths((prev) => {
+      const next = new Set<string>();
+      for (const p of prev) {
+        const k = libraryKey(lib, p);
+        const to = moved.has(k) ? moved.get(k) : byKey.get(k);
+        if (to) next.add(to.path);
+      }
+      return next;
+    });
+    const cur = currentPathRef.current;
+    const k = cur ? libraryKey(lib, cur) : "";
+    if (!k || !moved.has(k)) return;
+    const to = moved.get(k);
+    if (!to) {
+      stopPlayer();
+      return;
+    }
+    // Moved back, or its tags rewritten in place: reload the file at the same position.
+    const held = releasePlayingTrack(cur);
+    setCurrentPath(to.path);
+    setCurrentPlaylist(to.playlist || "(root)");
+    if (held) await reloadHeldTrack(held, to.path);
   }
 
   // Escape closes whichever box is open.
   useEffect(() => {
-    if (!confirmDelete && !editTags && !confirmFix && !confirmDeletePlaylist) return;
+    if (!confirmDelete && !editTags && !confirmDeletePlaylist) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setConfirmDelete(null);
         setEditTags(null);
-        setConfirmFix(false);
         setConfirmDeletePlaylist("");
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [confirmDelete, editTags, confirmFix, confirmDeletePlaylist]);
+  }, [confirmDelete, editTags, confirmDeletePlaylist]);
 
   // "Song - Artist" from a filename — the library convention.
   function titleArtistFromName(name: string): { title: string; artist: string } {
@@ -1381,38 +1667,21 @@ export default function App() {
   async function saveTags() {
     const lib = folderRef.current;
     if (!editTags || !lib) return;
+    const path = editTags.track.path;
+    const held = releasePlayingTrack(path);
     try {
       const updated = await invoke<Track>("write_tags", {
-        args: { path: editTags.track.path, libraryDir: lib, title: editTags.title, artist: editTags.artist },
+        args: { path, libraryDir: lib, title: editTags.title, artist: editTags.artist },
       });
       setAllTracks((prev) => prev.map((t) => (t.path === updated.path ? updated : t)));
       setStatus(`Tags saved: ${displayName(updated.name)}`);
       setEditTags(null);
+      if (held) await reloadHeldTrack(held, updated.path);
     } catch (err) {
       setStatus(`Tag write failed: ${String(err)}`);
+      if (held) await reloadHeldTrack(held, path);
     }
-  }
-
-  // Batch: rewrite title/artist tags of every track currently listed, from their filenames.
-  async function fixTagsFromFilenames() {
-    const lib = folderRef.current;
-    if (!lib || filteredTracks.length === 0) return;
-    setFixBusy(true);
-    setStatus(`Writing tags for ${filteredTracks.length} files…`);
-    try {
-      const report = await invoke<{ updated: Track[]; skipped: number; failed: string[] }>("fix_tags_from_filenames", {
-        args: { paths: filteredTracks.map((t) => t.path), libraryDir: lib },
-      });
-      const byPath = new Map(report.updated.map((t) => [t.path, t] as const));
-      setAllTracks((prev) => prev.map((t) => byPath.get(t.path) ?? t));
-      setStatus(`Tags: ${report.updated.length} updated, ${report.skipped} kept`);
-      setFixReport({ updated: report.updated.length, skipped: report.skipped, failed: report.failed });
-    } catch (err) {
-      setStatus(`Tag write failed: ${String(err)}`);
-    } finally {
-      setFixBusy(false);
-      setConfirmFix(false);
-    }
+    await refreshLastChange(lib);
   }
 
   function togglePlay() {
@@ -1469,6 +1738,10 @@ export default function App() {
         if (typeof savedVolume === "number" && savedVolume >= 0 && savedVolume <= 1) setVolume(savedVolume);
         settingsLoadedRef.current = true;
 
+        if ((await store.get<boolean>(KEY_DEV_MODE)) === true) setDevMode(true);
+        const savedReal = await store.get<string>(KEY_REAL_LIBRARY_DIR);
+        setFixtureOn(typeof savedReal === "string" && savedReal !== "");
+
         let saved = await store.get<string>(KEY_LIBRARY_DIR);
         // Android: no folder picker (it returns content URIs, not paths) — start from the standard Music folder.
         if ((!saved || typeof saved !== "string") && os === "android") {
@@ -1488,6 +1761,7 @@ export default function App() {
         setQuery("");
         setStatus(`Found ${found.length} tracks`);
         await loadPlaylists(saved);
+        await refreshLastChange(saved);
       } catch (err) {
         setStatus(`Auto-load failed: ${String(err)}`);
       }
@@ -1587,15 +1861,16 @@ export default function App() {
     let unlistenFile: (() => void) | undefined;
 
     const setup = async () => {
+      // The log keeps its tail (capLog), like the phone's, so a long download cannot grow it forever.
       const uOut = await listen<string>("ytdlp:stdout", (e) => {
         // add newline if missing, to keep logs readable
         const chunk = e.payload.endsWith("\n") ? e.payload : e.payload + "\n";
-        setDlLogs((prev) => prev + chunk);
+        setDlLogs((prev) => capLog(prev) + chunk);
       });
 
       const uErr = await listen<string>("ytdlp:stderr", (e) => {
         const chunk = e.payload.endsWith("\n") ? e.payload : e.payload + "\n";
-        setDlLogs((prev) => prev + chunk);
+        setDlLogs((prev) => capLog(prev) + chunk);
       });
 
       const uFile = await listen<string[]>("ytdlp:files", (e) => {
@@ -1603,7 +1878,7 @@ export default function App() {
       });
 
       const uDone = await listen<number>("ytdlp:done", async (e) => {
-        setDlLogs((prev) => prev + `\n[done] exit code: ${e.payload}\n`);
+        setDlLogs((prev) => capLog(prev) + `\n[done] exit code: ${e.payload}\n`);
         const filePaths = lastDownloadRef.current;
         lastDownloadRef.current = [];
         await finishDownloadRef.current(e.payload, filePaths);
@@ -1635,6 +1910,63 @@ export default function App() {
     };
   }, []);
 
+  // Every batch the core applies (tag edit, move, delete, playlist change, undo) is reported by
+  // the host as a `core:batch` event: one log line per entry. Same StrictMode-safe pattern.
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    listen<BatchReport>("core:batch", (e) => {
+      if (e.payload) appendLog(batchLogLines(e.payload));
+    })
+      .then((u) => {
+        if (active) unlisten = u;
+        else u();
+      })
+      .catch(() => { /* a host without the event: nothing to log */ });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  // Developer section (hidden): Ctrl+Alt+Shift+D on the desktop.
+  const toggleDevModeRef = useRef(toggleDevMode);
+  toggleDevModeRef.current = toggleDevMode;
+  useEffect(() => {
+    if (isMobile) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && e.shiftKey && e.code === "KeyD") {
+        e.preventDefault();
+        toggleDevModeRef.current();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isMobile]);
+
+  // The developer controls: rows at the bottom of the phone's settings sheet, a row under the
+  // desktop top bar. Plain buttons; the switch is a toggle button that says its state in words.
+  const devControls = (
+    <>
+      <span className="modalHint" style={{ marginTop: 0 }}>Developer</span>
+      <button
+        className={`btn ${fixtureOn ? "primaryBtn" : ""}`}
+        role="switch"
+        aria-checked={fixtureOn}
+        onClick={() => switchFixtureRoot(!fixtureOn)}
+        disabled={devBusy !== "" || dlBusy || protonBusy !== "" || undoBusy}
+        title="Point the app at the generated fixture library (screenshots, tests); off goes back to your library"
+      >
+        {devBusy === "fixture" ? "Switching…" : `Use fixture root: ${fixtureOn ? "on" : "off"}`}
+      </button>
+      <button className="btn" onClick={runSelfTest} disabled={devBusy !== ""} title="Run the bundled checks through this build; the result goes to the log">
+        {devBusy === "selftest" ? "Testing…" : "Run self-test"}
+      </button>
+      <button className="btn" onClick={rebuildIndex} disabled={devBusy !== "" || !folder} title="Rebuild the library index from the files alone; the time goes to the log">
+        {devBusy === "rebuild" ? "Rebuilding…" : "Rebuild index"}
+      </button>
+    </>
+  );
 
   return (
     <div className={`app ${isMobile ? "mobile" : ""}`} style={{ "--mBottomH": `${mBottomH}px` } as CSSProperties}>
@@ -1699,6 +2031,7 @@ export default function App() {
           gap: 10px;
           padding: 0 16px 12px 16px;
         }
+        .devBar{ display:flex; flex-wrap: wrap; align-items:center; gap: 8px; padding: 0 16px 12px 16px; }
         .downloadInput{
           flex: 1;
           border: 1px solid var(--border);
@@ -2185,9 +2518,21 @@ export default function App() {
               Rescan
             </button>
           ) : null}
+          {folder && !isMobile ? (
+            <button
+              className="btn"
+              onClick={undoLast}
+              disabled={!lastChange || undoBusy}
+              title={lastChange ? `Undo: ${lastChange.label}` : "Nothing to undo"}
+            >
+              {undoBusy ? "Undoing…" : "Undo"}
+            </button>
+          ) : null}
         </div>
-        <div className="status">{isMobile ? status : `Status: ${status}`}</div>
+        <div className="status" onClick={onStatusTap}>{isMobile ? status : `Status: ${status}`}</div>
       </div>
+
+      {devMode && !isMobile ? <div className="devBar">{devControls}</div> : null}
 
       {isMobile && mSettings ? (
         <div className="mSettings">
@@ -2201,6 +2546,21 @@ export default function App() {
           />
           <button className="btn" onClick={() => importFolderPath(pathInput)} disabled={!pathInput.trim()}>Use</button>
           {folder ? <button className="btn" onClick={rescanLibrary} title="Re-read the Music folder">Rescan</button> : null}
+          {folder ? (
+            <div className="queueAdd">
+              <button
+                className="btn"
+                onClick={undoLast}
+                disabled={!lastChange || undoBusy || dlBusy || protonBusy !== ""}
+                title="Reverse the last tag edit, move, delete or playlist change"
+              >
+                {undoBusy ? "Undoing…" : "Undo last change"}
+              </button>
+              <span className="modalHint" style={{ marginTop: 0 }}>
+                {lastChange ? lastChange.label : "nothing to undo"}
+              </span>
+            </div>
+          ) : null}
           <div className="queueAdd">
             <input
               className="downloadInput"
@@ -2285,6 +2645,7 @@ export default function App() {
               ))}
             </div>
           ) : null}
+          {devMode ? <div className="queueAdd">{devControls}</div> : null}
         </div>
       ) : null}
 
@@ -2344,6 +2705,11 @@ export default function App() {
         <button className="btn" onClick={startManualDownload} disabled={dlBusy || !downloadUrl.trim()}>
           {dlBusy ? "Downloading…" : "Download"}
         </button>
+        {dlLogs ? (
+          <button className="btn" onClick={copyLog} title="Copy the whole log to the clipboard, with the app and device details on top">
+            Copy log
+          </button>
+        ) : null}
         <button className="btn" onClick={() => setDlLogs("")} disabled={!dlLogs}>
           Clear logs
         </button>
@@ -2600,7 +2966,7 @@ export default function App() {
             {selectedTracks.length > 0 ? (
               <button
                 className="iconBtn danger"
-                title={selectedTracks.length > 1 ? `Delete ${selectedTracks.length} tracks (to the Recycle Bin)` : `Delete "${displayName(selectedTracks[0].name)}" (to the Recycle Bin)`}
+                title={`${selectedTracks.length > 1 ? `Delete ${selectedTracks.length} tracks` : `Delete "${displayName(selectedTracks[0].name)}"`} (to ${isMobile ? "the bin" : "the Recycle Bin"}; Undo brings ${selectedTracks.length > 1 ? "them" : "it"} back)`}
                 onClick={() => setConfirmDelete(selectedTracks)}
               >
                 <TrashIcon />
@@ -2614,16 +2980,7 @@ export default function App() {
               >
                 {mSelectMode ? "Done" : "Select"}
               </button>
-            ) : (
-              <button
-                className="btn"
-                disabled={fixBusy || filteredTracks.length === 0}
-                title="Rewrite the title/artist tags of every track listed here from its 'Song - Artist' filename"
-                onClick={() => setConfirmFix(true)}
-              >
-                {fixBusy ? "Writing…" : "Tags ← names"}
-              </button>
-            )}
+            ) : null}
             <button
               className={`shuffleBtn ${shuffle ? "on" : ""}`}
               onClick={() => setShuffle((s) => !s)}
@@ -2889,53 +3246,17 @@ export default function App() {
         </div>
       ) : null}
 
-      {confirmFix ? (
-        <div className="modalBackdrop" onMouseDown={() => setConfirmFix(false)}>
-          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="modalTitle">Write tags from filenames?</div>
-            <div className="modalBody">
-              <div className="modalTrack">{filteredTracks.length} track{filteredTracks.length === 1 ? "" : "s"} currently listed</div>
-              <div className="modalHint">
-                Conservative: a file's title/artist tag is replaced from its "Song - Artist" name only when the tag is <b>empty</b> or looks like raw YouTube output
-                ("(Official Video)", "[Lyric Video]", "| Channel", a video id…). Curated tags — even ones that differ from a shortened filename — are kept.
-                This edits the files themselves; the phone and other players will show the result.
-              </div>
-            </div>
-            <div className="modalActions">
-              <button className="btn" onClick={() => setConfirmFix(false)} autoFocus>Cancel</button>
-              <button className="btn primaryBtn" onClick={fixTagsFromFilenames} disabled={fixBusy}>Write tags</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {fixReport ? (
-        <div className="modalBackdrop" onMouseDown={() => setFixReport(null)}>
-          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="modalTitle">Tags written</div>
-            <div className="modalBody">
-              <div className="modalTrack">
-                {fixReport.updated} updated · {fixReport.skipped} kept as they were
-                {fixReport.failed.length ? ` · ${fixReport.failed.length} failed` : ""}
-              </div>
-              {fixReport.failed.length ? (
-                <div className="modalHint" style={{ whiteSpace: "pre-wrap" }}>{fixReport.failed.slice(0, 8).join("\n")}</div>
-              ) : null}
-            </div>
-            <div className="modalActions">
-              <button className="btn primaryBtn" onClick={() => setFixReport(null)} autoFocus>OK</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {confirmDeletePlaylist ? (
         <div className="modalBackdrop" onMouseDown={() => setConfirmDeletePlaylist("")}>
           <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modalTitle">Delete this playlist?</div>
             <div className="modalBody">
               <div className="modalTrack">{confirmDeletePlaylist}</div>
-              <div className="modalHint">Only the playlist file goes to the Recycle Bin. The songs stay exactly where they are.</div>
+              <div className="modalHint">
+                {isMobile
+                  ? "Only the playlist file goes to the app's bin; Undo last change in settings brings it back. The songs stay exactly where they are."
+                  : "Only the playlist file goes to the Recycle Bin; Undo in the top bar brings it back. The songs stay exactly where they are."}
+              </div>
             </div>
             <div className="modalActions">
               <button className="btn" onClick={() => setConfirmDeletePlaylist("")} autoFocus>Cancel</button>
@@ -2958,8 +3279,8 @@ export default function App() {
               </div>
               <div className="modalHint">
                 {isMobile
-                  ? "On the phone there is no Recycle Bin: the files are deleted for real. Playlists are updated."
-                  : "The files go to the Windows Recycle Bin, so this can be undone from there. Playlists are updated."}
+                  ? "The files go to the app's bin; Undo last change in settings brings them back. Playlists are updated."
+                  : "The files go to the Recycle Bin; Undo in the top bar brings them back. Playlists are updated."}
               </div>
             </div>
             <div className="modalActions">
