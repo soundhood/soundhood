@@ -9,8 +9,10 @@
 //! leaves behind, and only ever writes into such a folder.
 
 use crate::error::{Error, Result};
-use crate::model::{PlaylistFile, Track};
-use crate::{manifest, ytdlp};
+use crate::ingest::tagwrite::{self, ApplyOptions};
+use crate::ingest::{undo, BatchReport, Op};
+use crate::model::{DeviceId, Library, Platform, PlaylistFile, RelPath, TagSet, Track};
+use crate::{manifest, playlist, tags, ytdlp};
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder, Rgb, RgbImage};
@@ -603,7 +605,10 @@ fn artist_from_filename(name: &str, known: &HashSet<String>) -> String {
 }
 
 /// The fixture checks of the in-app "Run self-test" and `soundhood-tools self-test`, run in a
-/// scratch folder under the system temp dir. Each line: (passed, plain description).
+/// scratch folder under the system temp dir. Each line: (passed, plain description). They cover
+/// fixture generation, the write path on the scratch library (a tag write, check and undo per
+/// container, a move and its undo, a delete to the app bin and its undo), manifests, and the
+/// yt-dlp output classifier.
 pub fn self_test_lines() -> Vec<(bool, String)> {
   self_test_lines_in(&std::env::temp_dir())
 }
@@ -640,6 +645,8 @@ pub fn self_test_lines_in(scratch_parent: &Path) -> Vec<(bool, String)> {
         unreadable.is_empty(),
         format!("every fixture track reads back with its duration {unreadable:?}"),
       ));
+      // Before the manifest checks, which append a byte to the first track.
+      lines.extend(write_path_checks(&scratch, &report));
       lines.extend(manifest_checks(&scratch, &report));
     }
     Err(e) => lines.push((false, format!("fixture library: {e}"))),
@@ -655,6 +662,195 @@ pub fn self_test_lines_in(scratch_parent: &Path) -> Vec<(bool, String)> {
     ));
   }
   lines
+}
+
+/// The one write path on the scratch library, through `ingest` exactly as the app calls it: per
+/// container a tag write that is checked and then undone, then a move and a delete, each undone
+/// and compared with a manifest taken before. The library is opened as the phone sees it
+/// (`Platform::Android`), so the delete goes to `_Soundhood/.bin` on every device and never to
+/// this computer's recycle bin.
+fn write_path_checks(root: &Path, report: &FixtureReport) -> Vec<(bool, String)> {
+  let lib = Library {
+    root: root.to_path_buf(),
+    device: DeviceId("self-test".into()),
+    platform: Platform::Android,
+  };
+  let line = |label: String, r: std::result::Result<(), String>| match r {
+    Ok(()) => (true, label),
+    Err(why) => (false, format!("{label}: {why}")),
+  };
+  let mut lines = Vec::new();
+  for format in FORMATS {
+    let label = format!("{}: tag write, check and undo", format.ext());
+    let track = report
+      .tracks
+      .iter()
+      .find(|t| t.format == format && t.note.is_empty() && !t.title.is_empty());
+    lines.push(match track {
+      Some(t) => line(label, tag_round_trip(&lib, &t.rel)),
+      None => (false, format!("{label}: no fixture track of this kind")),
+    });
+  }
+  // Ordinary tracks in a first-level folder that a playlist names: the move and delete must
+  // carry the playlist lines with them.
+  let in_playlists: Vec<&FixtureTrack> = report
+    .tracks
+    .iter()
+    .filter(|t| t.note.is_empty() && t.rel.contains('/'))
+    .filter(|t| report.playlists.iter().any(|p| p.entries.contains(&t.rel)))
+    .collect();
+  lines.push(line(
+    "move to another folder, playlists follow, undo puts it back".into(),
+    match in_playlists.first() {
+      Some(t) => move_round_trip(&lib, &t.rel, report),
+      None => Err("no fixture track in a folder and a playlist".into()),
+    },
+  ));
+  lines.push(line(
+    "delete to the app bin, playlists follow, undo brings it back".into(),
+    match in_playlists.get(1) {
+      Some(t) => delete_round_trip(&lib, &t.rel),
+      None => Err("no second fixture track in a folder and a playlist".into()),
+    },
+  ));
+  lines
+}
+
+type Check = std::result::Result<(), String>;
+
+/// A batch that changed something and skipped or failed nothing.
+fn clean(r: &BatchReport, what: &str) -> Check {
+  if !r.applied.is_empty() && r.skipped.is_empty() && r.failed.is_empty() && !r.aborted {
+    return Ok(());
+  }
+  let skipped: Vec<&str> = r.skipped.iter().map(|s| s.reason.as_str()).collect();
+  let failed: Vec<&str> = r.failed.iter().map(|f| f.error.as_str()).collect();
+  Err(format!(
+    "{what}: {} applied, skipped {skipped:?}, failed {failed:?}",
+    r.applied.len()
+  ))
+}
+
+fn err(e: Error) -> String {
+  e.reason()
+}
+
+/// Retitles one track through the write path, reads it back, undoes it, and checks every
+/// editable field, the duration and the cover are what they were.
+fn tag_round_trip(lib: &Library, rel: &str) -> Check {
+  let rel = RelPath::new(rel).map_err(err)?;
+  let abs = lib.abs(&rel);
+  let before = tags::read(&abs).map_err(err)?;
+  let title = format!("{} (self-test)", before.title);
+  let op = Op::WriteTags {
+    rel: rel.clone(),
+    changes: TagSet {
+      title: Some(title.clone()),
+      ..TagSet::default()
+    },
+  };
+  let written = tagwrite::apply(lib, vec![op], &ApplyOptions::default());
+  clean(&written, "the tag write")?;
+  let after = tags::read(&abs).map_err(err)?;
+  let want = TagSet {
+    title: Some(title),
+    ..tags::tagset_of(&before)
+  };
+  if tags::tagset_of(&after) != want || after.art_hash != before.art_hash {
+    return Err(format!("the file reads back as {:?}", tags::tagset_of(&after)));
+  }
+  if after.duration_ms.abs_diff(before.duration_ms) > 1000 || after.codec != before.codec {
+    return Err(format!(
+      "the audio changed: {} ms {} became {} ms {}",
+      before.duration_ms, before.codec, after.duration_ms, after.codec
+    ));
+  }
+  clean(&undo::undo_batch(lib, &written.batch).map_err(err)?, "the undo")?;
+  let restored = tags::read(&abs).map_err(err)?;
+  if tags::tagset_of(&restored) != tags::tagset_of(&before) || restored.art_hash != before.art_hash {
+    return Err(format!("after the undo it reads {:?}", tags::tagset_of(&restored)));
+  }
+  Ok(())
+}
+
+/// A manifest of the library, for "nothing else changed" comparisons.
+fn snapshot(lib: &Library) -> std::result::Result<manifest::Manifest, String> {
+  manifest::build(&lib.root).map_err(err)
+}
+
+/// After an undo the library must compare identical to the manifest taken before the change.
+fn identical_to(lib: &Library, before: &manifest::Manifest) -> Check {
+  match manifest::diff(before, &snapshot(lib)?) {
+    d if d.is_empty() => Ok(()),
+    d => Err(format!("after the undo the library differs: {d:?}")),
+  }
+}
+
+/// Whether every playlist line naming `old` now names `new` instead (`None` after a delete).
+fn playlists_follow(lib: &Library, old: &RelPath, new: Option<&RelPath>) -> Check {
+  let still = playlist::containing(&lib.root, old).map_err(err)?;
+  if !still.is_empty() {
+    return Err(format!("{} still names the old place", still[0].name));
+  }
+  if let Some(new) = new {
+    if playlist::containing(&lib.root, new).map_err(err)?.is_empty() {
+      return Err("no playlist names the new place".into());
+    }
+  }
+  Ok(())
+}
+
+fn move_round_trip(lib: &Library, rel: &str, report: &FixtureReport) -> Check {
+  let rel = RelPath::new(rel).map_err(err)?;
+  let (folder, name) = rel.as_str().split_once('/').ok_or("not in a folder")?;
+  let name = name.rsplit('/').next().unwrap_or(name);
+  // Another first-level folder of the fixture library without a file of that name.
+  let to_folder = report
+    .tracks
+    .iter()
+    .filter_map(|t| t.rel.split_once('/').map(|(f, _)| f))
+    .find(|&f| f != folder && !abs_of(&lib.root, &format!("{f}/{name}")).exists())
+    .ok_or("no other folder to move into")?
+    .to_string();
+  let to = RelPath::new(&format!("{to_folder}/{name}")).map_err(err)?;
+  let before = snapshot(lib)?;
+  let moved = tagwrite::apply(
+    lib,
+    vec![Op::Move {
+      rel: rel.clone(),
+      to_folder,
+    }],
+    &ApplyOptions::default(),
+  );
+  clean(&moved, "the move")?;
+  if lib.abs(&rel).exists() || !lib.abs(&to).is_file() {
+    return Err(format!("after the move the file is not at {to} only"));
+  }
+  playlists_follow(lib, &rel, Some(&to))?;
+  clean(&undo::undo_batch(lib, &moved.batch).map_err(err)?, "the undo")?;
+  identical_to(lib, &before)
+}
+
+fn delete_round_trip(lib: &Library, rel: &str) -> Check {
+  let rel = RelPath::new(rel).map_err(err)?;
+  let before = snapshot(lib)?;
+  let deleted = tagwrite::apply(lib, vec![Op::Delete { rel: rel.clone() }], &ApplyOptions::default());
+  clean(&deleted, "the delete")?;
+  if lib.abs(&rel).exists() {
+    return Err("the file is still there".into());
+  }
+  let bin = lib.root.join(crate::fs::APP_DIR).join(".bin");
+  let name = lib.abs(&rel).file_name().map(|n| n.to_os_string());
+  let in_bin = walkdir::WalkDir::new(&bin)
+    .into_iter()
+    .filter_map(|e| e.ok())
+    .any(|e| e.file_type().is_file() && Some(e.file_name().to_os_string()) == name);
+  if !in_bin {
+    return Err("the file did not arrive in the app bin".into());
+  }
+  playlists_follow(lib, &rel, None)?;
+  clean(&undo::undo_batch(lib, &deleted.batch).map_err(err)?, "the undo")?;
+  identical_to(lib, &before)
 }
 
 fn manifest_checks(root: &Path, report: &FixtureReport) -> Vec<(bool, String)> {
@@ -886,5 +1082,53 @@ mod tests {
     for (ok, line) in &lines {
       assert!(ok, "{line}");
     }
+    // The write path is exercised: one round trip per container, a move and a delete.
+    let has = |s: &str| lines.iter().filter(|(_, l)| l.contains(s)).count();
+    assert_eq!(has(": tag write, check and undo"), FORMATS.len());
+    for f in FORMATS {
+      assert_eq!(has(&format!("{}: tag write", f.ext())), 1, "{f:?}");
+    }
+    assert_eq!(has("move to another folder"), 1);
+    assert_eq!(has("delete to the app bin"), 1);
+  }
+
+  #[test]
+  fn the_write_checks_leave_the_library_as_they_found_it() {
+    let t = tempfile::tempdir().unwrap();
+    let r = generate(t.path(), &FixtureSpec::default()).unwrap();
+    let before = manifest::build(t.path()).unwrap();
+    for (ok, line) in write_path_checks(t.path(), &r) {
+      assert!(ok, "{line}");
+    }
+    let after = manifest::build(t.path()).unwrap();
+    // Tag write + undo restores the values, not necessarily the bytes; moves and deletes are exact.
+    let rels = |m: &manifest::Manifest| m.files.iter().map(|f| f.rel.to_string()).collect::<Vec<_>>();
+    assert_eq!(rels(&before), rels(&after));
+    assert!(t.path().join("_Soundhood").join("journal").join("self-test").is_dir());
+  }
+
+  #[test]
+  fn a_write_the_library_refuses_shows_as_a_failed_line() {
+    let t = tempfile::tempdir().unwrap();
+    let r = generate(t.path(), &FixtureSpec::default()).unwrap();
+    let m4a = r
+      .tracks
+      .iter()
+      .find(|t| t.format == Format::M4a && t.note.is_empty())
+      .unwrap();
+    let abs = t.path().join(&m4a.rel);
+    let mut perms = std::fs::metadata(&abs).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&abs, perms.clone()).unwrap();
+    let lines = write_path_checks(t.path(), &r);
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&abs, perms).unwrap();
+    let (ok, line) = &lines[0];
+    assert!(
+      !ok && line.starts_with("m4a: tag write, check and undo: the tag write:"),
+      "{line}"
+    );
+    assert!(lines[1..].iter().all(|(ok, _)| *ok), "{lines:?}");
   }
 }
