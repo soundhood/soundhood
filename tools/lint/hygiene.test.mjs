@@ -250,7 +250,10 @@ describe("file names", () => {
   });
 });
 
-describe("the command line", () => {
+// The lint lists files with `git ls-files`; a tree exported with `git archive` has no repository.
+const inGitTree = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: REPO_ROOT }).status === 0;
+
+describe.skipIf(!inGitTree)("the command line", () => {
   // This file itself holds the test word, so the real lint over the real tree must find it here.
   const run = (deny) =>
     spawnSync(process.execPath, [path.join(REPO_ROOT, "tools", "hygiene-lint.mjs")], {
