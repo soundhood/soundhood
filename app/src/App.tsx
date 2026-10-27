@@ -359,11 +359,8 @@ export default function App() {
   const anchorRef = useRef<string>("");
   // Track awaiting delete confirmation (the in-app "are you sure" box).
   const [confirmDelete, setConfirmDelete] = useState<Track[] | null>(null);
-  // Tag editor (single track) and the batch "tags from filenames" confirmation.
+  // Tag editor (single track).
   const [editTags, setEditTags] = useState<{ track: Track; title: string; artist: string } | null>(null);
-  const [confirmFix, setConfirmFix] = useState<boolean>(false);
-  const [fixBusy, setFixBusy] = useState<boolean>(false);
-  const [fixReport, setFixReport] = useState<{ updated: number; skipped: number; failed: string[] } | null>(null);
   const [currentName, setCurrentName] = useState<string>("");
   const [currentPlaylist, setCurrentPlaylist] = useState<string>("");
 
@@ -1351,18 +1348,17 @@ export default function App() {
 
   // Escape closes whichever box is open.
   useEffect(() => {
-    if (!confirmDelete && !editTags && !confirmFix && !confirmDeletePlaylist) return;
+    if (!confirmDelete && !editTags && !confirmDeletePlaylist) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setConfirmDelete(null);
         setEditTags(null);
-        setConfirmFix(false);
         setConfirmDeletePlaylist("");
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [confirmDelete, editTags, confirmFix, confirmDeletePlaylist]);
+  }, [confirmDelete, editTags, confirmDeletePlaylist]);
 
   // "Song - Artist" from a filename — the library convention.
   function titleArtistFromName(name: string): { title: string; artist: string } {
@@ -1390,28 +1386,6 @@ export default function App() {
       setEditTags(null);
     } catch (err) {
       setStatus(`Tag write failed: ${String(err)}`);
-    }
-  }
-
-  // Batch: rewrite title/artist tags of every track currently listed, from their filenames.
-  async function fixTagsFromFilenames() {
-    const lib = folderRef.current;
-    if (!lib || filteredTracks.length === 0) return;
-    setFixBusy(true);
-    setStatus(`Writing tags for ${filteredTracks.length} files…`);
-    try {
-      const report = await invoke<{ updated: Track[]; skipped: number; failed: string[] }>("fix_tags_from_filenames", {
-        args: { paths: filteredTracks.map((t) => t.path), libraryDir: lib },
-      });
-      const byPath = new Map(report.updated.map((t) => [t.path, t] as const));
-      setAllTracks((prev) => prev.map((t) => byPath.get(t.path) ?? t));
-      setStatus(`Tags: ${report.updated.length} updated, ${report.skipped} kept`);
-      setFixReport({ updated: report.updated.length, skipped: report.skipped, failed: report.failed });
-    } catch (err) {
-      setStatus(`Tag write failed: ${String(err)}`);
-    } finally {
-      setFixBusy(false);
-      setConfirmFix(false);
     }
   }
 
@@ -2614,16 +2588,7 @@ export default function App() {
               >
                 {mSelectMode ? "Done" : "Select"}
               </button>
-            ) : (
-              <button
-                className="btn"
-                disabled={fixBusy || filteredTracks.length === 0}
-                title="Rewrite the title/artist tags of every track listed here from its 'Song - Artist' filename"
-                onClick={() => setConfirmFix(true)}
-              >
-                {fixBusy ? "Writing…" : "Tags ← names"}
-              </button>
-            )}
+            ) : null}
             <button
               className={`shuffleBtn ${shuffle ? "on" : ""}`}
               onClick={() => setShuffle((s) => !s)}
@@ -2884,46 +2849,6 @@ export default function App() {
               <span style={{ flex: 1 }} />
               <button className="btn" onClick={() => setEditTags(null)}>Cancel</button>
               <button className="btn primaryBtn" onClick={saveTags}>Save</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {confirmFix ? (
-        <div className="modalBackdrop" onMouseDown={() => setConfirmFix(false)}>
-          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="modalTitle">Write tags from filenames?</div>
-            <div className="modalBody">
-              <div className="modalTrack">{filteredTracks.length} track{filteredTracks.length === 1 ? "" : "s"} currently listed</div>
-              <div className="modalHint">
-                Conservative: a file's title/artist tag is replaced from its "Song - Artist" name only when the tag is <b>empty</b> or looks like raw YouTube output
-                ("(Official Video)", "[Lyric Video]", "| Channel", a video id…). Curated tags — even ones that differ from a shortened filename — are kept.
-                This edits the files themselves; the phone and other players will show the result.
-              </div>
-            </div>
-            <div className="modalActions">
-              <button className="btn" onClick={() => setConfirmFix(false)} autoFocus>Cancel</button>
-              <button className="btn primaryBtn" onClick={fixTagsFromFilenames} disabled={fixBusy}>Write tags</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {fixReport ? (
-        <div className="modalBackdrop" onMouseDown={() => setFixReport(null)}>
-          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="modalTitle">Tags written</div>
-            <div className="modalBody">
-              <div className="modalTrack">
-                {fixReport.updated} updated · {fixReport.skipped} kept as they were
-                {fixReport.failed.length ? ` · ${fixReport.failed.length} failed` : ""}
-              </div>
-              {fixReport.failed.length ? (
-                <div className="modalHint" style={{ whiteSpace: "pre-wrap" }}>{fixReport.failed.slice(0, 8).join("\n")}</div>
-              ) : null}
-            </div>
-            <div className="modalActions">
-              <button className="btn primaryBtn" onClick={() => setFixReport(null)} autoFocus>OK</button>
             </div>
           </div>
         </div>
