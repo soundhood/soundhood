@@ -786,10 +786,10 @@ mod tests {
     for base in [
       // A user name (or password) in front of another host.
       "http://localhost:1@127.0.0.2:8080",
-      "http://127.0.0.1:80@mirror.example",
-      "http://127.0.0.1@mirror.example/",
-      "https://user:pass@github.com",
-      "https://github.com@mirror.example",
+      "http://127.0.0.1:80@mirror.example.com",
+      "http://127.0.0.1@mirror.example.com/",
+      "https://user:pass@mirror.example.com",
+      "https://github.com@mirror.example.com",
       // Lookalikes and other loopback spellings that are not in the list.
       "http://127.0.0.2",
       "http://127.1",
@@ -799,10 +799,10 @@ mod tests {
       "http://[::2]",
       "http://0x7f000001",
       // Things another parser could read differently.
-      "http://127.0.0.1%2f@mirror.example",
-      "http://127.0.0.1\\@mirror.example",
-      "http://127.0.0.1#@mirror.example",
-      "http://127.0.0.1?@mirror.example",
+      "http://127.0.0.1%2f@mirror.example.com",
+      "http://127.0.0.1\\@mirror.example.com",
+      "http://127.0.0.1#@mirror.example.com",
+      "http://127.0.0.1?@mirror.example.com",
       "http://127.0.0.1 /",
       "http://127.0.0.1:/",
       "http://127.0.0.1:0",
