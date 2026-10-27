@@ -796,7 +796,7 @@ async fn ytdlp_download_audio(app: AppHandle, args: YtDlpArgs) -> Result<(), Str
   std::fs::create_dir_all(&out_dir)
     .map_err(|e| format!("Failed to create folder {}: {e}", out_dir.display()))?;
 
-  // Filename = "Track - Artist" (Matteo's library convention) when YouTube knows both,
+  // Filename = "Track - Artist" (the house naming convention) when YouTube knows both,
   // else the cleaned video title. `mh_name` is set by --parse-metadata below only when
   // track AND artist are present (a missing field renders as "NA", which the lookaheads reject).
   let output_template = out_dir

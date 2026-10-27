@@ -1,4 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Library manifests merge into the app, so everything Soundhood needs that is not tied to the app's
+     own activity is declared here and survives `tauri android init`. scripts/patch-android.py only
+     re-applies what must sit on MainActivity or in the app's Gradle file. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- The library is a real folder tree the user owns (default /storage/emulated/0/Music): Rust reads
+         and writes it directly (m3u8 playlists included), yt-dlp lands files in it, rclone syncs it.
+         On Android 11+ that needs "All files access", which MainActivity asks for. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+
+    <!-- Background work, declared ahead of the foreground services: downloads and sync here, playback
+         in the Phase 3 player plugin (the media-playback ones move there with it). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- youtubedl-android and rclone run python, ffmpeg and rclone as executables from the native
+         library folder, so the .so files must be extracted at install time. The app's Gradle
+         `useLegacyPackaging = true` (patch-android.py) is what stores them that way in the APK. -->
+    <application android:extractNativeLibs="true" />
 </manifest>

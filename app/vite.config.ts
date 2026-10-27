@@ -19,6 +19,8 @@ export default defineConfig(async () => ({
     port: 1420,
     strictPort: true,
     // Listen on every interface so the phone can reach the dev server whatever the PC's LAN IP is.
+    // The address the phone uses comes from `npm run tauri android dev -- --host <PC LAN IP>`
+    // (see scripts/build-android.ps1); nothing in the repo pins it.
     host: host || mobile ? "0.0.0.0" : false,
     // Phone: no live-reload channel at all. The WebView drops the socket whenever the app is
     // backgrounded, and Vite's client answers a dropped socket with a full page reload on resume —

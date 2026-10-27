@@ -45,7 +45,7 @@ class MainActivity : TauriActivity() {
     handleShare(intent)
   }
 
-  // Share sheet: another app (Brave, YouTube) sends us text/a link. Hand it to the web UI as
+  // Share sheet: another app (a browser, YouTube) sends us text/a link. Hand it to the web UI as
   // window.__soundhoodShare(text); retried until the page is up (cold start).
   private var pendingShare: String? = null
   private fun handleShare(intent: Intent?) {

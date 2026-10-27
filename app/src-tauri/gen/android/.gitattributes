@@ -1,0 +1,5 @@
+# The Tauri CLI rewrites a CRLF gradlew to LF before every Android build, and cmd misreads labels
+# in an LF-only .bat. Pin both so a checkout on any OS builds and stays clean.
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

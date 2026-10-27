@@ -1,15 +1,18 @@
 [package]
 name = "tauri-plugin-soundhood-ytdl"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Soundhood: yt-dlp on the phone (youtubedl-android) behind a Tauri mobile plugin"
 links = "tauri-plugin-soundhood-ytdl"
 
+# Same minor pins as the host crate (app/src-tauri/Cargo.toml): tauri and tauri-plugin move together.
 [build-dependencies]
-tauri-plugin = { version = "2", features = ["build"] }
+tauri-plugin = { version = "~2.7.2", features = ["build"] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2" }
-thiserror = "1"
+tauri = { version = "~2.12.5" }
+thiserror = "2"
