@@ -318,6 +318,7 @@ fn back_into(root: &std::path::Path, pc: &PlaylistChange, rel: &RelPath) -> Resu
   let (current, hash) = match playlist_state(root, &pc.name)? {
     PlaylistState::Present(current, hash) => (current, hash),
     PlaylistState::Foreign => return Err(playlist::foreign(&pc.name)),
+    PlaylistState::Unreadable => return Err(playlist::unreadable(&pc.name)),
     PlaylistState::Absent | PlaylistState::Legacy => return Ok(None),
   };
   let after = match (&pc.before, &pc.after_hash) {
@@ -355,6 +356,12 @@ fn revert_playlist(b: &mut Batch, e: &JournalEntry) -> Outcome {
       return Outcome::Skipped {
         path: name.to_string(),
         reason: format!("not undone: {}", message(&playlist::foreign(name))),
+      }
+    }
+    Ok(PlaylistState::Unreadable) => {
+      return Outcome::Skipped {
+        path: name.to_string(),
+        reason: format!("not undone: {}", message(&playlist::unreadable(name))),
       }
     }
     Err(err) => {

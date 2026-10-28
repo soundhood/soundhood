@@ -806,7 +806,7 @@ pub(crate) fn relocate(
   }
   let changes = match playlist_changes(&lib.root, from, Some(to), restore) {
     Ok(c) => c,
-    Err(e) => return Outcome::failed(path, e),
+    Err(e) => return Outcome::failed(path, refused_by_playlist(e, not_done(kind, undoing))),
   };
   let mut e = b.entry(kind, label.clone());
   e.path_before = Some(from.clone());
@@ -831,7 +831,7 @@ pub(crate) fn relocate(
     let undone = restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::rename_no_clobber(&dst, &src));
     return match undone {
       Ok(()) if playlist::is_changed(&err) => {
-        let reason = format!("{}, so nothing was moved", message(&err));
+        let reason = format!("{}, so nothing was {}", message(&err), not_done(kind, undoing));
         give_up(lib, &mut e, Outcome::skipped(path, &reason), None)
       }
       Ok(()) => {
@@ -911,7 +911,7 @@ pub(crate) fn delete(
   };
   let changes = match playlist_changes(&lib.root, rel, None, restore) {
     Ok(c) => c,
-    Err(e) => return Outcome::failed(path, e),
+    Err(e) => return Outcome::failed(path, refused_by_playlist(e, not_done(Kind::Delete, undoing))),
   };
   let mut e = b.entry(Kind::Delete, label.clone());
   e.path_before = Some(rel.clone());
@@ -932,7 +932,7 @@ pub(crate) fn delete(
     let undone = restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::restore_from_bin(lib, &rec));
     return match undone {
       Ok(()) if playlist::is_changed(&err) => {
-        let reason = format!("{}, so nothing was deleted", message(&err));
+        let reason = format!("{}, so nothing was {}", message(&err), not_done(Kind::Delete, undoing));
         give_up(lib, &mut e, Outcome::skipped(path, &reason), None)
       }
       Ok(()) => {
@@ -1062,9 +1062,30 @@ fn writable_playlist(root: &Path, pl: &PlaylistFile) -> Result<String> {
     return Err(refuse());
   }
   match playlist::read_exact(root, &pl.name) {
-    Ok(x) if !x.ours => Err(playlist::foreign(&pl.name)),
+    Ok(x) if !x.ours => Err(playlist::not_ours(&x)),
     Ok(x) if x.file.entries == pl.entries => Ok(x.hash),
     _ => Err(refuse()),
+  }
+}
+
+/// The past participle for what an op did not do when a playlist stopped it: "moved", "renamed",
+/// "deleted", or "undone" for an undo.
+fn not_done(kind: Kind, undoing: bool) -> &'static str {
+  match kind {
+    _ if undoing => "undone",
+    Kind::Rename => "renamed",
+    Kind::Delete => "deleted",
+    _ => "moved",
+  }
+}
+
+/// `e` for a move, rename or delete refused by a playlist the app leaves as it is: the same words
+/// with ", so nothing was <done>" added, as for a playlist that changed since it was read.
+fn refused_by_playlist(e: Error, done: &str) -> Error {
+  if playlist::is_left_as_is(&e) {
+    Error::Refused(format!("{}, so nothing was {done}", message(&e)))
+  } else {
+    e
   }
 }
 
@@ -1119,15 +1140,20 @@ pub(crate) enum PlaylistState {
   /// A `.m3u8` another program wrote in its own format (comments, `#EXTINF`, a BOM, CRLF): the
   /// app never writes it, since every write would drop what that program put there.
   Foreign,
+  /// A `.m3u8` that does not read as a playlist at all (0 bytes, not UTF-8, NUL bytes): the app
+  /// leaves it alone too ([`playlist::unreadable`]).
+  Unreadable,
   /// The `.m3u8`, its lines and the blake3 of its bytes.
   Present(PlaylistFile, String),
 }
 
-/// The current state of playlist `name`. An unreadable playlist is an error, never `Absent`.
+/// The current state of playlist `name`. A playlist that cannot be read at all (locked, a folder
+/// of that name) is an error, never `Absent`.
 pub(crate) fn playlist_state(root: &Path, name: &str) -> Result<PlaylistState> {
   let abs = playlist::file_rel(name)?.to_abs(root);
   match playlist::read_exact(root, name) {
     Ok(x) if x.ours => Ok(PlaylistState::Present(x.file, x.hash)),
+    Ok(x) if !x.readable => Ok(PlaylistState::Unreadable),
     Ok(_) => Ok(PlaylistState::Foreign),
     Err(Error::NotFound(_)) if abs.with_extension("m3u").exists() => Ok(PlaylistState::Legacy),
     Err(Error::NotFound(_)) => Ok(PlaylistState::Absent),
@@ -1220,6 +1246,7 @@ fn playlist_add(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
     Ok(PlaylistState::Absent) => (None, None),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
     Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
+    Ok(PlaylistState::Unreadable) => return Outcome::failed(&clean, playlist::unreadable(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let current = before.clone().unwrap_or_default();
@@ -1249,6 +1276,7 @@ fn playlist_remove(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
     Ok(PlaylistState::Absent) => return Outcome::failed(&clean, Error::NotFound(format!("No playlist named {clean}"))),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
     Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
+    Ok(PlaylistState::Unreadable) => return Outcome::failed(&clean, playlist::unreadable(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let after = playlist::with_removed(&current, rels);
@@ -1274,6 +1302,7 @@ fn playlist_create(b: &mut Batch, name: &str) -> Outcome {
   };
   match playlist_state(&b.lib.root, &clean) {
     Ok(PlaylistState::Absent) => {}
+    Ok(PlaylistState::Unreadable) => return Outcome::failed(&clean, playlist::unreadable(&clean)),
     Ok(_) => return Outcome::no_change(&clean, "playlist already exists"),
     Err(e) => return Outcome::failed(&clean, e),
   }
@@ -1300,6 +1329,7 @@ fn playlist_delete(b: &mut Batch, name: &str) -> Outcome {
     Ok(PlaylistState::Absent) => return Outcome::failed(&clean, Error::NotFound(format!("No playlist named {clean}"))),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
     Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
+    Ok(PlaylistState::Unreadable) => return Outcome::failed(&clean, playlist::unreadable(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let label = format!("Deleted playlist {clean}");

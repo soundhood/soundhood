@@ -278,28 +278,50 @@ fn a_playlist_another_program_wrote_is_never_rewritten() {
   std::fs::write(&file, &original).unwrap();
   let reason = "the playlist Foreign was written by another program; it was left as it is";
   let b_bytes = read_bytes(&lib, &b);
+  let ext = b.file_name().rsplit_once('.').unwrap().1;
+  let renamed = match b.parent() {
+    Some(dir) => rel(&format!("{dir}/Renamed.{ext}")),
+    None => rel(&format!("Renamed.{ext}")),
+  };
 
+  // A refused move or delete also says that the track stayed where it was.
   let ops = [
-    Op::PlaylistAdd {
-      name: "Foreign".into(),
-      rels: vec![c.clone()],
-    },
-    Op::PlaylistRemove {
-      name: "Foreign".into(),
-      rels: vec![a.clone()],
-    },
-    Op::PlaylistDelete { name: "Foreign".into() },
-    Op::Move {
-      rel: b.clone(),
-      to_folder: "Elsewhere".into(),
-    },
-    Op::Delete { rel: b.clone() },
+    (
+      Op::PlaylistAdd {
+        name: "Foreign".into(),
+        rels: vec![c.clone()],
+      },
+      reason.to_string(),
+    ),
+    (
+      Op::PlaylistRemove {
+        name: "Foreign".into(),
+        rels: vec![a.clone()],
+      },
+      reason.to_string(),
+    ),
+    (Op::PlaylistDelete { name: "Foreign".into() }, reason.to_string()),
+    (
+      Op::Move {
+        rel: b.clone(),
+        to_folder: "Elsewhere".into(),
+      },
+      format!("{reason}, so nothing was moved"),
+    ),
+    (
+      Op::Rename {
+        rel: b.clone(),
+        to: renamed,
+      },
+      format!("{reason}, so nothing was renamed"),
+    ),
+    (Op::Delete { rel: b.clone() }, format!("{reason}, so nothing was deleted")),
   ];
-  for op in ops {
+  for (op, want) in ops {
     let rep = one(&lib, op);
     assert!(rep.applied.is_empty(), "{}", show(&rep));
     assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
-    assert_eq!(rep.failed[0].error, reason, "{}", show(&rep));
+    assert_eq!(rep.failed[0].error, want, "{}", show(&rep));
     assert_eq!(std::fs::read_to_string(&file).unwrap(), original, "byte-for-byte");
   }
   assert_eq!(read_bytes(&lib, &b), b_bytes, "the track did not move");
@@ -362,4 +384,76 @@ fn undo_leaves_a_playlist_another_program_rewrote() {
     "not undone: the playlist Mine was written by another program; it was left as it is"
   );
   assert_eq!(std::fs::read_to_string(&file).unwrap(), theirs);
+}
+
+/// Undo of a move whose track another program's playlist now lists: the move back is refused
+/// whole, and the reason says that nothing was undone.
+#[test]
+fn undoing_a_move_that_another_programs_playlist_lists_says_nothing_was_undone() {
+  let (_d, lib, report) = fixture_lib(10, false);
+  let a = report
+    .tracks
+    .iter()
+    .map(|t| rel(&t.rel))
+    .find(|r| r.top_folder().is_some_and(|f| f != "Elsewhere"))
+    .unwrap();
+  let moved = one(
+    &lib,
+    Op::Move {
+      rel: a.clone(),
+      to_folder: "Elsewhere".into(),
+    },
+  );
+  assert_eq!(moved.applied.len(), 1, "{}", show(&moved));
+  let now = rel(&format!("Elsewhere/{}", a.file_name()));
+  let file = lib.root.join("_Playlists").join("Theirs.m3u8");
+  let theirs = format!("#EXTM3U\r\n#EXTINF:1,x\r\n{now}\r\n");
+  std::fs::write(&file, &theirs).unwrap();
+  let u = undo::undo_batch(&lib, &moved.batch).unwrap();
+  assert!(u.applied.is_empty(), "{}", show(&u));
+  assert_eq!(u.failed.len(), 1, "{}", show(&u));
+  assert_eq!(
+    u.failed[0].error,
+    "the playlist Theirs was written by another program; it was left as it is, so nothing was undone"
+  );
+  assert!(lib.abs(&now).exists() && !lib.abs(&a).exists(), "the track stayed");
+  assert_eq!(std::fs::read_to_string(&file).unwrap(), theirs);
+}
+
+/// A `.m3u8` that reads as no playlist at all (0 bytes, as a sync client may leave one mid-download,
+/// zeroed out, not UTF-8) is left alone like another program's file, with its own plain reason:
+/// adding, removing, creating and deleting are refused, and nothing is journaled.
+#[test]
+fn a_playlist_file_that_reads_as_nothing_is_left_alone_in_plain_words() {
+  let (_d, lib, report) = fixture_lib(10, false);
+  let a = rel(&report.tracks[0].rel);
+  let cases: [(&str, &[u8]); 3] = [
+    ("Blank", b""),
+    ("Zeroed", &[0u8; 64]),
+    ("Latin", b"#EXTM3U\nCaf\xe9 - Someone.mp3\n"),
+  ];
+  for (name, bytes) in cases {
+    let file = lib.root.join("_Playlists").join(format!("{name}.m3u8"));
+    std::fs::write(&file, bytes).unwrap();
+    let reason = format!("the playlist {name} could not be read; it was left as it is");
+    for op in [
+      Op::PlaylistAdd {
+        name: name.into(),
+        rels: vec![a.clone()],
+      },
+      Op::PlaylistRemove {
+        name: name.into(),
+        rels: vec![a.clone()],
+      },
+      Op::PlaylistCreate { name: name.into() },
+      Op::PlaylistDelete { name: name.into() },
+    ] {
+      let rep = one(&lib, op);
+      assert!(rep.applied.is_empty(), "{}", show(&rep));
+      assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
+      assert_eq!(rep.failed[0].error, reason, "{}", show(&rep));
+    }
+    assert_eq!(std::fs::read(&file).unwrap(), bytes, "{name}: untouched");
+  }
+  assert!(entries(&lib).is_empty(), "nothing was journaled");
 }
