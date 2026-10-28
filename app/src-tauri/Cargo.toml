@@ -1,6 +1,6 @@
 [package]
 name = "soundhood"
-version = "0.1.0"
+version = "0.2.0"
 description = "Soundhood — local-first music player + downloader"
 authors = ["Soundhood contributors"]
 edition.workspace = true

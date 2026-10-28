@@ -9,16 +9,18 @@ phase's number, and only Phase 7 sets 1.0.0 ([DEV](docs/DEV.md#versions-and-rele
 
 | Version | Phase | Tagged |
 |---|---|---|
-| 0.2.0 (planned) | Phase 0: foundation | not yet |
+| 0.2.0 | Phase 0: foundation | v0.2.0, 2026-10-28 (local) |
 | 0.1.0 | the app before the rebuild | never tagged |
 
 ## [Unreleased]
 
-Planned as 0.2.0, Phase 0: foundation. The app looks the same; what changes is how it writes to your
-files. Everything below ships in 0.2.0 unless an entry names a later phase. What is not verified yet
-is in [OPEN](docs/OPEN.md).
+Nothing yet.
 
-<!-- The lead trims this list to what actually merged before tagging v0.2.0. -->
+## [0.2.0] - 2026-10-28
+
+Phase 0: foundation. The app looks the same; what changes is how it writes to your files. Everything
+below ships in 0.2.0 unless an entry names a later phase. What is not verified yet is in
+[OPEN](docs/OPEN.md).
 
 ### Added
 
@@ -54,6 +56,12 @@ is in [OPEN](docs/OPEN.md).
 
 - Every write the app makes to a music file or a playlist goes through one write path: journal entry
   first, then a hidden temp copy, verification, an atomic replace, and the commit entry.
+- Tag edits change only the fields edited: every other tag, picture and the audio stay byte-for-byte,
+  checked twice; a file whose other tags could not be kept exactly (some MP3s, fields with several
+  values, playlists another program wrote) is left as it is with a plain reason.
+- A file another device changed while the app was writing it, or a file changed in the last few
+  seconds, is left alone ("changed since"); a change cut off by a crash is finished on the next start.
+- A queued download that fails stops the queue instead of trying the next link.
 - Deleting a track on the phone moves it to the app's bin instead of erasing it.
 - Links to a whole channel, or to one of its tabs, are refused; a playlist link is the most a
   download takes.
