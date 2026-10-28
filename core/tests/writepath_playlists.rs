@@ -315,7 +315,10 @@ fn a_playlist_another_program_wrote_is_never_rewritten() {
       },
       format!("{reason}, so nothing was renamed"),
     ),
-    (Op::Delete { rel: b.clone() }, format!("{reason}, so nothing was deleted")),
+    (
+      Op::Delete { rel: b.clone() },
+      format!("{reason}, so nothing was deleted"),
+    ),
   ];
   for (op, want) in ops {
     let rep = one(&lib, op);

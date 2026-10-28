@@ -278,7 +278,13 @@ fn bytes_that_are_no_playlist_read_as_unreadable() {
   let root = tmp_root();
   let dir = root.path().join("_Playlists");
   std::fs::create_dir_all(&dir).unwrap();
-  let cases: [&[u8]; 5] = [b"", b"\n\n  \n", b"\0\0\0\0", b"#EXTM3U\na.mp3\0\n", b"#EXTM3U\n\xff\xfe.mp3\n"];
+  let cases: [&[u8]; 5] = [
+    b"",
+    b"\n\n  \n",
+    b"\0\0\0\0",
+    b"#EXTM3U\na.mp3\0\n",
+    b"#EXTM3U\n\xff\xfe.mp3\n",
+  ];
   for bytes in cases {
     std::fs::write(dir.join("X.m3u8"), bytes).unwrap();
     let x = read_exact(root.path(), "X").unwrap();
@@ -310,8 +316,15 @@ fn a_create_never_replaces_a_playlist_that_lands_right_before_its_rename() {
   crate::ingest::fault::once_at("before_rename", &dest, move || std::fs::write(&d2, phone).unwrap());
   let err = write_expecting(root.path(), "New", &["a.mp3".to_string()], JOB, Some(Expect::Absent)).unwrap_err();
   assert!(is_changed(&err), "{err}");
-  assert_eq!(std::fs::read_to_string(&dest).unwrap(), phone, "the phone's playlist is kept");
-  assert!(crate::fs::list_tmp_files(root.path()).unwrap().is_empty(), "no temp left");
+  assert_eq!(
+    std::fs::read_to_string(&dest).unwrap(),
+    phone,
+    "the phone's playlist is kept"
+  );
+  assert!(
+    crate::fs::list_tmp_files(root.path()).unwrap().is_empty(),
+    "no temp left"
+  );
   // Without anything landing, the create works and leaves a normal file.
   write_expecting(root.path(), "Other", &["a.mp3".to_string()], JOB, Some(Expect::Absent)).unwrap();
   assert_eq!(read(root.path(), "Other").unwrap().entries, vec!["a.mp3"]);

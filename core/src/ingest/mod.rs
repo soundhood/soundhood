@@ -295,15 +295,18 @@ pub(crate) fn scrub(text: &str, root: &Path, path: &str) -> String {
   if !root.is_empty() {
     let root_name = root.rsplit(['/', '\\']).next().unwrap_or_default();
     let playlist = format!("{}/{path}.m3u8", crate::fs::PLAYLISTS_DIR);
-    let known = [(path, own_name.to_string()), (playlist.as_str(), format!("{own_name}.m3u8"))];
+    let known = [
+      (path, own_name.to_string()),
+      (playlist.as_str(), format!("{own_name}.m3u8")),
+    ];
     let parent = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
     let temp_dirs = [parent, crate::fs::PLAYLISTS_DIR, ""];
     for prefix in [format!(r"\\?\{root}"), root.to_string(), root.replace('\\', "/")] {
       let mut from = 0;
       while let Some(at) = out[from..].find(&prefix).map(|i| i + from) {
         let after = at + prefix.len();
-        let (len, shown) = inside_root(&out[after..], &known, &temp_dirs, path, own_name)
-          .unwrap_or_else(|| (0, root_name.to_string()));
+        let (len, shown) =
+          inside_root(&out[after..], &known, &temp_dirs, path, own_name).unwrap_or_else(|| (0, root_name.to_string()));
         out.replace_range(at..after + len, &shown);
         from = at + shown.len();
       }
@@ -439,7 +442,11 @@ mod tests {
     );
     let file = format!("{}{sep}Ambient{sep}Song (Live).mp3", root.display());
     assert_eq!(
-      scrub(&format!("could not move {file} to the bin"), root, "Ambient/Song (Live).mp3"),
+      scrub(
+        &format!("could not move {file} to the bin"),
+        root,
+        "Ambient/Song (Live).mp3"
+      ),
       "could not move Song (Live).mp3 to the bin"
     );
     // A path the text is not about keeps its library-relative part; the root goes.
@@ -453,7 +460,10 @@ mod tests {
     assert_eq!(scrub(&slashes, root, path), "Chill/b.mp3");
     assert_eq!(scrub(&slashes, root, "Chill/b.mp3"), "b.mp3");
     assert_eq!(scrub("file in use", root, path), "file in use");
-    assert_eq!(scrub(&format!("{} is not a folder", root.display()), root, path), "Music is not a folder");
+    assert_eq!(
+      scrub(&format!("{} is not a folder", root.display()), root, path),
+      "Music is not a folder"
+    );
   }
 
   /// Quotes, apostrophes and brackets in the root or in a folder name never cut a path short: the
