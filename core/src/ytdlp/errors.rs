@@ -2,6 +2,11 @@
 //! (build brief 5.6). Phase 0 seeds the classifier; Phase 2 builds the ladder on top of it.
 //! Matching is on lower-cased substrings of yt-dlp's own wording, so a reworded message degrades
 //! to `Other` instead of being misread.
+//!
+//! Only lines that carry yt-dlp's own messages are read: `ERROR:` and `WARNING:` lines, its
+//! `[download] Got error:` retry lines, and two `[download]` status lines (the archive skip and
+//! the site-mandated wait). Every other line can hold a title or a path ("Destination: Too Many
+//! Requests - X.m4a"), so it is `Other` whatever words it contains.
 
 use serde::Serialize;
 
@@ -43,11 +48,39 @@ pub fn classify(line: &str) -> Classified {
   let error = trimmed.starts_with("ERROR:");
   // yt-dlp prints YouTube's typographic apostrophe ("you’re") in some messages.
   let l = trimmed.to_lowercase().replace('\u{2019}', "'");
-  let has = |needles: &[&str]| needles.iter().any(|n| l.contains(n));
+  let kind = if error || trimmed.starts_with("WARNING:") || trimmed.starts_with("[download] Got error:") {
+    message_kind(&l)
+  } else if let Some(status) = l.strip_prefix("[download] ") {
+    // "[download] <id>: <title> has already been recorded in the archive": the title sits in
+    // the middle, so only the fixed ending decides.
+    if status.ends_with("has already been recorded in the archive") {
+      Kind::AlreadyInArchive
+    } else if let Some(seconds) = site_wait_seconds(status) {
+      Kind::SiteWait { seconds }
+    } else {
+      Kind::Other
+    }
+  } else {
+    Kind::Other
+  };
+  Classified { kind, error }
+}
 
-  let kind = if has(&["drm protected", "drm-protected"]) {
+/// The kind of one of yt-dlp's own messages (lower-cased, straight apostrophes).
+fn message_kind(l: &str) -> Kind {
+  let has = |needles: &[&str]| needles.iter().any(|n| l.contains(n));
+  if has(&["drm protected", "drm-protected"]) {
     Kind::Drm
-  } else if has(&["http error 429", "too many requests", "rate-limited", "rate limited"]) {
+  } else if has(&[
+    "http error 429",
+    "too many requests",
+    "rate-limited",
+    "rate limited",
+    // YouTube's session rate limit, also without yt-dlp's explanation after it. Checked before
+    // the generic "try again later" (transient) and "video unavailable" needles below.
+    "content isn't available, try again later",
+    "content is not available, try again later",
+  ]) {
     Kind::RateLimited429
   } else if has(&[
     "confirm you're not a bot",
@@ -63,10 +96,6 @@ pub fn classify(line: &str) -> Classified {
     "challenge solver",
   ]) {
     Kind::MissingJsRuntime
-  } else if l.contains("has already been recorded in the archive") {
-    Kind::AlreadyInArchive
-  } else if let Some(seconds) = site_wait_seconds(&l) {
-    Kind::SiteWait { seconds }
   } else if has(&[
     "video unavailable",
     "private video",
@@ -86,7 +115,7 @@ pub fn classify(line: &str) -> Classified {
     "this live event will begin",
   ]) {
     Kind::Unavailable
-  } else if has_http_5xx(&l)
+  } else if has_http_5xx(l)
     || has(&[
       "try again later",
       "timed out",
@@ -106,8 +135,7 @@ pub fn classify(line: &str) -> Classified {
     Kind::Transient
   } else {
     Kind::Other
-  };
-  Classified { kind, error }
+  }
 }
 
 /// Classifies a whole transcript: the most consequential kind found on any line (bot wall and
@@ -131,9 +159,11 @@ pub fn classify_output(text: &str) -> Classified {
   Classified { kind, error }
 }
 
-/// "Sleeping 5.25 seconds as required by the site" -> 6 (rounded up).
-fn site_wait_seconds(l: &str) -> Option<u32> {
-  let rest = &l[l.find("sleeping ")? + "sleeping ".len()..];
+/// "sleeping 5.25 seconds as required by the site..." (a lower-cased `[download]` status, the
+/// prefix already removed) -> 6, rounded up. The status must start with it: a destination path
+/// with those words in its name is not a wait.
+fn site_wait_seconds(status: &str) -> Option<u32> {
+  let rest = status.strip_prefix("sleeping ")?;
   let (num, after) = rest.split_once(' ')?;
   if !after.starts_with("seconds as required by the site") {
     return None;
@@ -175,6 +205,11 @@ pub fn corpus() -> Vec<(&'static str, &'static str, Classified)> {
       c(Kind::RateLimited429, true),
     ),
     (
+      "rate_limited_session_short",
+      include_str!("../../fixtures/ytdlp/rate_limited_session_short.txt"),
+      c(Kind::RateLimited429, true),
+    ),
+    (
       "missing_js_runtime",
       include_str!("../../fixtures/ytdlp/missing_js_runtime.txt"),
       c(Kind::MissingJsRuntime, true),
@@ -182,6 +217,11 @@ pub fn corpus() -> Vec<(&'static str, &'static str, Classified)> {
     (
       "already_in_archive",
       include_str!("../../fixtures/ytdlp/already_in_archive.txt"),
+      c(Kind::AlreadyInArchive, false),
+    ),
+    (
+      "already_in_archive_trigger_title",
+      include_str!("../../fixtures/ytdlp/already_in_archive_trigger_title.txt"),
       c(Kind::AlreadyInArchive, false),
     ),
     (
@@ -216,6 +256,11 @@ pub fn corpus() -> Vec<(&'static str, &'static str, Classified)> {
       c(Kind::Unavailable, true),
     ),
     ("ok", include_str!("../../fixtures/ytdlp/ok.txt"), c(Kind::Other, false)),
+    (
+      "ok_trigger_titles",
+      include_str!("../../fixtures/ytdlp/ok_trigger_titles.txt"),
+      c(Kind::Other, false),
+    ),
   ]
 }
 
@@ -292,6 +337,117 @@ mod tests {
     );
     assert_eq!(k(""), Kind::Other);
     assert!(!classify("WARNING: [youtube] No supported JavaScript runtime could be found.").error);
+  }
+
+  #[test]
+  fn titles_never_decide_the_outcome() {
+    for title in [
+      "Too Many Requests - Paper Comets",
+      "Members Only - Harbor Lights",
+      "Try Again Later - Glass Tide",
+      "Private Video - Northern Static",
+      "Rate Limited - Neon Pines",
+      "HTTP Error 503 - Static Bloom",
+      "Sign in to confirm you're not a bot - Velvet Ferry",
+      "This video is DRM protected - Amber Tapes",
+      "Sleeping 5 seconds as required by the site - Lunar Garden",
+    ] {
+      let text = format!(
+        "[youtube] Extracting URL: https://www.youtube.com/watch?v=Nm7qW3eRt5Y\n\
+         [info] Nm7qW3eRt5Y: Downloading 1 format(s): 140\n\
+         [download] Destination: incoming\\job-0004\\{title}.m4a\n\
+         [download] 100% of    3.21MiB in 00:00:01 at 2.71MiB/s\n\
+         [ExtractAudio] Not converting audio incoming\\job-0004\\{title}.m4a; file is already in target format m4a\n\
+         [Metadata] Adding metadata to \"incoming\\job-0004\\{title}.m4a\"\n\
+         [EmbedThumbnail] ffmpeg: Adding thumbnail to \"incoming\\job-0004\\{title}.m4a\"\n"
+      );
+      let got = classify_output(&text);
+      assert_eq!(
+        got,
+        Classified {
+          kind: Kind::Other,
+          error: false
+        },
+        "{title}"
+      );
+    }
+  }
+
+  #[test]
+  fn an_archive_skip_wins_over_trigger_words_in_its_title() {
+    for line in [
+      "[download] Rate Limited - Neon Pines has already been recorded in the archive",
+      "[download] Xk3vQ9pLm2A: Too Many Requests - Paper Comets has already been recorded in the archive",
+      "[download] Xk3vQ9pLm2A: Video Unavailable has already been recorded in the archive",
+    ] {
+      assert_eq!(classify(line).kind, Kind::AlreadyInArchive, "{line}");
+    }
+  }
+
+  #[test]
+  fn the_session_rate_limit_without_its_explanation_is_still_a_rate_limit() {
+    for line in [
+      "ERROR: [youtube] Bc5yU2kRn8F: This content isn't available, try again later.",
+      "ERROR: [youtube] Bc5yU2kRn8F: Video unavailable. This content isn't available, try again later.",
+      "ERROR: [youtube] Bc5yU2kRn8F: This content isn\u{2019}t available, try again later.",
+      "WARNING: [youtube] Bc5yU2kRn8F: This content is not available, try again later.",
+    ] {
+      assert_eq!(classify(line).kind, Kind::RateLimited429, "{line}");
+    }
+    // Plain "try again later" without the session wording stays a retry.
+    assert_eq!(
+      classify("ERROR: [youtube] x: Something went wrong, try again later").kind,
+      Kind::Transient
+    );
+  }
+
+  #[test]
+  fn odd_site_waits() {
+    for (line, want) in [
+      ("[download] Sleeping nan seconds as required by the site...", None),
+      ("[download] Sleeping inf seconds as required by the site...", None),
+      ("[download] Sleeping -3 seconds as required by the site...", None),
+      (
+        "[download] Sleeping 1e12 seconds as required by the site...",
+        Some(u32::MAX),
+      ),
+      ("[download] Sleeping 59.01 seconds as required by the site...", Some(60)),
+      ("[youtube] Sleeping 5 seconds as required by the site...", None),
+      (
+        "[download] Destination: Sleeping 5 seconds as required by the site.m4a",
+        None,
+      ),
+    ] {
+      let secs = match classify(line).kind {
+        Kind::SiteWait { seconds } => Some(seconds),
+        _ => None,
+      };
+      assert_eq!(secs, want, "{line}");
+    }
+  }
+
+  #[test]
+  fn only_ytdlp_messages_are_read() {
+    let k = |l: &str| classify(l).kind;
+    // yt-dlp's own retry lines are read like warnings.
+    assert_eq!(
+      k("[download] Got error: HTTP Error 429: Too Many Requests. Retrying (1/10)..."),
+      Kind::RateLimited429
+    );
+    assert_eq!(
+      k("[download] Got error: The read operation timed out. Retrying (1/10)..."),
+      Kind::Transient
+    );
+    // Anything else with the same words is not.
+    for line in [
+      "[youtube] Bc5yU2kRn8F: HTTP Error 429: Too Many Requests",
+      "[download] Downloading playlist: Too Many Requests",
+      "[info] Members Only - Harbor Lights: Downloading 1 format(s): 140",
+      "Too Many Requests",
+      "error: too many requests",
+    ] {
+      assert_eq!(k(line), Kind::Other, "{line}");
+    }
   }
 
   #[test]

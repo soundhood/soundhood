@@ -1,0 +1,48 @@
+[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLf1xtur3Pl4yl1stId111111111111
+[youtube:tab] PLf1xtur3Pl4yl1stId111111111111: Downloading webpage
+[download] Downloading playlist: Video Unavailable Mix
+[youtube:tab] Playlist Video Unavailable Mix: Downloading 6 items of 6
+[download] Downloading item 1 of 6
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Nm7qW3eRt5Y
+[youtube] Nm7qW3eRt5Y: Downloading webpage
+[info] Nm7qW3eRt5Y: Downloading 1 format(s): 140
+[download] Destination: incoming\job-0005\Too Many Requests - Paper Comets.m4a
+[download] 100% of    3.21MiB in 00:00:01 at 2.71MiB/s
+[ExtractAudio] Not converting audio incoming\job-0005\Too Many Requests - Paper Comets.m4a; file is already in target format m4a
+[Metadata] Adding metadata to "incoming\job-0005\Too Many Requests - Paper Comets.m4a"
+[download] Downloading item 2 of 6
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Hq2wE6rTy8U
+[youtube] Hq2wE6rTy8U: Downloading webpage
+[info] Hq2wE6rTy8U: Downloading 1 format(s): 140
+[download] Destination: incoming\job-0005\Members Only - Harbor Lights.m4a
+[download] 100% of    2.94MiB in 00:00:01 at 2.40MiB/s
+[Metadata] Adding metadata to "incoming\job-0005\Members Only - Harbor Lights.m4a"
+[download] Downloading item 3 of 6
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Jw4eR7tYu1I
+[youtube] Jw4eR7tYu1I: Downloading webpage
+[info] Jw4eR7tYu1I: Downloading 1 format(s): 140
+[download] Destination: incoming\job-0005\Try Again Later - Glass Tide.m4a
+[download] 100% of    3.05MiB in 00:00:01 at 2.55MiB/s
+[Metadata] Adding metadata to "incoming\job-0005\Try Again Later - Glass Tide.m4a"
+[download] Downloading item 4 of 6
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Kx5rT8yUi2O
+[youtube] Kx5rT8yUi2O: Downloading webpage
+[info] Kx5rT8yUi2O: Downloading 1 format(s): 140
+[download] Destination: incoming\job-0005\Private Video - Northern Static.m4a
+[download] 100% of    2.81MiB in 00:00:01 at 2.33MiB/s
+[Metadata] Adding metadata to "incoming\job-0005\Private Video - Northern Static.m4a"
+[download] Downloading item 5 of 6
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Lz6tY9uIo3P
+[youtube] Lz6tY9uIo3P: Downloading webpage
+[info] Lz6tY9uIo3P: Downloading 1 format(s): 140
+[download] Destination: incoming\job-0005\Rate Limited - Neon Pines.m4a
+[download] 100% of    3.12MiB in 00:00:01 at 2.61MiB/s
+[Metadata] Adding metadata to "incoming\job-0005\Rate Limited - Neon Pines.m4a"
+[download] Downloading item 6 of 6
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Mq7uI1oPa4S
+[youtube] Mq7uI1oPa4S: Downloading webpage
+[info] Mq7uI1oPa4S: Downloading 1 format(s): 140
+[download] Destination: incoming\job-0005\Sleeping 5 seconds as required by the site - DRM Protected.m4a
+[download] 100% of    2.77MiB in 00:00:01 at 2.30MiB/s
+[Metadata] Adding metadata to "incoming\job-0005\Sleeping 5 seconds as required by the site - DRM Protected.m4a"
+[download] Finished downloading playlist: Video Unavailable Mix

@@ -1,4 +1,5 @@
-//! soundhood-tools: manifest, fixture library, sidecar fetch, self-test. Zone: tools.
+//! soundhood-tools: manifest, fixture library (and its screenshot-harness export), sidecar fetch,
+//! self-test. Zone: tools.
 //!
 //! Exit codes: 0 ok, 1 differences or failures, 2 usage error. Output is plain lines meant to be
 //! pasted back as-is (the owner's PowerShell wrappers print it verbatim).
@@ -12,6 +13,7 @@ const USAGE: &str = "usage:
   soundhood-tools manifest <root> <out.json>
   soundhood-tools diff <a.json> <b.json>
   soundhood-tools fixture-lib <dir> [--json <out.json>]
+  soundhood-tools harness-json <out.json>
   soundhood-tools fetch-sidecars <dir> [--triple <target-triple>] [--base <url>]
   soundhood-tools self-test";
 
@@ -106,6 +108,16 @@ fn run(args: &[OsString]) -> Result<ExitCode, Failure> {
           .map_err(|e| Failure::Error(format!("{}: {e}", out.display())))?;
         println!("UI fixture JSON written to {}", out.display());
       }
+      Ok(ExitCode::SUCCESS)
+    }
+    "harness-json" => {
+      // The screenshot harness's fixture-library.json, made from the same library as fixture-lib.
+      want(1)?;
+      allow(&[])?;
+      let out = PathBuf::from(&positional[0]);
+      let json = fixtures::harness_json_in(&std::env::temp_dir())?;
+      std::fs::write(&out, json).map_err(|e| Failure::Error(format!("{}: {e}", out.display())))?;
+      println!("Screenshot harness fixture written to {}", out.display());
       Ok(ExitCode::SUCCESS)
     }
     "fetch-sidecars" => {

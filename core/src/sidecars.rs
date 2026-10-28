@@ -20,6 +20,22 @@ use std::time::Duration;
 /// Where releases are fetched from unless a test or mirror overrides it.
 pub const RELEASES_BASE: &str = "https://github.com";
 
+/// Largest yt-dlp download accepted. The real executables are about 20 to 40 MB; a bigger answer
+/// is a broken or hostile server, and the fetch stops before it fills the disk.
+pub const MAX_YTDLP_BYTES: u64 = 100 << 20;
+/// Largest deno zip accepted (the real ones are about 45 MB).
+pub const MAX_DENO_ZIP_BYTES: u64 = 200 << 20;
+/// Largest deno binary extracted from a zip (the real one is about 130 MB).
+pub const MAX_DENO_BYTES: u64 = 400 << 20;
+/// Largest checksum file read; a real one is a few kB.
+const MAX_CHECKSUM_BYTES: u64 = 1 << 20;
+/// Whole-request limit on top of the per-read timeout, so a server that trickles bytes cannot
+/// hold a fetch open forever.
+const TIMEOUT_GLOBAL: Duration = Duration::from_secs(30 * 60);
+/// Redirects followed for an https base (GitHub sends release assets on to its download host);
+/// every hop must be https too.
+const MAX_REDIRECTS: u32 = 5;
+
 /// Which sidecar an asset belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +93,14 @@ impl Asset {
   pub fn installed_as(mut self, install_name: impl Into<String>) -> Asset {
     self.install_name = install_name.into();
     self
+  }
+
+  /// The download size limit for this asset.
+  fn max_bytes(&self) -> u64 {
+    match self.tool {
+      Tool::YtDlp => MAX_YTDLP_BYTES,
+      Tool::Deno => MAX_DENO_ZIP_BYTES,
+    }
   }
 
   fn release_dir(&self, base: &str) -> String {
@@ -150,7 +174,9 @@ pub struct FetchReport {
 
 /// Fetches `asset` into `dest_dir/<install_name>` and verifies it; `http_base` overrides
 /// `RELEASES_BASE` (tests, mirrors). Refuses (`Error::Refused`) a yt-dlp below the pinned minimum,
-/// a missing or unusable checksum, any hash mismatch, and plain HTTP to anything but loopback.
+/// a missing or unusable checksum, any hash mismatch, a download above the tool's size limit, an
+/// address with a user name or password in it, and plain HTTP to anything but loopback (which
+/// also never follows a redirect).
 pub fn fetch(asset: &Asset, dest_dir: &Path, http_base: Option<&str>) -> Result<FetchReport> {
   if asset.tool == Tool::YtDlp && !pins::ytdlp_version_allowed(&asset.version) {
     return Err(Error::Refused(format!(
@@ -187,7 +213,7 @@ pub fn fetch(asset: &Asset, dest_dir: &Path, http_base: Option<&str>) -> Result<
 
   fs::create_dir_all(dest_dir)?;
   let download = TempFile(dest_dir.join(format!(".{}.part", asset.install_name)));
-  let (actual, bytes) = download_hashed(&agent, &url, &download.0)?;
+  let (actual, bytes) = download_hashed(&agent, &url, &download.0, asset.max_bytes())?;
   log.push(format!("actual   sha256 {actual} ({bytes} bytes)"));
   if actual != expected {
     return Err(Error::Refused(format!(
@@ -205,7 +231,7 @@ pub fn fetch(asset: &Asset, dest_dir: &Path, http_base: Option<&str>) -> Result<
         "deno"
       };
       let out = TempFile(dest_dir.join(format!(".{}.unzip", asset.install_name)));
-      extract_one(&download.0, inner, &out.0)?;
+      extract_one(&download.0, inner, &out.0, MAX_DENO_BYTES)?;
       log.push(format!("extracted {inner} from {}", asset.name));
       out
     }
@@ -280,29 +306,81 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// TLS only, except plain HTTP to a loopback test server.
+/// Plain HTTP never follows a redirect: from a test server on this computer, a redirect can only
+/// lead somewhere else, in the clear.
 fn agent_for(base: &str) -> Result<ureq::Agent> {
-  let https = base.starts_with("https://");
-  let loopback = ["http://127.0.0.1", "http://localhost", "http://[::1]"]
-    .iter()
-    .any(|p| {
-      base
-        .strip_prefix(p)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with([':', '/']))
-    });
-  if !https && !loopback {
+  let https = check_base(base)?;
+  let mut cfg = ureq::Agent::config_builder()
+    .https_only(https)
+    .max_redirects(if https { MAX_REDIRECTS } else { 0 })
+    // The hash is of the bytes as published: ask for them as they are, never compressed.
+    .accept_encoding("identity")
+    .timeout_connect(Some(Duration::from_secs(30)))
+    .timeout_per_read(Some(Duration::from_secs(60)))
+    .timeout_global(Some(TIMEOUT_GLOBAL))
+    .user_agent(format!("Soundhood/{} (sidecar manager)", env!("CARGO_PKG_VERSION")));
+  if !https {
+    cfg = cfg.proxy(None);
+  }
+  Ok(cfg.build().new_agent())
+}
+
+/// Hosts plain HTTP may reach: a test server on this computer.
+const LOOPBACK_HOSTS: [&str; 3] = ["127.0.0.1", "localhost", "[::1]"];
+
+/// Checks `scheme://host[:port][/path]` and says whether it is https (`false`: plain HTTP to a
+/// loopback host). The host is taken the way an HTTP client reads it, and anything two parsers
+/// could read differently is refused rather than guessed: a user name or password (`user@`), a
+/// percent sign in the host, a backslash, `?`, `#`, spaces and control characters.
+fn check_base(base: &str) -> Result<bool> {
+  let refuse = |why: &str| Error::Refused(format!("{base} is not a usable address for the helpers: {why}"));
+  if base
+    .chars()
+    .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '\\' | '?' | '#'))
+  {
+    return Err(refuse("only a scheme, a host, a port and a path are allowed"));
+  }
+  let (scheme, rest) = base.split_once("://").ok_or_else(|| refuse("it has no https://"))?;
+  let https = match scheme.to_ascii_lowercase().as_str() {
+    "https" => true,
+    "http" => false,
+    _ => return Err(refuse("only https is allowed")),
+  };
+  let authority = rest.split('/').next().unwrap_or_default();
+  if authority.contains('@') {
+    return Err(refuse("a user name or password is not allowed"));
+  }
+  if authority.contains('%') {
+    return Err(refuse("a percent sign is not allowed in the host"));
+  }
+  let (host, port) = match authority.strip_prefix('[') {
+    Some(v6) => {
+      let end = v6.find(']').ok_or_else(|| refuse("the [ of the host is not closed"))?;
+      (format!("[{}]", &v6[..end]), &v6[end + 1..])
+    }
+    None => {
+      let end = authority.find(':').unwrap_or(authority.len());
+      (authority[..end].to_string(), &authority[end..])
+    }
+  };
+  if host.is_empty() || host == "[]" {
+    return Err(refuse("it has no host"));
+  }
+  if !port.is_empty() {
+    let digits = port.strip_prefix(':').unwrap_or_default();
+    let valid = (1..=5).contains(&digits.len())
+      && digits.bytes().all(|b| b.is_ascii_digit())
+      && digits.parse::<u16>().is_ok_and(|p| p != 0);
+    if !valid {
+      return Err(refuse("the port is not a number from 1 to 65535"));
+    }
+  }
+  if !https && !LOOPBACK_HOSTS.contains(&host.to_ascii_lowercase().as_str()) {
     return Err(Error::Refused(format!(
       "sidecars are only fetched over https, not {base}"
     )));
   }
-  let mut cfg = ureq::Agent::config_builder()
-    .https_only(https)
-    .timeout_connect(Some(Duration::from_secs(30)))
-    .timeout_per_read(Some(Duration::from_secs(60)))
-    .user_agent(format!("Soundhood/{} (sidecar manager)", env!("CARGO_PKG_VERSION")));
-  if loopback {
-    cfg = cfg.proxy(None);
-  }
-  Ok(cfg.build().new_agent())
+  Ok(https)
 }
 
 fn http_error(url: &str, e: ureq::Error) -> Error {
@@ -312,20 +390,56 @@ fn http_error(url: &str, e: ureq::Error) -> Error {
   }
 }
 
+/// GET `url`; anything but `200 OK` is an error. With redirects off (plain HTTP), a redirect
+/// arrives here as a 3xx and is refused.
+fn get(agent: &ureq::Agent, url: &str) -> Result<ureq::http::Response<ureq::Body>> {
+  let resp = agent.get(url).call().map_err(|e| http_error(url, e))?;
+  match resp.status().as_u16() {
+    200 => Ok(resp),
+    s @ 300..=399 => Err(Error::Refused(format!(
+      "GET {url}: the server redirected ({s}); a test server on this computer is never followed elsewhere"
+    ))),
+    s => Err(Error::Other(format!("GET {url}: unexpected answer {s}"))),
+  }
+}
+
+/// The checksum file as text, refused past `MAX_CHECKSUM_BYTES` (counted after any decoding the
+/// HTTP client does, so a compressed answer cannot expand without bound).
 fn get_text(agent: &ureq::Agent, url: &str) -> Result<String> {
-  let mut resp = agent.get(url).call().map_err(|e| match http_error(url, e) {
+  let resp = get(agent, url).map_err(|e| match e {
     Error::NotFound(u) => Error::Refused(format!("no published checksum at {u}")),
     other => other,
   })?;
+  let mut bytes = Vec::new();
   resp
-    .body_mut()
-    .read_to_string()
-    .map_err(|e| Error::Other(format!("GET {url}: {e}")))
+    .into_body()
+    .into_reader()
+    .take(MAX_CHECKSUM_BYTES + 1)
+    .read_to_end(&mut bytes)
+    .map_err(|e| Error::Other(format!("GET {url}: {e}")))?;
+  if bytes.len() as u64 > MAX_CHECKSUM_BYTES {
+    return Err(Error::Refused(format!(
+      "the checksum file at {url} is larger than {} bytes",
+      MAX_CHECKSUM_BYTES
+    )));
+  }
+  String::from_utf8(bytes).map_err(|_| Error::Refused(format!("the checksum file at {url} is not text")))
 }
 
-/// Streams `url` into `path` (fsync'd), returning the SHA-256 hex and the byte count.
-fn download_hashed(agent: &ureq::Agent, url: &str, path: &Path) -> Result<(String, u64)> {
-  let resp = agent.get(url).call().map_err(|e| http_error(url, e))?;
+/// Streams `url` into `path` (fsync'd), returning the SHA-256 hex and the byte count. Refuses a
+/// body larger than `max` bytes: up front from `Content-Length`, otherwise as soon as the running
+/// count passes it, so at most `max` bytes ever reach the disk. The count is of the bytes the
+/// reader yields, after any transparent decompression, which is what a compressed "bomb" inflates.
+fn download_hashed(agent: &ureq::Agent, url: &str, path: &Path, max: u64) -> Result<(String, u64)> {
+  let too_big = || {
+    Error::Refused(format!(
+      "{url} is larger than the {max} byte limit for this helper; nothing installed"
+    ))
+  };
+  let resp = get(agent, url)?;
+  if resp.body().content_length().is_some_and(|len| len > max) {
+    return Err(too_big());
+  }
   let mut body = resp.into_body().into_reader();
   let mut file = File::create(path)?;
   let mut hasher = Sha256::new();
@@ -338,29 +452,59 @@ fn download_hashed(agent: &ureq::Agent, url: &str, path: &Path) -> Result<(Strin
     if n == 0 {
       break;
     }
+    total += n as u64;
+    if total > max {
+      return Err(too_big());
+    }
     hasher.update(&buf[..n]);
     file.write_all(&buf[..n])?;
-    total += n as u64;
   }
   file.sync_all()?;
   Ok((hex(&hasher.finalize()), total))
 }
 
-/// Extracts the single entry named `inner` (at any depth) from the verified zip into `out`.
-fn extract_one(zip_path: &Path, inner: &str, out: &Path) -> Result<()> {
+/// Extracts `inner` (`deno` or `deno.exe`) from the verified zip into `out`. The archive must hold
+/// exactly one entry with that file name, and it must sit at the top: a second one anywhere
+/// (`decoy/deno.exe`, `DENO.EXE`), or a single one inside a folder, is refused rather than picked
+/// between. More than `max` extracted bytes is refused too.
+fn extract_one(zip_path: &Path, inner: &str, out: &Path, max: u64) -> Result<()> {
   let bad = |e: zip::result::ZipError| Error::Other(format!("{}: {e}", zip_path.display()));
+  let refuse = |why: String| Error::Refused(format!("the deno archive {why}; nothing installed"));
   let mut archive = zip::ZipArchive::new(File::open(zip_path)?).map_err(bad)?;
+  // The reader keeps one entry per name, so a repeated name would be picked silently.
+  if archive.has_duplicate_names() {
+    return Err(refuse("holds two entries with the same name".into()));
+  }
+  let mut named = Vec::new();
   for i in 0..archive.len() {
-    let mut entry = archive.by_index(i).map_err(bad)?;
-    let name = entry.name().map_err(bad)?.replace('\\', "/");
-    if entry.is_file() && name.rsplit('/').next() == Some(inner) {
-      let mut file = File::create(out)?;
-      std::io::copy(&mut entry, &mut file)?;
-      file.sync_all()?;
-      return Ok(());
+    let entry = archive.by_index_raw(i).map_err(bad)?;
+    let name = entry.name().map_err(bad)?.to_string();
+    let file_name = name
+      .trim_end_matches(['/', '\\'])
+      .rsplit(['/', '\\'])
+      .next()
+      .unwrap_or_default();
+    if file_name.eq_ignore_ascii_case(inner) {
+      named.push((i, name, entry.is_file()));
     }
   }
-  Err(Error::NotFound(format!("{inner} inside {}", zip_path.display())))
+  let index = match named.as_slice() {
+    [] => return Err(Error::NotFound(format!("{inner} inside {}", zip_path.display()))),
+    [(i, name, true)] if name == inner => *i,
+    [(_, name, _)] => return Err(refuse(format!("holds {name:?}, not {inner} at its top"))),
+    many => return Err(refuse(format!("holds {} entries named {inner}", many.len()))),
+  };
+  let entry = archive.by_index(index).map_err(bad)?;
+  if entry.size() > max {
+    return Err(refuse(format!("says {inner} is larger than {max} bytes")));
+  }
+  let mut file = File::create(out)?;
+  let copied = std::io::copy(&mut entry.take(max + 1), &mut file)?;
+  if copied > max {
+    return Err(refuse(format!("holds a {inner} larger than {max} bytes")));
+  }
+  file.sync_all()?;
+  Ok(())
 }
 
 #[cfg(unix)]
@@ -454,6 +598,166 @@ mod tests {
     assert!(Asset::deno_pinned("aarch64-linux-android").is_err());
   }
 
+  /// Answers every connection on 127.0.0.1 with the raw bytes `reply`, then closes it. Returns the
+  /// base URL and the request heads seen.
+  fn serve_raw(reply: Vec<u8>) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{BufRead, BufReader};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { continue };
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut head = String::new();
+        loop {
+          let mut line = String::new();
+          if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+            break;
+          }
+          head.push_str(&line);
+        }
+        log.lock().unwrap().push(head);
+        let _ = stream.write_all(&reply);
+      }
+    });
+    (base, seen)
+  }
+
+  /// A gzip member whose one fixed-Huffman deflate block expands to `n` zero bytes: a literal,
+  /// then length-258 / distance-1 copies, about 13 bits on the wire per 258 bytes out. The CRC
+  /// trailer is left zero; a client has to stop long before it gets there.
+  fn gzip_bomb(n: u64) -> Vec<u8> {
+    struct Bits {
+      out: Vec<u8>,
+      acc: u8,
+      len: u32,
+    }
+    impl Bits {
+      fn bit(&mut self, b: u32) {
+        self.acc |= ((b & 1) as u8) << self.len;
+        self.len += 1;
+        if self.len == 8 {
+          self.out.push(self.acc);
+          (self.acc, self.len) = (0, 0);
+        }
+      }
+      /// Header fields go least significant bit first.
+      fn raw(&mut self, v: u32, width: u32) {
+        (0..width).for_each(|i| self.bit(v >> i));
+      }
+      /// Huffman codes go most significant bit first.
+      fn code(&mut self, c: u32, width: u32) {
+        (0..width).rev().for_each(|i| self.bit(c >> i));
+      }
+    }
+    let mut b = Bits {
+      out: vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff],
+      acc: 0,
+      len: 0,
+    };
+    b.raw(1, 1); // last block
+    b.raw(1, 2); // fixed Huffman codes
+    b.code(0x30, 8); // literal 0
+    let mut left = n - 1;
+    while left >= 258 {
+      b.code(0xc5, 8); // length code 285: 258 bytes
+      b.code(0, 5); // distance code 0: 1 byte back
+      left -= 258;
+    }
+    (0..left).for_each(|_| b.code(0x30, 8));
+    b.code(0, 7); // end of block
+    if b.len > 0 {
+      b.out.push(b.acc);
+    }
+    b.out.extend_from_slice(&[0; 4]);
+    b.out.extend_from_slice(&(n as u32).to_le_bytes());
+    b.out
+  }
+
+  #[test]
+  fn assets_are_asked_for_uncompressed() {
+    let (base, seen) = serve_raw(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec());
+    let dir = tempfile::tempdir().unwrap();
+    let agent = agent_for(&base).unwrap();
+    download_hashed(&agent, &format!("{base}/a"), &dir.path().join("a"), 10).unwrap();
+    let head = seen.lock().unwrap()[0].to_ascii_lowercase();
+    assert!(head.contains("\r\naccept-encoding: identity\r\n"), "{head}");
+  }
+
+  #[test]
+  fn a_content_length_above_the_limit_refuses_before_writing() {
+    let (base, _) =
+      serve_raw(b"HTTP/1.1 200 OK\r\nContent-Length: 10000000000\r\nConnection: close\r\n\r\naaaa".to_vec());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a");
+    let err = download_hashed(&agent_for(&base).unwrap(), &format!("{base}/a"), &path, 1024).unwrap_err();
+    assert!(
+      matches!(&err, Error::Refused(m) if m.contains("1024 byte limit")),
+      "{err}"
+    );
+    assert!(!path.exists(), "nothing written");
+  }
+
+  #[test]
+  fn a_body_without_a_length_stops_at_the_limit() {
+    let mut reply = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+    reply.extend(std::iter::repeat_n(b'a', 1 << 20));
+    let (base, _) = serve_raw(reply);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a");
+    let err = download_hashed(&agent_for(&base).unwrap(), &format!("{base}/a"), &path, 64 << 10).unwrap_err();
+    assert!(matches!(err, Error::Refused(_)), "{err}");
+    assert!(fs::metadata(&path).unwrap().len() <= 64 << 10);
+  }
+
+  #[test]
+  fn a_gzip_bomb_is_counted_after_decoding() {
+    let bomb = gzip_bomb(8 << 20);
+    assert!(bomb.len() < 64 << 10, "{} bytes on the wire", bomb.len());
+    let mut reply = format!(
+      "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+      bomb.len()
+    )
+    .into_bytes();
+    reply.extend(bomb);
+    let (base, _) = serve_raw(reply);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a");
+    let err = download_hashed(&agent_for(&base).unwrap(), &format!("{base}/a"), &path, 1 << 20).unwrap_err();
+    assert!(matches!(err, Error::Refused(_)), "{err}");
+    assert!(fs::metadata(&path).unwrap().len() <= 1 << 20);
+  }
+
+  #[test]
+  fn a_checksum_file_past_its_limit_refuses() {
+    let mut reply = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+    reply.extend(std::iter::repeat_n(b'a', (MAX_CHECKSUM_BYTES + 10) as usize));
+    let (base, _) = serve_raw(reply);
+    let err = get_text(&agent_for(&base).unwrap(), &format!("{base}/SHA2-256SUMS")).unwrap_err();
+    assert!(matches!(&err, Error::Refused(m) if m.contains("larger than")), "{err}");
+  }
+
+  #[test]
+  fn extraction_stops_at_the_size_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip_path = dir.path().join("deno.zip");
+    let mut w = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+    let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    w.start_file("deno", opts).unwrap();
+    w.write_all(&[0u8; 4096]).unwrap();
+    w.finish().unwrap();
+    let out = dir.path().join("deno.out");
+    let err = extract_one(&zip_path, "deno", &out, 1024).unwrap_err();
+    assert!(
+      matches!(&err, Error::Refused(m) if m.contains("larger than 1024 bytes")),
+      "{err}"
+    );
+    extract_one(&zip_path, "deno", &out, 4096).unwrap();
+    assert_eq!(fs::read(&out).unwrap(), [0u8; 4096]);
+  }
+
   #[test]
   fn plain_http_only_to_loopback() {
     assert!(agent_for("http://127.0.0.1:8080").is_ok());
@@ -463,5 +767,59 @@ mod tests {
       agent_for("http://127.0.0.1.example.com"),
       Err(Error::Refused(_))
     ));
+  }
+
+  #[test]
+  fn base_addresses_are_parsed_not_prefix_matched() {
+    for (base, https) in [
+      ("https://github.com", true),
+      ("HTTPS://github.com/", true),
+      ("https://mirror.example:8443/releases", true),
+      ("http://127.0.0.1", false),
+      ("http://127.0.0.1:9/", false),
+      ("http://LOCALHOST:65535/x/y", false),
+      ("http://[::1]:8080", false),
+      ("http://[::1]", false),
+    ] {
+      assert_eq!(check_base(base).ok(), Some(https), "{base}");
+    }
+    for base in [
+      // A user name (or password) in front of another host.
+      "http://localhost:1@127.0.0.2:8080",
+      "http://127.0.0.1:80@mirror.example.com",
+      "http://127.0.0.1@mirror.example.com/",
+      "https://user:pass@mirror.example.com",
+      "https://github.com@mirror.example.com",
+      // Lookalikes and other loopback spellings that are not in the list.
+      "http://127.0.0.2",
+      "http://127.1",
+      "http://localhost.",
+      "http://localhost.example.com",
+      "http://[::1].example.com",
+      "http://[::2]",
+      "http://0x7f000001",
+      // Things another parser could read differently.
+      "http://127.0.0.1%2f@mirror.example.com",
+      "http://127.0.0.1\\@mirror.example.com",
+      "http://127.0.0.1#@mirror.example.com",
+      "http://127.0.0.1?@mirror.example.com",
+      "http://127.0.0.1 /",
+      "http://127.0.0.1:/",
+      "http://127.0.0.1:0",
+      "http://127.0.0.1:65536",
+      "http://127.0.0.1:80:90",
+      "http://[::1",
+      "http://",
+      "https://",
+      "https:///path",
+      "ftp://127.0.0.1",
+      "127.0.0.1:8080",
+      "file:///C:/x",
+    ] {
+      assert!(
+        matches!(check_base(base), Err(Error::Refused(_))),
+        "{base:?} must be refused"
+      );
+    }
   }
 }
