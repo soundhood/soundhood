@@ -6,6 +6,12 @@ members = [
   "app/src-tauri/plugins/soundhood-ytdl",
 ]
 
+exclude = ["third_party"]
+
+# lofty 0.25.5 with one fix (an 8-byte MP4 `free` atom); see third_party/lofty/SOUNDHOOD-PATCH.md.
+[patch.crates-io]
+lofty = { path = "third_party/lofty" }
+
 [workspace.package]
 edition = "2021"
 license = "MIT"

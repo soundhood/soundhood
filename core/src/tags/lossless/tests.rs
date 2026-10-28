@@ -286,6 +286,19 @@ fn id3_len(bytes: &[u8]) -> usize {
 }
 
 #[test]
+fn m4a_tag_that_shrinks_by_exactly_eight_bytes_is_written() {
+  // lofty 0.25.5 panicked when an MP4 tag shrank by exactly the 8-byte atom header (patched in
+  // third_party/lofty); 7, 9 and 16 bytes are the neighbours that always worked.
+  for shrink in [7usize, 8, 9, 16] {
+    let (_dir, path) = rich("m4a");
+    let long = format!("Short{}", "x".repeat(shrink));
+    write_and_check(&path, &set(|t| t.title = Some(long.clone())), &[Field::Title]);
+    let after = write_and_check(&path, &set(|t| t.title = Some("Short".into())), &[Field::Title]);
+    assert_eq!(after.title, "Short", "shrink by {shrink}");
+  }
+}
+
+#[test]
 fn every_format_keeps_all_other_items_when_title_and_artist_change() {
   for kind in RICH {
     let (_dir, path) = rich(kind);
