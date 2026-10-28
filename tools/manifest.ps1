@@ -33,7 +33,9 @@ if (-not ($build -or $compare)) {
 # Finds soundhood-tools: installed app first, then the repo's release build; builds it if absent.
 function Find-SoundhoodTools {
   param([switch] $PreferRepo)
-  $exe = if ($IsWindows) { 'soundhood-tools.exe' } else { 'soundhood-tools' }
+  # Not $IsWindows: that variable exists only in PowerShell 6+, and Windows PowerShell 5.1 (the
+  # `powershell` in OWNER_GUIDE) stops on it under StrictMode.
+  $exe = if ([Environment]::OSVersion.Platform -eq 'Win32NT') { 'soundhood-tools.exe' } else { 'soundhood-tools' }
   $repo = Split-Path -Parent $PSScriptRoot
   $targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $repo 'target' }
   $built = Join-Path $targetDir "release/$exe"

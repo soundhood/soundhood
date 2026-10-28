@@ -11,6 +11,7 @@ AndroidManifest.xml and merges into the app by itself. What is left is app-level
   2. MainActivity.kt      system-bar insets, share delivery to the web UI, the delayed All-files request
   3. strings.xml          the app name
   4. app/build.gradle.kts SDK levels, useLegacyPackaging, release signing
+  5. gradle-wrapper.properties  the pinned Gradle zip's SHA-256 (distributionSha256Sum)
 
 Idempotent: files are written only when their content changes, so a second run reports "ok" for
 every step. Line endings of each file are kept. Run from anywhere:
@@ -330,6 +331,31 @@ def signing(s):
     return s
 
 
+# 5. gradle/wrapper/gradle-wrapper.properties -------------------------------------------------------
+
+# The Gradle the wrapper downloads and the SHA-256 published for that zip
+# (https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256). `tauri android init`
+# writes the URL but not the checksum; without it the wrapper runs whatever it downloaded. Bump both
+# together, on purpose.
+GRADLE_VERSION = "9.6.1"
+GRADLE_SHA256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+
+
+def gradle_checksum(s):
+    m = re.search(r"^distributionUrl=.*/gradle-([0-9][0-9.]*)-(bin|all)\.zip[ \t]*$", s, re.M)
+    if not m:
+        raise TemplateChanged("the distributionUrl line")
+    if (m.group(1), m.group(2)) != (GRADLE_VERSION, "bin"):
+        raise TemplateChanged(
+            f"Gradle {m.group(1)}-{m.group(2)} in the wrapper, pinned is {GRADLE_VERSION}-bin; "
+            "update GRADLE_VERSION and GRADLE_SHA256"
+        )
+    line = f"distributionSha256Sum={GRADLE_SHA256}"
+    if re.search(r"^distributionSha256Sum=", s, re.M):
+        return re.sub(r"^distributionSha256Sum=.*$", line, s, count=1, flags=re.M)
+    return s.replace(m.group(0), m.group(0) + "\n" + line, 1)
+
+
 def main():
     if not os.path.isdir(MAIN):
         sys.exit("gen/android not found: run `npm run tauri android init` in app/ first")
@@ -361,6 +387,11 @@ def main():
                 ("gradle: useLegacyPackaging", legacy_packaging),
                 ("gradle: release signing", signing),
             ],
+        )
+
+        patch_file(
+            os.path.join(ANDROID, "gradle", "wrapper", "gradle-wrapper.properties"),
+            [(f"gradle wrapper: distributionSha256Sum for Gradle {GRADLE_VERSION}", gradle_checksum)],
         )
     except TemplateChanged as e:
         print(f"anchor not found ({e}): the Tauri template changed; patch that step by hand", file=sys.stderr)

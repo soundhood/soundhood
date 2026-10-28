@@ -1,12 +1,15 @@
-// Builds the soundhood-tools CLI (manifest, fixture library, sidecar fetch, self-test) in release mode
-// and copies it to app/src-tauri/bin/soundhood-tools-<target triple>[.exe], the name Tauri's
+// Builds the soundhood-tools CLI (manifest, fixture library, sidecar fetch, self-test) and copies it to app/src-tauri/bin/soundhood-tools-<target triple>[.exe], the name Tauri's
 // `bundle.externalBin` expects, so the desktop installer ships it next to Soundhood.
 //
-//   npm run build:tools        (run by `beforeBuildCommand`, so `npm run tauri build` does it)
+//   npm run build:tools        (run by `beforeBuildCommand` and `beforeDevCommand`, so `npm run tauri
+//                               build` and `npm run tauri dev` work from a fresh clone)
+//
+// Quick when nothing changed: cargo only checks its fingerprints, and the copy is skipped when the
+// file in bin/ already has the same bytes (its timestamp then stays as it was).
 //
 // Phone builds skip it: the Android overlay empties `externalBin`, and the CLI is a desktop tool.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,7 +31,14 @@ if (!host) {
 const triple = process.env.TAURI_ENV_TARGET_TRIPLE || host;
 const ext = triple.includes("windows") ? ".exe" : "";
 
-const cargoArgs = ["build", "--release", "-p", "soundhood-core", "--features", "tools", "--bin", "soundhood-tools"];
+// `tauri dev` and `tauri build --debug` set TAURI_ENV_DEBUG=true: a debug build is quicker from a fresh
+// clone (Tauri waits for the dev server, which starts after this, for about three minutes) and
+// shares its compiled dependencies with the debug app build that follows. Release builds and a
+// plain `npm run build:tools` build the release CLI the installer ships.
+const debug = process.env.TAURI_ENV_DEBUG === "true";
+const profile = debug ? "debug" : "release";
+const cargoArgs = ["build", "-p", "soundhood-core", "--features", "tools", "--bin", "soundhood-tools"];
+if (!debug) cargoArgs.splice(1, 0, "--release");
 if (triple !== host) cargoArgs.push("--target", triple);
 execFileSync("cargo", cargoArgs, { cwd: repo, stdio: "inherit" });
 
@@ -36,14 +46,23 @@ execFileSync("cargo", cargoArgs, { cwd: repo, stdio: "inherit" });
 const meta = JSON.parse(
   execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps"], { cwd: repo, encoding: "utf8" }),
 );
-const releaseDir = triple === host ? join(meta.target_directory, "release") : join(meta.target_directory, triple, "release");
-const built = join(releaseDir, `soundhood-tools${ext}`);
+const outDir = triple === host ? join(meta.target_directory, profile) : join(meta.target_directory, triple, profile);
+const built = join(outDir, `soundhood-tools${ext}`);
 if (!existsSync(built)) {
   console.error(`build:tools: cargo finished but ${built} is missing`);
   process.exit(1);
 }
 
 const dest = join(app, "src-tauri", "bin", `soundhood-tools-${triple}${ext}`);
-mkdirSync(dirname(dest), { recursive: true });
-copyFileSync(built, dest);
-console.log(`build:tools: soundhood-tools -> src-tauri/bin/soundhood-tools-${triple}${ext}`);
+const name = `src-tauri/bin/soundhood-tools-${triple}${ext}`;
+const same =
+  existsSync(dest) &&
+  statSync(dest).size === statSync(built).size &&
+  readFileSync(dest).equals(readFileSync(built));
+if (same) {
+  console.log(`build:tools: ${name} is up to date (${profile})`);
+} else {
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(built, dest);
+  console.log(`build:tools: soundhood-tools (${profile}) -> ${name}`);
+}
