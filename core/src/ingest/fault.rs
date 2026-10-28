@@ -8,8 +8,10 @@
 //!
 //! Hooks are the gentler kind of point: a test registers a closure for one file at one point
 //! ([`once_at`]) and the write path runs it when it passes there, which lets a test change a file
-//! at the exact moment a sync client could. The one hook point is `before_replace`: right before
-//! the write path checks, one last time, that a file (audio or playlist) is still what it read.
+//! at the exact moment a sync client could. Hook points: `before_replace`, right before the write
+//! path checks, one last time, that a file (audio or playlist) is still what it read; and
+//! `before_rename` (playlists), after that check, right before the rename itself: the instant only
+//! a no-replace rename covers.
 
 /// The environment variable a kill test sets to the name of the point to crash at.
 pub const CRASH_ENV: &str = "SOUNDHOOD_CRASH_AT";

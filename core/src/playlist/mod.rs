@@ -309,11 +309,21 @@ pub(crate) fn write(root: &Path, name: &str, entries: &[String], job: &str) -> R
   write_expecting(root, name, entries, job, None)
 }
 
+/// The hidden temp the sole writer uses for job `job`: `_Playlists/.soundhood-tmp-<job>.m3u8`.
+pub(crate) fn temp_path(root: &Path, job: &str) -> std::path::PathBuf {
+  crate::fs::tmp_path(&root.join(PLAYLISTS_DIR), job, "m3u8")
+}
+
 /// [`write`], checking right before the rename (after the temp is written and fsynced) that the
 /// playlist is still what `expect` says; otherwise the temp goes and the playlist is left as it is
 /// ([`changed`]). The read that `expect` comes from and this write are apart in time, and an edit
 /// from the other device can land in between: renaming over it would lose its lines on both
 /// devices once sync uploads the result.
+///
+/// A playlist being created (`Expect::Absent`) is renamed into place by the no-replace rename, so
+/// one that lands after that check, in the instant before the rename, is kept too ([`changed`]),
+/// as is one whose name differs only in case on a case-sensitive disk. Replacing an existing
+/// playlist keeps the replacing rename: there the instant between the check and the rename is left.
 pub(crate) fn write_expecting(
   root: &Path,
   name: &str,
@@ -326,10 +336,10 @@ pub(crate) fn write_expecting(
       return Err(Error::InvalidPath(format!("cannot be a playlist line: {e:?}")));
     }
   }
-  let dest = file_rel(name)?.to_abs(root);
-  let dir = root.join(PLAYLISTS_DIR);
-  std::fs::create_dir_all(&dir)?;
-  let tmp = crate::fs::tmp_path(&dir, job, "m3u8");
+  let clean = sanitize_name(name)?;
+  let dest = file_rel(&clean)?.to_abs(root);
+  std::fs::create_dir_all(root.join(PLAYLISTS_DIR))?;
+  let tmp = temp_path(root, job);
   let mut file = crate::fs::create_hidden(&tmp)?;
   let written = file
     .write_all(render(entries).as_bytes())
@@ -344,9 +354,16 @@ pub(crate) fn write_expecting(
   let result = written.and_then(|_| {
     crate::ingest::fault::hook("before_replace", &dest);
     if !still() {
-      return Err(changed(&sanitize_name(name)?));
+      return Err(changed(&clean));
     }
-    crate::fs::atomic_replace(&tmp, &dest)
+    crate::ingest::fault::hook("before_rename", &dest);
+    match expect {
+      Some(Expect::Absent) => crate::fs::place_new(&tmp, &dest).map_err(|e| match e {
+        Error::Exists(_) => changed(&clean),
+        e => e,
+      }),
+      _ => crate::fs::atomic_replace(&tmp, &dest),
+    }
   });
   if result.is_err() && tmp.exists() {
     let _ = crate::fs::remove_file(&tmp);

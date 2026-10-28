@@ -267,3 +267,31 @@ fn read_exact_tells_the_apps_own_format_from_another_programs() {
   }
   assert!(matches!(read_exact(root.path(), "Missing"), Err(Error::NotFound(_))));
 }
+/// A playlist being created is renamed into place without replacing: one the other device lands
+/// after the last check, in the instant before the rename (the `before_rename` hook), is kept and
+/// the create reports "changed".
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_create_never_replaces_a_playlist_that_lands_right_before_its_rename() {
+  let root = tmp_root();
+  std::fs::create_dir_all(root.path().join("_Playlists")).unwrap();
+  let dest = root.path().join("_Playlists/New.m3u8");
+  let phone = "#EXTM3U\nPhone/From The Phone.m4a\n";
+  let d2 = dest.clone();
+  crate::ingest::fault::once_at("before_rename", &dest, move || std::fs::write(&d2, phone).unwrap());
+  let err = write_expecting(root.path(), "New", &["a.mp3".to_string()], JOB, Some(Expect::Absent)).unwrap_err();
+  assert!(is_changed(&err), "{err}");
+  assert_eq!(std::fs::read_to_string(&dest).unwrap(), phone, "the phone's playlist is kept");
+  assert!(crate::fs::list_tmp_files(root.path()).unwrap().is_empty(), "no temp left");
+  // Without anything landing, the create works and leaves a normal file.
+  write_expecting(root.path(), "Other", &["a.mp3".to_string()], JOB, Some(Expect::Absent)).unwrap();
+  assert_eq!(read(root.path(), "Other").unwrap().entries, vec!["a.mp3"]);
+  #[cfg(windows)]
+  {
+    use std::os::windows::fs::MetadataExt;
+    let attrs = std::fs::metadata(root.path().join("_Playlists/Other.m3u8"))
+      .unwrap()
+      .file_attributes();
+    assert_eq!(attrs & 0x2, 0, "a created playlist is not hidden");
+  }
+}
