@@ -12,8 +12,9 @@
 // manager verifies against, so an installer never ships a build below the project's floor:
 //   - yt-dlp: the file's SHA-256 must equal the bootstrap pin for the host triple (the pin is the hash
 //     of the release's own executable, which `soundhood-tools fetch-sidecars` installs unchanged);
-//   - deno: pins.rs pins the release zip, not the deno executable inside it, so the executable is held
-//     to the pinned version instead (`deno --version` must say DENO_VERSION). Its SHA-256 is printed.
+//   - deno: when the host triple's DENO row carries `exe_sha256` (the hash of the deno executable inside
+//     the pinned zip), the file's SHA-256 must equal it. A row without one holds the executable to the
+//     pinned version instead (`deno --version` must say DENO_VERSION); its SHA-256 is printed.
 // Fix a failure with `scripts/fetch-sidecars.ps1` (or `soundhood-tools fetch-sidecars app/src-tauri/bin`).
 //
 // Once the sidecar manager fetches yt-dlp and deno at runtime, `externalBin` no longer lists them
@@ -46,13 +47,25 @@ if (!host) {
 }
 const ext = host.includes("windows") ? ".exe" : "";
 
-/** The `PinnedAsset` rows of one `pub const <name>: &[PinnedAsset] = &[ ... ];` table in pins.rs. */
+/**
+ * The `PinnedAsset { ... }` rows of one `pub const <name>: &[PinnedAsset] = &[ ... ];` table in
+ * pins.rs, each field read by name: `triple`, `name`, `sha256`, and `exeSha256` from an optional
+ * `exe_sha256: "<hex>"` or `exe_sha256: Some("<hex>")` (null when absent, `None` or empty).
+ */
 function pinTable(pins, name) {
   const block = new RegExp(`pub const ${name}: &\\[PinnedAsset\\] = &\\[([\\s\\S]*?)\\n\\];`).exec(pins)?.[1];
   if (!block) throw new Error(`pins.rs: table ${name} not found`);
+  const field = (body, key) => new RegExp(`\\b${key}:\\s*(?:Some\\(\\s*)?"([^"]*)"`).exec(body)?.[1] ?? null;
   const rows = [];
-  const row = /triple:\s*"([^"]+)",\s*name:\s*"([^"]+)",\s*sha256:\s*"([0-9a-f]{64})"/g;
-  for (let m; (m = row.exec(block)); ) rows.push({ triple: m[1], name: m[2], sha256: m[3] });
+  for (const [, body] of block.matchAll(/PinnedAsset\s*\{([^}]*)\}/g)) {
+    const row = { triple: field(body, "triple"), name: field(body, "name"), sha256: field(body, "sha256") };
+    if (!row.triple || !row.name || !/^[0-9a-f]{64}$/.test(row.sha256 ?? "")) {
+      throw new Error(`pins.rs: a ${name} row is missing triple, name or a 64-hex sha256`);
+    }
+    const exe = field(body, "exe_sha256");
+    if (exe && !/^[0-9a-f]{64}$/.test(exe)) throw new Error(`pins.rs: ${name} ${row.triple}: exe_sha256 is not 64 hex`);
+    rows.push({ ...row, exeSha256: exe || null });
+  }
   if (rows.length === 0) throw new Error(`pins.rs: table ${name} has no rows`);
   return rows;
 }
@@ -78,7 +91,13 @@ function pinProblem(bin, file, pins) {
   }
   if (tool === "deno") {
     const want = pinConst(pins, "DENO_VERSION");
-    console.log(`deno sha256 ${sha256(file)}`);
+    const actual = sha256(file);
+    const exePin = pinTable(pins, "DENO").find((p) => p.triple === host)?.exeSha256 ?? null;
+    if (exePin) {
+      console.log(`deno sha256 ${actual} (pinned ${exePin}, ${want})`);
+      return actual === exePin ? null : `deno is not the pinned build (sha256 ${actual}, pinned ${exePin})`;
+    }
+    console.log(`deno sha256 ${actual} (no exe_sha256 pin for ${host}: checking the version)`);
     let said = "";
     try {
       said = execFileSync(file, ["--version"], { encoding: "utf8", timeout: 30_000 });
