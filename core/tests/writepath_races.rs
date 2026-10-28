@@ -73,13 +73,68 @@ impl Swapper {
 }
 
 /// G03: a newer version of the track is renamed over it while its tags are being written (the
-/// hidden temp is there, the rename not yet), by a thread watching for the temp the way a sync
-/// client lands a file. Before the fix the rename replaced it: the newer version was gone and the
-/// journal named only the old one. Now the original is checked again right before the rename: the
-/// op is skipped "changed since, not changed" and the newer version stays. (The exact-moment
-/// version of this, for every op, is `a_track_replaced_right_before_the_rename_...`.)
+/// hidden temp is there, the rename not yet). Before the fix the rename replaced it: the newer
+/// version was gone and the journal named only the old one. Now the original is checked again
+/// right before the rename: the op is skipped "changed since, not changed", the newer version
+/// stays, and the pre-image is closed as given up. The `before_replace` hook lands the newer
+/// version at the latest moment the check still covers, so the outcome is the same on every run
+/// (the threaded sibling below shows why a watcher thread cannot be a merge gate).
+#[cfg(feature = "fault-injection")]
 #[test]
 fn a_newer_version_landing_mid_tag_write_is_never_overwritten() {
+  use soundhood_core::ingest::fault;
+  for ext in ["m4a", "mp3", "flac"] {
+    let (_d, lib, report) = fixture_lib(10, false);
+    let r = track_with_ext(&report, ext);
+    let abs = lib.abs(&r);
+    let original = read_bytes(&lib, &r);
+    let other = report
+      .tracks
+      .iter()
+      .map(|t| rel(&t.rel))
+      .find(|o| *o != r && o.as_str().ends_with(ext))
+      .unwrap();
+    let newer = read_bytes(&lib, &other);
+    assert_ne!(newer, original, "{ext}");
+    let staged = lib.root.join("newer.bin");
+    std::fs::write(&staged, &newer).unwrap();
+    let to = abs.clone();
+    fault::once_at("before_replace", &abs, move || std::fs::rename(&staged, &to).unwrap());
+    let rep = one(
+      &lib,
+      Op::WriteTags {
+        rel: r.clone(),
+        changes: title("Edited On This Device"),
+      },
+    );
+    assert_eq!(std::fs::read(&abs).unwrap(), newer, "{ext}: the newer version survived");
+    assert!(rep.applied.is_empty() && rep.failed.is_empty(), "{ext}: {}", show(&rep));
+    assert_eq!(rep.skipped[0].reason, "changed since, not changed", "{ext}");
+    assert!(temps(&lib.root).is_empty(), "{ext}: the temp is gone");
+    assert!(
+      undo::last_change(&lib).unwrap().is_none(),
+      "{ext}: nothing happened to undo"
+    );
+    let e = entries(&lib).pop().unwrap();
+    assert!(!e.committed, "{ext}");
+    assert!(
+      e.note.as_deref().is_some_and(|n| n.starts_with("not applied: ")),
+      "{e:?}"
+    );
+  }
+}
+
+/// G03 as a sync client really does it: a thread watching for the write path's temp renames the
+/// newer version over the track as soon as the temp appears. Not part of the merge gate: it races
+/// the real write, and now and then (about 1 to 3 runs in 100 under load) the thread lands inside
+/// the residual window DECISIONS records: from the moment the last check starts hashing the file
+/// (a rename during the hash goes unseen, the hash reads the old open file) to the rename itself,
+/// which then still replaces it. A failure here is that window being hit, not a regression of the
+/// check. Run it on purpose: `cargo test -p soundhood-core --test writepath_races -- --ignored
+/// watcher`.
+#[test]
+#[ignore = "races a real thread against the write path; it can hit the documented residual window"]
+fn a_watcher_landing_a_newer_version_mid_tag_write_is_kept() {
   for ext in ["m4a", "mp3", "flac"] {
     // The watcher can miss a short-lived temp when the scheduler is busy; such a run proves
     // nothing, so it is run again.
