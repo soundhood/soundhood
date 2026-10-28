@@ -12,22 +12,25 @@ Whenever the team runs the phase checks on the devices:
 - The phone is attached to the PC over USB, its screen unlocked for the whole run.
 - On the phone, USB debugging and All-files access are on.
 - Proton VPN is off, unless a test says to turn it on.
-- The fixture library is installed on both devices (settings, Tools, **Use fixture root**). Every
-  screenshot the team commits is taken with it, never with your own library.
+- The fixture library (a small test library the app generates) is installed on both devices with
+  **Use fixture root** in the hidden developer section ([how to open it](OWNER_GUIDE.md#the-developer-section)).
+  Every screenshot the team commits is taken with it, never with your own library. While it is on,
+  Proton sync is switched off on the phone, so the test library never reaches your Proton Drive.
 
 Your own tests below run on your real library unless a test says otherwise.
 
 ## Phase 0 (planned 0.2.0): foundation
 
-Phase 0 changes how the app writes to your files, not how it looks. Apart from one new Undo row, you
-should notice nothing.
+Phase 0 changes how the app writes to your files, not how it looks. Apart from Undo and, on the PC,
+a Copy log button, you should notice nothing.
 
 1. **The PC app looks and behaves as before.** Install the new version
    ([guide](OWNER_GUIDE.md#install-the-app-on-the-pc)). Open it, browse Playlists, Artists and
    Folders, play a few songs, search, change the volume.
    *Expected:* everything looks and works as it did before the update. Your library, playlists and
-   settings are there. The only new thing is the **Undo** button at the top. The **Tags ← names**
-   button is gone (it returns later, done safely, as Tidy).
+   settings are there. The new things are the **Undo** button at the top and a **Copy log** button
+   next to **Download** (it shows while there is a log). The **Tags ← names** button is gone (it
+   returns in Phase 2, done safely, as Tidy).
 
 2. **The phone app looks and behaves as before.** Install the new version
    ([guide](OWNER_GUIDE.md#install-the-app-on-the-phone)). Open it, browse the tabs, play a song, open
@@ -38,7 +41,10 @@ should notice nothing.
 3. **Pasting a link still downloads on the PC.** Copy a YouTube link, paste it into the download box,
    choose a folder and a playlist, press Download.
    *Expected:* the song downloads as it did before, lands in the folder you chose and appears in the
-   playlist you chose. No new files or playlists appear that you did not ask for.
+   playlist you chose. No new files or playlists appear that you did not ask for, apart from
+   Soundhood's own `_Soundhood` folder: the first change Soundhood makes (here, adding the song to
+   the playlist) creates `_Soundhood\journal` inside your music folder. Soundhood keeps its list of
+   changes there; leave it.
 
 4. **Undo takes back a tag edit.** On the PC, edit the title or artist of one song and save. Look at
    the Undo button (hover over it), then press it.
@@ -54,6 +60,8 @@ should notice nothing.
    ([guide](OWNER_GUIDE.md#take-a-library-snapshot-and-compare-two)). Use the app normally for a while
    on the PC without editing anything: browse, search, play, rescan. Do not edit or sync on the phone
    meanwhile. Take a second snapshot and compare.
-   *Expected:* the comparison prints `Identical`.
+   *Expected:* the comparison prints `Identical`. (An edit followed by Undo does not count as "no
+   edit": Undo brings back the old tags, but an m4a or mp3 file can come back with different bytes,
+   so the comparison would list it.)
 
 When a test fails, press Copy log on that device and send the log with the test number.

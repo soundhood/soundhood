@@ -62,5 +62,6 @@ Until then the PC app has:
 | Ctrl+A | Select every listed track |
 | Esc | Clear the selection; close the edit and delete dialogs |
 | Enter | Confirm the field you are typing in (link, folder name, playlist name, tags) |
+| Ctrl+Alt+Shift+D | Show or hide the developer section (test switches; new in Phase 0) |
 
 See [SCREENS](SCREENS.md) for where each action lives.

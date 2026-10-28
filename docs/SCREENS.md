@@ -6,7 +6,8 @@ platform. Keyboard: [SHORTCUTS](SHORTCUTS.md). Planned screens are listed at the
 
 ## Phone
 
-**Top bar.** "Soundhood", the settings button (gear icon) and a one-line status.
+**Top bar.** "Soundhood", the settings button (gear icon) and a one-line status. Tapping the status
+7 times in a row shows or hides the developer section (new in Phase 0).
 
 **Settings sheet** (opens under the top bar), rows in order:
 
@@ -20,6 +21,9 @@ platform. Keyboard: [SHORTCUTS](SHORTCUTS.md). Planned screens are listed at the
 7. Tools: **Update yt-dlp** with its version, **Network check**, **Download queue (n)**, **Copy log**,
    **Clear log**.
 8. Links waiting to download, each with its folder and playlists, copy and remove.
+9. The developer section, hidden until the status is tapped 7 times (new in Phase 0): **Use fixture
+   root** (on or off), **Run self-test**, **Rebuild index**. While the fixture library is shown, the
+   Proton sync buttons are off.
 
 **Browse.** Tabs Playlists, Artists, Folders, each with a filter field. Playlists lists the playlist
 files (with "Create playlists from folders" when there are none yet) and **+** for a new one; Artists
@@ -39,10 +43,16 @@ artist, the time line, shuffle, previous, play/pause, next, and "Add to playlist
 ## PC
 
 **Top bar.** "Soundhood", **Import** (pick the library folder), **Rescan**, **Undo** (new in Phase 0;
-hovering shows what it will undo) and the status line.
+greyed out with nothing to undo, hovering shows what it will undo, one click undoes it) and the
+status line.
+
+**Developer row** (new in Phase 0, hidden): Ctrl+Alt+Shift+D shows or hides a row under the top bar
+with **Use fixture root** (on or off), **Run self-test** and **Rebuild index**.
 
 **Download box.** A link field, the folder it lands in (with "+ New folder"), the playlists it joins,
-**Download**, **Clear logs** and **Download queue (n)** when links are waiting. The log appears below.
+**Download**, **Copy log** (new in Phase 0, while there is a log; it copies the log with the app and
+device details on top), **Clear logs** and **Download queue (n)** when links are waiting. The log
+appears below.
 
 **Browse and tracks side by side.** The same Playlists, Artists and Folders tabs as the phone on the
 left; the track list on the right with search, sort, add to playlist, remove from playlist, move file

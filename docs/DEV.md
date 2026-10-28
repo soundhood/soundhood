@@ -18,7 +18,35 @@ signing rule and the CI gates. Background: [ARCHITECTURE](ARCHITECTURE.md). On-d
 | JDK | 17 (Android Studio's bundled runtime works), `JAVA_HOME` set | Gradle |
 | Rust Android target | `rustup target add aarch64-linux-android` | phone builds |
 | cargo-ndk | `cargo install cargo-ndk --locked` | the core's Android check |
-| ffmpeg | any recent build | only to regenerate `core/fixtures/audio/` ([its README](../core/fixtures/audio/README.md)) |
+| ffmpeg | any recent build, on `PATH` | desktop downloads (yt-dlp finds it on `PATH`; not bundled until Phase 2) and regenerating `core/fixtures/audio/` ([its README](../core/fixtures/audio/README.md)) |
+
+## After a fresh clone
+
+Git does not carry two things the desktop host needs to compile: the UI bundle (`app/dist/`, embedded
+at compile time) and the helper programs listed under `bundle.externalBin` in
+`app/src-tauri/tauri.conf.json` (`app/src-tauri/bin/<name>-<target triple>[.exe]` for yt-dlp, deno
+and soundhood-tools). Until they exist, `npm run tauri dev`, `cargo clippy --workspace` and
+`cargo check -p soundhood` stop with "resource path ... doesn't exist".
+
+For a working desktop build, from `app/`:
+
+```powershell
+npm ci
+npm run build:tools     # builds soundhood-tools in release mode into src-tauri/bin
+npm run build           # app/dist
+```
+
+then, from the repository root, fetch the pinned yt-dlp and deno, verified against their published
+checksums and `core/src/ytdlp/pins.rs` (`scripts/fetch-sidecars.ps1` does the same on Windows):
+
+```powershell
+cargo run -p soundhood-core --release --features tools --bin soundhood-tools -- fetch-sidecars app/src-tauri/bin
+```
+
+For lint-only work (clippy, `cargo check`, the host tests), empty placeholders do instead, as in CI:
+`node .github/scripts/sidecars.mjs stub` from the repository root, plus `npm run build` in `app/` (or
+any `app/dist/index.html`). A tree with placeholders compiles but must never be shipped;
+`node .github/scripts/sidecars.mjs check` refuses them.
 
 ## The Cargo workspace
 
@@ -34,14 +62,17 @@ All Rust output now goes to **`<repo>/target/`**, no longer `app/src-tauri/targe
 | Android APK | under `app/src-tauri/gen/android/app/build/outputs/apk/`; the build prints the exact path |
 | Web UI bundle | `app/dist/` |
 
-Core work, from the repository root:
+Core work, from the repository root (the clippy, host-test and phone-clippy lines need the
+[fresh-clone preparation](#after-a-fresh-clone) first):
 
 ```powershell
 cargo test -p soundhood-core                         # unit tests
 cargo test -p soundhood-core --all-features          # plus kill-mid-write tests, sidecar manager, CLI
 cargo fmt -p soundhood-core                          # 2-space house style (rustfmt.toml)
-cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p soundhood -p tauri-plugin-soundhood-ytdl   # host and plugin unit tests
 cargo ndk -t arm64-v8a check -p soundhood-core       # does the core build for the phone?
+cargo ndk -t arm64-v8a clippy -p soundhood -p tauri-plugin-soundhood-ytdl -- -D warnings   # phone-only Rust
 cargo run -p soundhood-core --features tools --bin soundhood-tools -- manifest <root> <out.json>
 cargo run -p soundhood-core --features tools --bin soundhood-tools -- fixture-lib <dir>
 ```
@@ -56,25 +87,43 @@ SQLite is compiled by a build script that needs the NDK's clang. cargo-ndk sets 
 
 ## Desktop
 
-From `app/`:
+From `app/`, after the [fresh-clone preparation](#after-a-fresh-clone):
 
 ```powershell
-npm ci
 npm run tauri dev       # a dev window that reloads on UI changes
 npm run tauri build     # the NSIS installer (see the artefact table)
 ```
 
-The owner-facing wrapper `scripts/build-windows.ps1` (planned) runs the same build.
+The owner-facing wrapper `scripts/build-windows.ps1` runs the same build.
 
-**Download helpers on the desktop.** `app/src-tauri/tauri.conf.json` still lists `bin/yt-dlp` and
-`bin/deno` under `bundle.externalBin`, so a desktop build needs
-`app/src-tauri/bin/yt-dlp-<target triple>.exe` and `deno-<target triple>.exe` (git-ignored, never
-committed). Phase 0 replaces this with the sidecar manager: on first enable the app fetches yt-dlp and
-deno from their upstream releases and verifies them against the published checksums
-([LEGAL](../LEGAL.md#how-the-desktop-download-helper-is-verified)); `scripts/fetch-sidecars.ps1` is a
-Windows dev convenience that calls the same host entry point (`soundhood.exe --fetch-sidecars`).
-ffmpeg (an LGPL build) is bundled. CI compiles with empty placeholders (`.github/scripts/sidecars.mjs`);
-release builds refuse placeholders.
+**The dev window is the installed app.** `npm run tauri dev` runs under the production identifier
+(`identifier` in `app/src-tauri/tauri.conf.json`), so it reads and writes the installed app's
+settings, index, journal and cookie file, and opens its library folder. For experiments, give it a
+test identity of its own; its data then lives in separate folders that can be deleted afterwards:
+
+```powershell
+'{"identifier":"com.mgmat.soundhood.dev","productName":"Soundhood Dev"}' | Set-Content -Encoding ascii "$env:TEMP\soundhood-dev.json"
+npm run tauri dev -- --config "$env:TEMP\soundhood-dev.json"
+```
+
+**Download helpers on the desktop.** `bundle.externalBin` lists `bin/yt-dlp`, `bin/deno` and
+`bin/soundhood-tools`, so a desktop build needs all three in `app/src-tauri/bin/` under their
+target-triple names (git-ignored, never committed). In Phase 0 the installer therefore still carries
+yt-dlp and deno, as the app did before the rebuild (the migration rule in [DECISIONS](DECISIONS.md)):
+what it carries is the pinned release, fetched and verified before the build. From Phase 2 the app
+fetches them itself on first enable instead
+([LEGAL](../LEGAL.md#how-the-desktop-download-helper-is-verified)). The fetch is
+`soundhood-tools fetch-sidecars <dir>` (the Rust sidecar manager in `core/src/sidecars.rs`): it
+downloads the pinned yt-dlp and deno releases over HTTPS, checks each file against the SHA-256 the
+release publishes and the pin in `core/src/ytdlp/pins.rs`, refuses anything that does not match, and
+installs them under the names Tauri expects. `scripts/fetch-sidecars.ps1` is a Windows convenience
+that calls it, `scripts/build-windows.ps1` runs it before building, and the release workflow runs it
+before its placeholder check.
+
+**ffmpeg is not bundled yet.** On the PC yt-dlp uses the ffmpeg it finds on `PATH` (diagnostics say
+"ffmpeg: from PATH"); Phase 2 bundles an LGPL build. CI compiles with empty placeholders
+(`.github/scripts/sidecars.mjs stub`); release builds refuse placeholders
+(`.github/scripts/sidecars.mjs check`).
 
 Where the installed app keeps its files on Windows: the program in `%LOCALAPPDATA%\Soundhood\`; its
 own files (settings in `music-hood.json`, `cookies.txt`, the device id, the index, caches, logs) in the
@@ -86,10 +135,21 @@ per-user app data and cache folders named after the app identifier (`identifier`
 **Dev loop** (phone on USB with USB debugging on, PC and phone on the same Wi-Fi), from `app/`:
 
 ```powershell
-npm run tauri android dev
+npm run tauri android dev -- --host <PC LAN IP>
 ```
 
-The app is built and installed on the phone, and its UI is loaded from the PC's Vite dev server.
+The app is built and installed on the phone, and its UI is loaded from the PC's Vite dev server at
+that address. Always pass `--host`: without it the Tauri CLI picks a network interface by itself and,
+with Proton VPN up, can pick the VPN's, which the phone cannot reach. Instead of `--host`,
+`--force-ip-prompt` lists the interfaces to choose from. No LAN address is committed anywhere (the
+hygiene lint refuses one).
+
+**The dev loop installs over the real app.** It uses the production app id and signs with this PC's
+debug key, so on the phone it replaces the installed app and works on its data (settings, index,
+Proton session, library folder). That is safe only while the app on the phone is signed with this
+PC's debug key (the [signer check](#signing) tells; which key is "the" key is still in
+[OPEN](OPEN.md)). Once a release key is adopted, the dev install is refused with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`: stop there, never uninstall to get past it.
 
 **Standalone APK** (runs without the PC), from `app/`:
 
@@ -98,7 +158,8 @@ npm run tauri android build -- --apk --target aarch64 --config src-tauri/tauri.s
 ```
 
 The `tauri.standalone.conf.json` overlay removes the dev-server address, so nothing in the APK points
-at the PC. The owner-facing wrapper `scripts/build-android.ps1` (planned) picks this config.
+at the PC. The owner-facing wrapper `scripts/build-android.ps1` picks this config, prints the signer
+and installs only over an app signed with the same key.
 
 **Installing.** Check the signer first (next section), then:
 
@@ -129,14 +190,22 @@ everything else has to be set up again.
   `keystore.properties` file **outside the repository**. Its path comes from the environment variable
   `SOUNDHOOD_KEYSTORE_PROPERTIES` and defaults to `%USERPROFILE%\.soundhood\keystore.properties`.
   `scripts/patch-android.py` re-applies the signing block after `tauri android init`.
-- The file holds `storeFile` (absolute path of the keystore, also outside the repository), `keyAlias`
-  and `password`, in the form Tauri's Android signing guide uses:
+- The file holds four keys, all required (Gradle stops with "... lacks storePassword, keyPassword"
+  when one is missing):
 
   ```properties
-  storeFile=<absolute path of the .jks file>
+  storeFile=C:/Users/<you>/.soundhood/soundhood.jks
+  storePassword=<keystore password>
   keyAlias=<alias>
-  password=<keystore password>
+  keyPassword=<key password>
   ```
+
+  `storeFile` is the keystore's path, also outside the repository; a relative path is relative to the
+  `keystore.properties` file. Write it with forward slashes, or double every backslash
+  (`C:\\Users\\<you>\\...`): in a `.properties` file a single backslash is an escape character, so
+  `C:\Users\<you>\k.jks` is read as `C:Users<you>k.jks` and the keystore is not found.
+- Without a `keystore.properties` the release APK is signed with this PC's Android debug key
+  (`%USERPROFILE%\.android\debug.keystore`) and Gradle prints a note saying so.
 
 - The keystore, its password and this file never enter git, CI, a log or a chat. Only the owner types
   the password. `*.jks`, `*.keystore` and `keystore.properties` are git-ignored as a second line of
@@ -166,10 +235,13 @@ touch that file.
 
 | Trap | Fix | Encoded in |
 |---|---|---|
-| Tauri picks the VPN's network interface for the phone's dev URL | `devUrl` is pinned to the PC's LAN address; if the PC's address changes, edit that one line | `app/src-tauri/tauri.android.conf.json` |
+| Tauri picks the VPN's network interface for the phone's dev URL | pass `--host <PC LAN IP>` (or `--force-ip-prompt`) to `tauri android dev`; no LAN address is committed (the hygiene lint refuses one) | `app/vite.config.ts` (comment on `server.host`), `scripts/build-android.ps1` (header) |
 | The phone cannot reach the dev server | Vite listens on `0.0.0.0` when building for the phone | `app/vite.config.ts` (`server.host`) |
 | Every phone unlock re-scanned the library (the WebView drops the live-reload socket in the background, Vite answers with a full reload) | no hot reload on mobile (`hmr: false`); changes reach the phone by reopening the app | `app/vite.config.ts` (`server.hmr`) |
-| A standalone APK still points at the PC's dev server | build it with the overlay that removes `devUrl` | `app/src-tauri/tauri.standalone.conf.json`, `scripts/build-android.ps1` (planned) |
+| A standalone APK still points at the PC's dev server | build it with the overlay that removes `devUrl` | `app/src-tauri/tauri.standalone.conf.json`, `scripts/build-android.ps1` |
+| The dev build works on the installed app's data | a test identifier on the desktop; on the phone, the dev loop only while the installed app is debug-signed | [Desktop](#desktop), [Phone](#phone-android) |
+| A fresh clone does not compile the host ("resource path ... doesn't exist") | build soundhood-tools, fetch the helpers, build `app/dist` (or stub them for lint-only work) | [After a fresh clone](#after-a-fresh-clone) |
+| A backslash path in `keystore.properties` is not found | forward slashes or doubled backslashes | [Signing](#signing) |
 | The desktop helper binaries break the Android build | the Android overlay empties `externalBin` | `app/src-tauri/tauri.android.conf.json` |
 | `addPluginListener` is denied by the ACL | `register_listener` and `remove_listener` are in every mobile plugin's `COMMANDS` and default permission set | `app/src-tauri/plugins/soundhood-ytdl/build.rs`, `.../permissions/default.toml` |
 | `tauri android init` wipes manifest edits and `MainActivity` | declarations live in plugin manifests; the rest is re-applied by the patch script | `app/src-tauri/plugins/*/android/src/main/AndroidManifest.xml`, `scripts/patch-android.py` |
@@ -199,17 +271,19 @@ agent runs the same list locally before any merge. Nothing merges while one is r
 |---|---|---|
 | Core tests, Windows and Linux | `cargo test -p soundhood-core` and `cargo test -p soundhood-core --all-features` | `core-test` |
 | Core formatting | `cargo fmt -p soundhood-core -- --check` | `clippy` (Linux) |
-| Lints, Linux and Windows | `cargo clippy --workspace -- -D warnings` | `clippy` |
+| Lints, Linux and Windows | `cargo clippy --workspace --all-targets -- -D warnings` (after [the preparation](#after-a-fresh-clone)) | `clippy` |
+| Host and plugin unit tests, Linux and Windows | `cargo test -p soundhood -p tauri-plugin-soundhood-ytdl` | `clippy` |
 | Core builds for the phone | `cargo ndk -t arm64-v8a check -p soundhood-core` (NDK r27 or newer) | `android-core` |
-| Tooling: types, lint, unit tests | in `tools/`: `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test` | `web` |
-| UI builds | in `app/`: `npm ci`, `npm run build` | `web` |
+| Phone-only Rust is lint-clean | `cargo ndk -t arm64-v8a clippy -p soundhood -p tauri-plugin-soundhood-ytdl -- -D warnings` | `android-core` |
+| Tooling: types, lint, unit tests | in `app/`: `npm ci` first (the typecheck reads `app/`), then in `tools/`: `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test` | `web` |
+| UI builds | in `app/`: `npm run build` | `web` |
 | Design tokens | `node tools/token-lint.mjs` | `web` |
 | Repository hygiene | `node tools/hygiene-lint.mjs` | `web` |
 | Documentation links resolve | `node .github/scripts/md-links.mjs` | `web` |
-| Visual suite | in `tools/`: `npm run test:visual` (diff report uploaded when it fails) | `visual` |
+| Visual suite | in `tools/`: `npm run test:visual` (the failing screenshots are uploaded when it fails) | `visual` |
 | No blue | `node tools/blue-scan.mjs` (after the visual suite) | `visual` |
 | Desktop installer builds | in `app/`: `npm run tauri build` | `desktop-build` |
-| Phone app builds | in `app/`: `npm run tauri android build -- --debug` | `android-build` |
+| Phone app builds | in `app/`: `npm run tauri android build -- --debug --apk --target aarch64` | `android-build` |
 
 The core tests include the fault-injection kill tests and, as later phases land, the yt-dlp
 output, LRCLIB and Proton HTTP fixtures; none of them touches the network ([TESTING](TESTING.md)).
@@ -222,14 +296,19 @@ Semantic versioning, by merge order: each phase merge to `main` bumps the minor 
 Tauri derives the Android version code from it (it must never go down). The merge commit is tagged
 `v<version>` and [CHANGELOG](../CHANGELOG.md) records the phase that became that version.
 
-A `v*` tag starts `.github/workflows/release.yml`: it checks that the tag matches the app version,
-builds the Windows installer and the Linux AppImage and .deb, and attaches them to a draft release.
-The phone APK is built locally with the owner's key, never in CI.
+A `v*` tag starts `.github/workflows/release.yml`: it checks that the tag matches the app version in
+`tauri.conf.json` and that `app/package.json` and `app/src-tauri/Cargo.toml` carry the same version,
+then on Windows and Linux builds soundhood-tools, fetches the pinned yt-dlp and deno with it
+(verified), refuses any placeholder, builds the Windows installer and the Linux AppImage and .deb, and
+attaches them to a draft release. The phone APK is built locally with the owner's key, never in CI.
 
 ## Public repository hygiene
 
 The repository is public. Never commit a real library path, a person's name, a device identifier or
 serial, a LAN address, a screenshot of a real library, a keystore, `cookies.txt` or any token. Tests
 use temporary folders and synthetic paths, never a real library. Committed screenshots come from the
-fixture library ([TESTING](TESTING.md#evidence-rules)). `node tools/hygiene-lint.mjs` enforces this in
-CI; terms specific to the owner are supplied outside the repository (the `HYGIENE_DENY` secret in CI).
+fixture library ([TESTING](TESTING.md#evidence-rules)); the lint cannot see inside an image, so check
+every screenshot by eye for a real path or name before committing it. `node tools/hygiene-lint.mjs`
+enforces the rest in CI; exactly what it checks is in [TESTING](TESTING.md#lints). Terms specific to
+the owner are supplied outside the repository, in the `HYGIENE_DENY` CI secret (comma- or
+newline-separated words, terms or SHA-256 hashes); the lint reads it and never prints its entries.

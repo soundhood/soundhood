@@ -92,15 +92,21 @@ one back.
 - **On the PC:** the **Undo** button at the top, next to Rescan. Hover over it to see what it will undo.
 
 What it undoes: a tag edit, a move to another folder, a delete, or a playlist change (adding or
-removing tracks, creating or deleting a playlist). Everything that one action did comes back together:
-if you deleted 5 tracks at once, all 5 come back, in the same folders and the same playlists.
+removing tracks, creating or deleting a playlist). Everything that one change did comes back
+together: a deleted track comes back in the same folder and the same playlists.
 
+- For now, deleting or moving several selected tracks at once counts as one change per track, so
+  Undo brings them back one per press. Press it once for each track.
 - A deleted file comes back from the Recycle Bin on the PC, and from the app's own bin on the phone
   (the folder `_Soundhood\.bin` inside your music folder; the phone has no Recycle Bin).
+- After a tag edit, Undo brings back the old title and artist. An m4a or mp3 file can come back a
+  little different in size (same tags, same sound), so Proton Drive uploads it again.
 - If a file was changed again after that action (by you, by the other device, by another program),
   Soundhood leaves that file alone and says so. It never forces an undo.
 - Press it again to undo the change before that one.
 - It undoes changes made on the device you are holding. A change made on the PC is undone on the PC.
+- The first change creates the folder `_Soundhood\journal` inside your music folder. Soundhood keeps
+  its list of changes there; leave it.
 
 ## Copy log
 
@@ -108,11 +114,24 @@ When something goes wrong, the log says why. Paste it to the team as it is.
 
 - **On the phone:** settings sheet (gear icon), then **Copy log**. The log is now on the clipboard;
   paste it into a message.
-- **On the PC:** until the PC gets its own Copy log button, select the log text under the download box
-  with the mouse and press Ctrl+C.
+- **On the PC:** **Copy log**, next to **Download** (it shows while there is a log). It copies the log
+  with the app and device details on top; paste it into a message.
 
 The log names versions and what the app was doing; it never contains your passwords or your cookie
 file.
+
+## The developer section
+
+A hidden set of switches the team uses for tests: **Use fixture root**, **Run self-test** and
+**Rebuild index**. You only need it when the team asks.
+
+- **On the phone:** tap the status line in the top bar (next to the gear icon) 7 times quickly. The
+  switches appear at the bottom of the settings sheet.
+- **On the PC:** press Ctrl+Alt+Shift+D. A row of switches appears under the top bar.
+
+Do the same again to hide them. **Use fixture root** swaps your library for a small test library the
+app makes itself; while it is on, Proton sync is off on the phone. Turn it off again to get your own
+library back.
 
 ## Take a library snapshot and compare two
 
