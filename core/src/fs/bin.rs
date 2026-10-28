@@ -6,7 +6,11 @@ use super::{rename_no_clobber, APP_DIR};
 use crate::error::{Error, Result};
 use crate::model::{Library, RelPath};
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_os = "android"))]
+// Only the recycle-bin search (Windows, Linux) takes paths apart.
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
 use std::path::Path;
 
 /// Which bin a deleted file went to.
