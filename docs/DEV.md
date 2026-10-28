@@ -94,7 +94,15 @@ npm run tauri dev       # a dev window that reloads on UI changes
 npm run tauri build     # the NSIS installer (see the artefact table)
 ```
 
-The owner-facing wrapper `scripts/build-windows.ps1` runs the same build.
+**The first `tauri dev` after a fresh clone may time out.** Its before-dev step builds a debug
+soundhood-tools, which compiles the whole core from cold, while the Tauri CLI waits only about three
+minutes for the dev server that starts after it. If it gives up, run `npm run tauri dev` again: the
+build is cached by then. To avoid it, build the debug CLI once beforehand, from the repository root:
+`cargo build -p soundhood-core --features tools --bin soundhood-tools` (`npm run build:tools` builds
+the release one, which the dev start does not use).
+
+The owner-facing wrapper `scripts/build-windows.ps1` runs the same installer build, after building
+the release soundhood-tools and fetching and checking the pinned yt-dlp and deno with it.
 
 **The dev window is the installed app.** `npm run tauri dev` runs under the production identifier
 (`identifier` in `app/src-tauri/tauri.conf.json`), so it reads and writes the installed app's
@@ -117,8 +125,11 @@ fetches them itself on first enable instead
 downloads the pinned yt-dlp and deno releases over HTTPS, checks each file against the SHA-256 the
 release publishes and the pin in `core/src/ytdlp/pins.rs`, refuses anything that does not match, and
 installs them under the names Tauri expects. `scripts/fetch-sidecars.ps1` is a Windows convenience
-that calls it, `scripts/build-windows.ps1` runs it before building, and the release workflow runs it
-before its placeholder check.
+that calls it (it rebuilds this checkout's release soundhood-tools first, a no-op when up to date, or
+runs the one `-Tools` names), `scripts/build-windows.ps1` builds soundhood-tools and then fetches
+with that very build before building the app, and the release workflow runs it before its
+placeholder check. `node .github/scripts/sidecars.mjs check` then holds yt-dlp to its pinned hash, and
+deno to its executable hash when `pins.rs` carries one (`exe_sha256`), else to its version.
 
 **ffmpeg is not bundled yet.** On the PC yt-dlp uses the ffmpeg it finds on `PATH` (diagnostics say
 "ffmpeg: from PATH"); Phase 2 bundles an LGPL build. CI compiles with empty placeholders
