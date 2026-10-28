@@ -35,8 +35,9 @@ pub struct DownloadArgs {
   pub out_dir: PathBuf,
 }
 
-/// Why a channel link is refused, in the words the UI shows.
-pub const CHANNEL_REFUSED: &str = "whole channels are not downloaded; share a single video or a playlist link";
+/// Why a channel link is refused, in the words every platform shows: the desktop UI, the desktop
+/// host and the phone plugin all use this exact sentence ("use" fits a paste and a share alike).
+pub const CHANNEL_REFUSED: &str = "Whole channels are not downloaded. Use a single video or a playlist link.";
 
 /// The argv (without the program name) the pre-rebuild desktop host passed to the yt-dlp sidecar,
 /// with `--` before the URL. Refuses anything but an `http://` or `https://` link: the URL may come
@@ -490,7 +491,7 @@ mod tests {
     }
     assert_eq!(
       CHANNEL_REFUSED,
-      "whole channels are not downloaded; share a single video or a playlist link"
+      "Whole channels are not downloaded. Use a single video or a playlist link."
     );
     for url in NOT_CHANNELS.iter().filter(|u| is_web_link(u)) {
       let a = DownloadArgs {
