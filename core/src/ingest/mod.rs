@@ -334,9 +334,9 @@ mod tests {
   #[test]
   fn scrub_keeps_the_words_and_drops_the_library_path() {
     let root = if cfg!(windows) {
-      Path::new(r"C:\Users\someone\Music")
+      Path::new(r"C:\Users\user\Music")
     } else {
-      Path::new("/home/someone/Music")
+      Path::new("/home/user/Music")
     };
     let sep = std::path::MAIN_SEPARATOR;
     let tmp = format!(
