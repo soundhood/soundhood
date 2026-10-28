@@ -28,7 +28,7 @@ pub fn is_channel_link(url: &str) -> bool {
   };
   let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
   let (authority, tail) = rest.split_at(end);
-  // Drop user info and port: `user@www.youtube.com:443`.
+  // Drop user info and port (`<userinfo>@host:443`).
   let host = authority.rsplit('@').next().unwrap_or(authority);
   let host = host.split(':').next().unwrap_or(host);
   if host != "youtube.com" && !host.ends_with(".youtube.com") {

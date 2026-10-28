@@ -293,9 +293,16 @@ Unchanged names and shapes (the UI keeps calling them exactly as today):
 Behaviour behind the same shapes:
 - every mutating command goes through `soundhood_core::api::Core` (journal + verify + bin); a single-op command
   whose op was skipped or failed returns `Err("<reason>")` (e.g. "file in use", "read-only file",
-  "already exists in <folder>").
+  "already exists in <folder>"); the text is `core::Error::reason()`, never the Display text with its prefix.
 - `delete_track` on Android goes to `<root>/_Soundhood/.bin/<yyyy-mm>/<rel>` (undoable), no longer a hard delete.
-- after each mutating command the host emits the event `core:batch` with the `BatchReport`.
+- after a mutating command that changed something (an op applied, part of it failed, or the batch stopped) the
+  host emits `core:batch` with the `BatchReport`; `undo_last` always emits its report. A single op that was
+  already in effect (same tag values, already a member, not a member, playlist exists) returns Ok
+  (`playlist_create`: the existing playlist) and emits nothing: nothing was journaled.
+- the UI keeps the root returned by `dev_fixture_root` under the settings key `fixture_root` and treats the
+  library as the test library while `library_dir` equals it; `real_library_dir` never holds it.
+- channel links are refused by `ytdlp::args::is_channel_link` (core), a copy in the plugin (`src/rules.rs`,
+  Kotlin `isChannelLink`) and the UI.
 
 Removed: `fix_tags_from_filenames`.
 

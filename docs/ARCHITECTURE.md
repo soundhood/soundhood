@@ -74,8 +74,12 @@ Every write to a **user file** (audio files and `_Playlists/**/*.m3u8`) goes thr
 
 A tier-1 write: journal pre-image (`committed:false`) -> copy to a hidden `.soundhood-tmp-<job>`
 in the same folder -> write tags on the copy -> re-read and verify -> fsync -> atomic rename over the
-original (sharing-violation retries) -> journal `committed:true` with before/after hashes. On every
-start, orphaned `.soundhood-tmp-*` files whose journal entry never committed are removed.
+original (sharing-violation retries) -> journal `committed:true` with before/after hashes. Right before
+the rename the original is checked again (size, mtime, blake3 against the pre-image), and a playlist against
+the hash it was read with: a newer version a sync client put there meanwhile is left alone ("changed since").
+A file modified in the last 10 s is not touched unless the app wrote those bytes. A playlist another program
+wrote in its own format is never rewritten. On every start, a change a crash cut off after its rename is
+finished on record (source "recovery"), then the core's orphaned `.soundhood-tmp-*` files are removed.
 Deletes go to a bin: the OS recycle bin on desktop (`trash` crate), `_Soundhood/.bin/<yyyy-mm>/<rel_path>`
 on Android. Every delete is journaled.
 

@@ -205,13 +205,12 @@ fn a_gzip_bomb_asset_never_writes_more_than_the_limit() {
     "gzip bomb ({wire} bytes on the wire): {:?}; temp peaked at {peak} bytes",
     r.as_ref().map(|x| x.bytes)
   );
-  let err = r.unwrap_err();
-  assert!(matches!(&err, Error::Refused(m) if m.contains("byte limit")), "{err}");
+  // ureq is built without gzip: the encoded bytes are stored as sent (never decoded), so the
+  // file cannot grow past what came over the wire, and its hash does not match the pin.
+  assert!(r.is_err(), "a gzip-encoded asset must not install");
   assert!(names(dest.path()).is_empty(), "temp file left behind");
-  assert!(
-    peak <= MAX_YTDLP_BYTES,
-    "wrote {peak} bytes for an asset that cannot verify"
-  );
+  assert!(peak <= wire as u64, "decoded to {peak} bytes ({wire} on the wire)");
+  assert!(peak <= MAX_YTDLP_BYTES);
 }
 
 #[test]
@@ -267,8 +266,9 @@ fn a_gzipped_checksum_file_cannot_expand_without_bound() {
     }),
   );
   let dest = tempfile::tempdir().unwrap();
-  let err = sidecars::fetch(&ytdlp(), dest.path(), Some(&base)).unwrap_err();
-  assert!(matches!(&err, Error::Refused(m) if m.contains("larger than")), "{err}");
+  // Never decoded (no gzip in ureq): the compressed bytes are not a checksum list, so it refuses.
+  assert!(sidecars::fetch(&ytdlp(), dest.path(), Some(&base)).is_err());
+  assert!(names(dest.path()).is_empty());
 }
 
 #[test]

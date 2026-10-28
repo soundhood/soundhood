@@ -44,11 +44,12 @@ impl Error {
   /// ("read-only file", "… already exists in Ambient"), never a doubled label.
   pub fn reason(&self) -> String {
     match self {
+      // InUse carries a path (sometimes absolute): the UI only needs to know why.
+      Error::InUse(_) => "file in use".to_string(),
       Error::Tag(m)
       | Error::InvalidPath(m)
       | Error::Exists(m)
       | Error::NotFound(m)
-      | Error::InUse(m)
       | Error::Verify(m)
       | Error::Refused(m)
       | Error::Other(m) => m.clone(),

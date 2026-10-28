@@ -69,7 +69,7 @@ internal fun isChannelLink(url: String): Boolean {
     else -> return false
   }
   val end = rest.indexOfFirst { it == '/' || it == '?' || it == '#' }.let { if (it < 0) rest.length else it }
-  // Drop user info and port: user@www.youtube.com:443
+  // Drop user info and port ("<userinfo>@host:443")
   val host = rest.substring(0, end).substringAfterLast('@').substringBefore(':')
   if (host != "youtube.com" && !host.endsWith(".youtube.com")) return false
   val first = rest.substring(end).substringBefore('?').substringBefore('#').trimStart('/').substringBefore('/')

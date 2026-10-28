@@ -469,6 +469,14 @@ fn abs_of(root: &Path, rel: &str) -> PathBuf {
 /// Generates the fixture library into `dest` (created if missing). Refuses a non-empty `dest`
 /// without the marker. Re-generating into a marked folder overwrites the generated files and
 /// leaves anything else there (an app's `_Soundhood/`, say) alone.
+/// Fixture tracks get a fixed past modification time (2026-01-01): the write path leaves alone a
+/// file modified in the last 10 s, and a test library must be editable the moment it exists.
+fn backdate(abs: &Path) -> Result<()> {
+  let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_767_225_600);
+  std::fs::OpenOptions::new().write(true).open(abs)?.set_modified(when)?;
+  Ok(())
+}
+
 pub fn generate(dest: &Path, spec: &FixtureSpec) -> Result<FixtureReport> {
   let planned = plan(spec)?;
   if dest.exists() {
@@ -511,6 +519,7 @@ pub fn generate(dest: &Path, spec: &FixtureSpec) -> Result<FixtureReport> {
       .properties()
       .duration()
       .as_secs();
+    backdate(&abs)?;
     tracks.push(FixtureTrack {
       rel: p.rel.clone(),
       title: if p.tagged { p.title.clone() } else { String::new() },
