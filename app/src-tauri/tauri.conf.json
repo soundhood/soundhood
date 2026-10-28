@@ -16,7 +16,8 @@
         "width": 1100,
         "height": 720,
         "minWidth": 760,
-        "minHeight": 520
+        "minHeight": 520,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,msOneAuthWAM --autoplay-policy=no-user-gesture-required --disable-background-networking --disable-component-update --no-proxy-server"
       }
     ],
     "security": {
