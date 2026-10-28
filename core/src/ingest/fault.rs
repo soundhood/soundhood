@@ -2,14 +2,18 @@
 //!
 //! Points, in write order: `after_preimage` (journal pre-image written, file untouched),
 //! `after_tmp_write` (tags written on the hidden temp), `after_verify` (temp verified, not yet
-//! renamed), `after_stage_copy` (a landing file copied next to its destination), `after_replace`
-//! (the file op happened, the journal commit line not yet written). Without the feature every
-//! point is a no-op the compiler removes.
+//! renamed), `after_ready` (a tag edit's checked-copy hash journaled, not yet renamed),
+//! `after_stage_copy` (a landing file copied next to its destination), `after_link` (unix: the
+//! no-replace rename linked the new name, the old one not yet unlinked), `after_replace` (the file
+//! op happened, the journal commit line not yet written). Without the feature every point is a
+//! no-op the compiler removes.
 //!
 //! Hooks are the gentler kind of point: a test registers a closure for one file at one point
 //! ([`once_at`]) and the write path runs it when it passes there, which lets a test change a file
-//! at the exact moment a sync client could. The one hook point is `before_replace`: right before
-//! the write path checks, one last time, that a file (audio or playlist) is still what it read.
+//! at the exact moment a sync client could. Hook points: `before_replace`, right before the write
+//! path checks, one last time, that a file (audio or playlist) is still what it read; and
+//! `before_rename` (playlists), after that check, right before the rename itself: the instant only
+//! a no-replace rename covers.
 
 /// The environment variable a kill test sets to the name of the point to crash at.
 pub const CRASH_ENV: &str = "SOUNDHOOD_CRASH_AT";

@@ -87,12 +87,17 @@ fn existing(root: &Path, name: &str) -> Result<(RelPath, std::path::PathBuf)> {
 }
 
 /// A playlist as the write path needs it, from one read of its bytes: its lines, the blake3 hex of
-/// the bytes, and whether the app wrote it in its own format (`ours`: rendering the lines gives the
-/// bytes back exactly). Errors as [`read`].
+/// the bytes, whether it reads as a text playlist at all (`readable`) and whether the app wrote it
+/// in its own format (`ours`: rendering the lines gives the bytes back exactly). Errors as
+/// [`read`], except that bytes which are no playlist (see `readable`) are not an error here.
 pub(crate) struct Exact {
   pub file: PlaylistFile,
   pub hash: String,
   pub ours: bool,
+  /// UTF-8 text that is not blank and holds no NUL byte. A 0-byte file (a placeholder a sync
+  /// client left mid-download), a zeroed or binary file is not: it has no lines, is never `ours`,
+  /// and the write path leaves it alone with [`unreadable`].
+  pub readable: bool,
 }
 
 /// See [`Exact`].
@@ -100,9 +105,11 @@ pub(crate) fn read_exact(root: &Path, name: &str) -> Result<Exact> {
   let (_, path) = existing(root, name)?;
   let bytes = std::fs::read(&path)?;
   let hash = blake3::hash(&bytes).to_hex().to_string();
-  let text = String::from_utf8(bytes).map_err(|_| not_utf8(&path))?;
-  let entries = parse(&text);
-  let ours = render(&entries) == text;
+  let text = String::from_utf8(bytes)
+    .ok()
+    .filter(|t| !t.trim().is_empty() && !t.contains('\0'));
+  let entries = text.as_deref().map(parse).unwrap_or_default();
+  let ours = text.as_deref().is_some_and(|t| render(&entries) == t);
   Ok(Exact {
     file: PlaylistFile {
       name: sanitize_name(name)?,
@@ -110,16 +117,40 @@ pub(crate) fn read_exact(root: &Path, name: &str) -> Result<Exact> {
     },
     hash,
     ours,
+    readable: text.is_some(),
   })
 }
+
+/// How every refusal of a playlist the app does not write ends.
+const LEFT_AS_IS: &str = "; it was left as it is";
 
 /// The refusal for a playlist the app did not write in its own format (another program's
 /// `#EXTINF` lines, a BOM, CRLF, backslashes, comments): the app writes only its own format, so
 /// any write would drop what the other program put there, and undo could not bring it back.
 pub(crate) fn foreign(name: &str) -> Error {
   Error::Refused(format!(
-    "the playlist {name} was written by another program; it was left as it is"
+    "the playlist {name} was written by another program{LEFT_AS_IS}"
   ))
+}
+
+/// The refusal for a `.m3u8` that does not read as a playlist at all (see [`Exact::readable`]).
+pub(crate) fn unreadable(name: &str) -> Error {
+  Error::Refused(format!("the playlist {name} could not be read{LEFT_AS_IS}"))
+}
+
+/// The refusal for a playlist `x` the app leaves alone: [`unreadable`] or [`foreign`].
+pub(crate) fn not_ours(x: &Exact) -> Error {
+  if x.readable {
+    foreign(&x.file.name)
+  } else {
+    unreadable(&x.file.name)
+  }
+}
+
+/// True for the errors of [`foreign`] and [`unreadable`]: the playlist was left as it is, so the op
+/// that needed it was not done either.
+pub(crate) fn is_left_as_is(e: &Error) -> bool {
+  matches!(e, Error::Refused(m) if m.starts_with("the playlist ") && m.ends_with(LEFT_AS_IS))
 }
 
 const CHANGED: &str = " changed since it was read";
@@ -309,11 +340,21 @@ pub(crate) fn write(root: &Path, name: &str, entries: &[String], job: &str) -> R
   write_expecting(root, name, entries, job, None)
 }
 
+/// The hidden temp the sole writer uses for job `job`: `_Playlists/.soundhood-tmp-<job>.m3u8`.
+pub(crate) fn temp_path(root: &Path, job: &str) -> std::path::PathBuf {
+  crate::fs::tmp_path(&root.join(PLAYLISTS_DIR), job, "m3u8")
+}
+
 /// [`write`], checking right before the rename (after the temp is written and fsynced) that the
 /// playlist is still what `expect` says; otherwise the temp goes and the playlist is left as it is
 /// ([`changed`]). The read that `expect` comes from and this write are apart in time, and an edit
 /// from the other device can land in between: renaming over it would lose its lines on both
 /// devices once sync uploads the result.
+///
+/// A playlist being created (`Expect::Absent`) is renamed into place by the no-replace rename, so
+/// one that lands after that check, in the instant before the rename, is kept too ([`changed`]),
+/// as is one whose name differs only in case on a case-sensitive disk. Replacing an existing
+/// playlist keeps the replacing rename: there the instant between the check and the rename is left.
 pub(crate) fn write_expecting(
   root: &Path,
   name: &str,
@@ -326,10 +367,10 @@ pub(crate) fn write_expecting(
       return Err(Error::InvalidPath(format!("cannot be a playlist line: {e:?}")));
     }
   }
-  let dest = file_rel(name)?.to_abs(root);
-  let dir = root.join(PLAYLISTS_DIR);
-  std::fs::create_dir_all(&dir)?;
-  let tmp = crate::fs::tmp_path(&dir, job, "m3u8");
+  let clean = sanitize_name(name)?;
+  let dest = file_rel(&clean)?.to_abs(root);
+  std::fs::create_dir_all(root.join(PLAYLISTS_DIR))?;
+  let tmp = temp_path(root, job);
   let mut file = crate::fs::create_hidden(&tmp)?;
   let written = file
     .write_all(render(entries).as_bytes())
@@ -344,9 +385,16 @@ pub(crate) fn write_expecting(
   let result = written.and_then(|_| {
     crate::ingest::fault::hook("before_replace", &dest);
     if !still() {
-      return Err(changed(&sanitize_name(name)?));
+      return Err(changed(&clean));
     }
-    crate::fs::atomic_replace(&tmp, &dest)
+    crate::ingest::fault::hook("before_rename", &dest);
+    match expect {
+      Some(Expect::Absent) => crate::fs::place_new(&tmp, &dest).map_err(|e| match e {
+        Error::Exists(_) => changed(&clean),
+        e => e,
+      }),
+      _ => crate::fs::atomic_replace(&tmp, &dest),
+    }
   });
   if result.is_err() && tmp.exists() {
     let _ = crate::fs::remove_file(&tmp);

@@ -1,7 +1,8 @@
 //! The one write path. Every change to a user file goes through here, in this order: journal
 //! pre-image (`committed: false`, fsynced) -> the change (a verified hidden temp renamed over the
 //! original, a no-clobber rename, a move to the bin, or the sole m3u8 writer) -> the m3u8
-//! consistency rewrites of the same batch -> journal commit line with the after hashes.
+//! consistency rewrites of the same batch -> journal commit line with the after hashes. A tag edit
+//! writes one more open line between its checked temp and the rename: the temp's hash ([`READY`]).
 //!
 //! Read-only files, files another process holds and the track playing now are skipped, never
 //! failed, and never count toward the abort rule: 3 consecutive failed checks of a rewritten temp
@@ -65,8 +66,12 @@ const NOT_ATTEMPTED: &str = "not attempted: the batch stopped";
 const UNREADABLE_TAGS: &str = "its tags could not be read, so nothing was changed";
 const NOT_CHECKED_OUT: &str = "not changed: the rewritten copy did not check out";
 /// Start of the note on the line that closes a pre-image the write path gave up on before
-/// changing anything; startup recovery never looks at such an entry.
+/// changing anything, or that startup recovery found not done; recovery never looks at such an
+/// entry again.
 pub(crate) const NOT_APPLIED: &str = "not applied: ";
+/// The note on a tag edit's second open line, written once its checked copy is ready and before
+/// the file can be replaced; that line's `file_hash_after` is the checked copy's hash.
+pub(crate) const READY: &str = "ready: the checked copy goes in place next";
 /// How long a file must have been left alone before the write path acts on it (brief: never act
 /// on a file whose size changed in the last 10 s; the Proton client rewrites files mid-sync).
 const SETTLE: Duration = Duration::from_secs(10);
@@ -128,10 +133,12 @@ pub fn land(lib: &Library, staged: &Path, dest: &RelPath, opts: &ApplyOptions) -
 /// Startup: remove orphaned .soundhood-tmp-* files whose journal entry never committed (or that no
 /// entry names), journaling each removal as Kind::Cleanup. Returns what was removed.
 ///
-/// First, the change a crash interrupted after it happened on disk is finished on record (see
-/// `recover`), so "Undo last change" can reach it. Then the temps: a temp whose entry did commit
-/// is a leftover after its rename and goes too, so every temp the core made is removed; the journal
-/// line records which case it was. Only names of the exact shape the core gives its temps count
+/// First, the change a crash interrupted is decided (see `recover`): finished on record when it
+/// happened on disk, so "Undo last change" can reach it, closed as not applied when it did not,
+/// so no later start takes a change made some other way for it. Then the temps: a temp whose
+/// entry did commit is a leftover after its rename and goes too, so every temp the core made is
+/// removed; the journal line records which case it was. Only names of the exact shape the core
+/// gives its temps count
 /// (`fs::temp_entry_id`): a user's own file that merely starts with the prefix is left alone. A
 /// temp that cannot be removed now (another program holds it) is left for the next start.
 pub fn cleanup_orphans(lib: &Library) -> Result<Vec<RelPath>> {
@@ -401,6 +408,21 @@ pub(crate) fn preimage(lib: &Library, e: &JournalEntry, path: &str) -> std::resu
     )),
   })?;
   fault::point("after_preimage");
+  Ok(())
+}
+
+/// The tag edit's second open line, right before the file can be replaced: the pre-image again,
+/// with `file_hash_after` holding the checked copy's hash and the note [`READY`]. A failure means
+/// nothing was touched and the batch must stop (the pre-image without it means "never happened").
+fn ready_line(lib: &Library, e: &JournalEntry, path: &str) -> std::result::Result<(), Outcome> {
+  journal::append(lib, e).map_err(|err| Outcome::Stop {
+    path: path.to_string(),
+    err: Error::Other(format!(
+      "nothing changed: the journal could not be written ({})",
+      message(&err)
+    )),
+  })?;
+  fault::point("after_ready");
   Ok(())
 }
 
@@ -729,6 +751,23 @@ pub(crate) fn write_tags(
       return give_up(lib, &mut e, failed, Some(&message(&err)));
     }
   };
+  // The checked copy's hash goes on record before anything can replace the file: a second line
+  // for the same id, still open. Startup recovery finishes a tag edit only when the file holds
+  // exactly these bytes, so it never takes a change made some other way for this one. Written
+  // before the last check, so the instant between that check and the rename does not grow.
+  let ready = match fs::file_hash(&tmp) {
+    Ok(h) => h,
+    Err(err) => {
+      let _ = fs::remove_file(&tmp);
+      return give_up(lib, &mut e, skip_or_fail(path, err), None);
+    }
+  };
+  e.file_hash_after = Some(ready);
+  e.note = Some(READY.to_string());
+  if let Err(o) = ready_line(lib, &e, path) {
+    let _ = fs::remove_file(&tmp);
+    return o;
+  }
   if let Some(o) = still_as_seen(&abs, &seen, path, undoing) {
     let _ = fs::remove_file(&tmp);
     return give_up(lib, &mut e, o, None);
@@ -738,7 +777,8 @@ pub(crate) fn write_tags(
     return give_up(lib, &mut e, skip_or_fail(path, err), None);
   }
   fault::point("after_replace");
-  e.file_hash_after = fs::file_hash(&abs).ok();
+  // `file_hash_after` stays the checked copy's hash: the bytes this edit put in place (a version
+  // that lands right after the rename is not ours, and undo must not take it for ours).
   e.note = note.map(|n| scrub(&n, &lib.root, path));
   if let Err(o) = commit(lib, &mut e, path) {
     return o;
@@ -806,7 +846,7 @@ pub(crate) fn relocate(
   }
   let changes = match playlist_changes(&lib.root, from, Some(to), restore) {
     Ok(c) => c,
-    Err(e) => return Outcome::failed(path, e),
+    Err(e) => return Outcome::failed(path, refused_by_playlist(e, not_done(kind, undoing))),
   };
   let mut e = b.entry(kind, label.clone());
   e.path_before = Some(from.clone());
@@ -831,7 +871,7 @@ pub(crate) fn relocate(
     let undone = restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::rename_no_clobber(&dst, &src));
     return match undone {
       Ok(()) if playlist::is_changed(&err) => {
-        let reason = format!("{}, so nothing was moved", message(&err));
+        let reason = format!("{}, so nothing was {}", message(&err), not_done(kind, undoing));
         give_up(lib, &mut e, Outcome::skipped(path, &reason), None)
       }
       Ok(()) => {
@@ -911,7 +951,7 @@ pub(crate) fn delete(
   };
   let changes = match playlist_changes(&lib.root, rel, None, restore) {
     Ok(c) => c,
-    Err(e) => return Outcome::failed(path, e),
+    Err(e) => return Outcome::failed(path, refused_by_playlist(e, not_done(Kind::Delete, undoing))),
   };
   let mut e = b.entry(Kind::Delete, label.clone());
   e.path_before = Some(rel.clone());
@@ -932,7 +972,7 @@ pub(crate) fn delete(
     let undone = restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::restore_from_bin(lib, &rec));
     return match undone {
       Ok(()) if playlist::is_changed(&err) => {
-        let reason = format!("{}, so nothing was deleted", message(&err));
+        let reason = format!("{}, so nothing was {}", message(&err), not_done(Kind::Delete, undoing));
         give_up(lib, &mut e, Outcome::skipped(path, &reason), None)
       }
       Ok(()) => {
@@ -1062,9 +1102,30 @@ fn writable_playlist(root: &Path, pl: &PlaylistFile) -> Result<String> {
     return Err(refuse());
   }
   match playlist::read_exact(root, &pl.name) {
-    Ok(x) if !x.ours => Err(playlist::foreign(&pl.name)),
+    Ok(x) if !x.ours => Err(playlist::not_ours(&x)),
     Ok(x) if x.file.entries == pl.entries => Ok(x.hash),
     _ => Err(refuse()),
+  }
+}
+
+/// The past participle for what an op did not do when a playlist stopped it: "moved", "renamed",
+/// "deleted", or "undone" for an undo.
+fn not_done(kind: Kind, undoing: bool) -> &'static str {
+  match kind {
+    _ if undoing => "undone",
+    Kind::Rename => "renamed",
+    Kind::Delete => "deleted",
+    _ => "moved",
+  }
+}
+
+/// `e` for a move, rename or delete refused by a playlist the app leaves as it is: the same words
+/// with ", so nothing was <done>" added, as for a playlist that changed since it was read.
+fn refused_by_playlist(e: Error, done: &str) -> Error {
+  if playlist::is_left_as_is(&e) {
+    Error::Refused(format!("{}, so nothing was {done}", message(&e)))
+  } else {
+    e
   }
 }
 
@@ -1119,15 +1180,20 @@ pub(crate) enum PlaylistState {
   /// A `.m3u8` another program wrote in its own format (comments, `#EXTINF`, a BOM, CRLF): the
   /// app never writes it, since every write would drop what that program put there.
   Foreign,
+  /// A `.m3u8` that does not read as a playlist at all (0 bytes, not UTF-8, NUL bytes): the app
+  /// leaves it alone too ([`playlist::unreadable`]).
+  Unreadable,
   /// The `.m3u8`, its lines and the blake3 of its bytes.
   Present(PlaylistFile, String),
 }
 
-/// The current state of playlist `name`. An unreadable playlist is an error, never `Absent`.
+/// The current state of playlist `name`. A playlist that cannot be read at all (locked, a folder
+/// of that name) is an error, never `Absent`.
 pub(crate) fn playlist_state(root: &Path, name: &str) -> Result<PlaylistState> {
   let abs = playlist::file_rel(name)?.to_abs(root);
   match playlist::read_exact(root, name) {
     Ok(x) if x.ours => Ok(PlaylistState::Present(x.file, x.hash)),
+    Ok(x) if !x.readable => Ok(PlaylistState::Unreadable),
     Ok(_) => Ok(PlaylistState::Foreign),
     Err(Error::NotFound(_)) if abs.with_extension("m3u").exists() => Ok(PlaylistState::Legacy),
     Err(Error::NotFound(_)) => Ok(PlaylistState::Absent),
@@ -1220,6 +1286,7 @@ fn playlist_add(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
     Ok(PlaylistState::Absent) => (None, None),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
     Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
+    Ok(PlaylistState::Unreadable) => return Outcome::failed(&clean, playlist::unreadable(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let current = before.clone().unwrap_or_default();
@@ -1249,6 +1316,7 @@ fn playlist_remove(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
     Ok(PlaylistState::Absent) => return Outcome::failed(&clean, Error::NotFound(format!("No playlist named {clean}"))),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
     Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
+    Ok(PlaylistState::Unreadable) => return Outcome::failed(&clean, playlist::unreadable(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let after = playlist::with_removed(&current, rels);
@@ -1274,6 +1342,7 @@ fn playlist_create(b: &mut Batch, name: &str) -> Outcome {
   };
   match playlist_state(&b.lib.root, &clean) {
     Ok(PlaylistState::Absent) => {}
+    Ok(PlaylistState::Unreadable) => return Outcome::failed(&clean, playlist::unreadable(&clean)),
     Ok(_) => return Outcome::no_change(&clean, "playlist already exists"),
     Err(e) => return Outcome::failed(&clean, e),
   }
@@ -1300,6 +1369,7 @@ fn playlist_delete(b: &mut Batch, name: &str) -> Outcome {
     Ok(PlaylistState::Absent) => return Outcome::failed(&clean, Error::NotFound(format!("No playlist named {clean}"))),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
     Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
+    Ok(PlaylistState::Unreadable) => return Outcome::failed(&clean, playlist::unreadable(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let label = format!("Deleted playlist {clean}");

@@ -441,9 +441,10 @@ fn last_change_walks_back_and_counts_an_undo_from_another_device() {
 }
 
 /// Startup recovery looks only at this device's last entry, and never at one the write path gave
-/// up on. Each case below is an open pre-image whose change the disk does show (the file holds
-/// the edited title, and not the "before" bytes): only the one that is the last entry and was not
-/// given up is finished on record.
+/// up on. Each case below is an open tag edit whose journaled checked-copy hash (its ready line)
+/// is exactly what the file holds now: only the one that is the last entry and was not given up is
+/// finished on record. The same last entry without a ready line never got to its rename, so it is
+/// closed as not applied instead, whatever the file shows.
 #[test]
 fn startup_recovery_finishes_only_an_open_last_entry() {
   let (_d, lib, report) = fixture_lib(10, false);
@@ -461,12 +462,13 @@ fn startup_recovery_finishes_only_an_open_last_entry() {
   );
   assert_eq!(edit.applied.len(), 1, "{}", show(&edit));
   let template = entries(&lib).pop().unwrap();
-  let open = |id: char, note: Option<&str>| JournalEntry {
+  let now = soundhood_core::fs::file_hash(&lib.abs(&r)).unwrap();
+  let open = |id: char, note: Option<&str>, ready: Option<&str>| JournalEntry {
     id: id.to_string().repeat(32),
     batch: format!("b-{id}"),
     committed: false,
     file_hash_before: Some("0".repeat(64)),
-    file_hash_after: None,
+    file_hash_after: ready.map(str::to_string),
     note: note.map(str::to_string),
     ..template.clone()
   };
@@ -475,16 +477,21 @@ fn startup_recovery_finishes_only_an_open_last_entry() {
       .into_iter()
       .find(|e| e.id == id.to_string().repeat(32))
       .unwrap();
-    (e.committed, e.source)
+    (e.committed, e.source, e.note)
   };
+  let ready = Some("ready: the checked copy goes in place next");
 
   // Given up (its last line says "not applied"): never finished, even as the last entry.
-  journal::append(&lib, &open('a', Some("not applied: changed since, not changed"))).unwrap();
+  journal::append(
+    &lib,
+    &open('a', Some("not applied: changed since, not changed"), Some(&now)),
+  )
+  .unwrap();
   cleanup_orphans(&lib).unwrap();
   assert!(!state(&lib, 'a').0);
 
   // Open, but not the last entry: a later change was made after it, so it was not in flight.
-  journal::append(&lib, &open('b', None)).unwrap();
+  journal::append(&lib, &open('b', ready, Some(&now))).unwrap();
   let later = apply(
     &lib,
     vec![Op::PlaylistCreate { name: "Later".into() }],
@@ -495,8 +502,17 @@ fn startup_recovery_finishes_only_an_open_last_entry() {
   assert!(!state(&lib, 'b').0);
 
   // Open and last: what a crash right after the rename leaves. Finished, and undoable.
-  journal::append(&lib, &open('c', None)).unwrap();
+  journal::append(&lib, &open('c', ready, Some(&now))).unwrap();
   cleanup_orphans(&lib).unwrap();
-  assert_eq!(state(&lib, 'c'), (true, "recovery".to_string()));
+  let (committed, source, _) = state(&lib, 'c');
+  assert_eq!((committed, source.as_str()), (true, "recovery"));
+  assert_eq!(undo::last_change(&lib).unwrap().unwrap().batch, "b-c");
+
+  // Open and last, but only its pre-image: the crash came before the rename. Closed, once.
+  journal::append(&lib, &open('d', None, None)).unwrap();
+  cleanup_orphans(&lib).unwrap();
+  let (committed, _, note) = state(&lib, 'd');
+  assert!(!committed);
+  assert_eq!(note.as_deref(), Some("not applied: interrupted before the change"));
   assert_eq!(undo::last_change(&lib).unwrap().unwrap().batch, "b-c");
 }

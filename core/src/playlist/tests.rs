@@ -263,7 +263,77 @@ fn read_exact_tells_the_apps_own_format_from_another_programs() {
     std::fs::write(dir.join("X.m3u8"), text).unwrap();
     let x = read_exact(root.path(), "X").unwrap();
     assert_eq!(x.ours, ours, "{text:?}");
+    assert_eq!(x.readable, !text.is_empty(), "{text:?}");
     assert_eq!(x.hash, blake3::hash(text.as_bytes()).to_hex().to_string());
+    assert_eq!(not_ours(&x).to_string().contains("another program"), x.readable);
   }
   assert!(matches!(read_exact(root.path(), "Missing"), Err(Error::NotFound(_))));
+}
+
+/// Bytes that are no playlist at all (a 0-byte placeholder a sync client left, blank lines, a
+/// zeroed file, not UTF-8) read without an error but as not `readable`, so the write path says
+/// "could not be read" instead of blaming another program, and never writes over them.
+#[test]
+fn bytes_that_are_no_playlist_read_as_unreadable() {
+  let root = tmp_root();
+  let dir = root.path().join("_Playlists");
+  std::fs::create_dir_all(&dir).unwrap();
+  let cases: [&[u8]; 5] = [
+    b"",
+    b"\n\n  \n",
+    b"\0\0\0\0",
+    b"#EXTM3U\na.mp3\0\n",
+    b"#EXTM3U\n\xff\xfe.mp3\n",
+  ];
+  for bytes in cases {
+    std::fs::write(dir.join("X.m3u8"), bytes).unwrap();
+    let x = read_exact(root.path(), "X").unwrap();
+    assert!(!x.readable && !x.ours, "{bytes:?}");
+    assert!(x.file.entries.is_empty(), "{bytes:?}");
+    assert_eq!(x.hash, blake3::hash(bytes).to_hex().to_string());
+    let e = not_ours(&x);
+    assert_eq!(
+      e.to_string(),
+      "refused: the playlist X could not be read; it was left as it is"
+    );
+    assert!(is_left_as_is(&e) && !is_changed(&e));
+  }
+  assert!(is_left_as_is(&foreign("X")));
+  assert!(!is_left_as_is(&changed("X")));
+}
+
+/// A playlist being created is renamed into place without replacing: one the other device lands
+/// after the last check, in the instant before the rename (the `before_rename` hook), is kept and
+/// the create reports "changed".
+#[cfg(feature = "fault-injection")]
+#[test]
+fn a_create_never_replaces_a_playlist_that_lands_right_before_its_rename() {
+  let root = tmp_root();
+  std::fs::create_dir_all(root.path().join("_Playlists")).unwrap();
+  let dest = root.path().join("_Playlists/New.m3u8");
+  let phone = "#EXTM3U\nPhone/From The Phone.m4a\n";
+  let d2 = dest.clone();
+  crate::ingest::fault::once_at("before_rename", &dest, move || std::fs::write(&d2, phone).unwrap());
+  let err = write_expecting(root.path(), "New", &["a.mp3".to_string()], JOB, Some(Expect::Absent)).unwrap_err();
+  assert!(is_changed(&err), "{err}");
+  assert_eq!(
+    std::fs::read_to_string(&dest).unwrap(),
+    phone,
+    "the phone's playlist is kept"
+  );
+  assert!(
+    crate::fs::list_tmp_files(root.path()).unwrap().is_empty(),
+    "no temp left"
+  );
+  // Without anything landing, the create works and leaves a normal file.
+  write_expecting(root.path(), "Other", &["a.mp3".to_string()], JOB, Some(Expect::Absent)).unwrap();
+  assert_eq!(read(root.path(), "Other").unwrap().entries, vec!["a.mp3"]);
+  #[cfg(windows)]
+  {
+    use std::os::windows::fs::MetadataExt;
+    let attrs = std::fs::metadata(root.path().join("_Playlists/Other.m3u8"))
+      .unwrap()
+      .file_attributes();
+    assert_eq!(attrs & 0x2, 0, "a created playlist is not hidden");
+  }
 }

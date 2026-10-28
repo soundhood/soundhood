@@ -23,10 +23,14 @@ pub use tagwrite::ApplyOptions;
 
 /// One line of the journal. A pre-image line (`committed: false`) is written before a user file is
 /// touched; a commit line with the same `id` (`committed: true`, after hashes) once it is in place.
-/// A change the write path gives up on before touching anything gets a closing line instead, still
-/// `committed: false`, whose `note` starts with `"not applied: "`. One left open by a crash after
-/// the change happened is finished at the next start by a commit line with source `"recovery"`
-/// (an undo keeps `"undo:<batch>"`) and note `"finished after an interrupted run"`.
+/// A tag edit writes one more open line in between, right before the rename: `file_hash_after` is
+/// the checked copy's hash, note `"ready: the checked copy goes in place next"`. A change the
+/// write path gives up on before touching anything gets a closing line instead, still
+/// `committed: false`, whose `note` starts with `"not applied: "`. One left open by a crash is
+/// decided at the next start: finished by a commit line with source `"recovery"` (an undo keeps
+/// `"undo:<batch>"`) and note `"finished after an interrupted run"` when the disk shows exactly
+/// what it would have left, else closed by a `"not applied: interrupted before the change"` or
+/// `"not applied: interrupted, and the change is not on disk"` line.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct JournalEntry {
   pub id: String,
@@ -40,7 +44,8 @@ pub struct JournalEntry {
   pub tags_after: Option<TagSet>,
   pub file_hash_before: Option<String>,
   /// On a commit line, the bytes left in place. A landing's pre-image carries it already (the
-  /// download's hash), so a crash right after the rename can be recognised and finished.
+  /// download's hash), and a tag edit's ready line the checked copy's, so a crash right after the
+  /// rename can be recognised and finished.
   pub file_hash_after: Option<String>,
   #[serde(default)]
   pub playlists_touched: Vec<PlaylistChange>,
@@ -272,38 +277,130 @@ pub(crate) fn scrubbed(e: Error, root: &Path, path: &str) -> Error {
   }
 }
 
-/// `text` without the absolute path of anything inside `root`: each such path is cut down to its
-/// last name, and a temp copy's name (`.soundhood-tmp-…`) becomes the name of the file in `path`
-/// it was a copy of. Report rows and journal notes must never show where the library lives (on
-/// Windows the account name is part of that path). The words around the path are kept.
+/// `text` without the library's absolute path, for report rows and journal notes: they must never
+/// show where the library lives (on Windows the account name is part of that path). `path` is the
+/// file (library-relative, `/`-separated) or the playlist name the text is about.
+///
+/// Every end is found from names the write path knows, never from punctuation, so a quote or a
+/// bracket in the root or in a folder name cannot cut a path short:
+/// - the absolute path of `path` itself (or of the playlist `_Playlists/<path>.m3u8`) becomes its
+///   file name;
+/// - a temp copy the core made (`.soundhood-tmp-<entry id>[-<p|r|c><n>][.<ext>]`, in `path`'s
+///   folder, `_Playlists/` or the root) becomes the name of the file it was a copy of, with or
+///   without the root before it;
+/// - any other path inside the root loses the root and keeps the rest (`Evenings/Song.mp3`);
+/// - the root on its own becomes its last name.
+///
+/// The words around a path are kept.
 pub(crate) fn scrub(text: &str, root: &Path, path: &str) -> String {
   let root = root.to_string_lossy();
   let root = root.trim_end_matches(['/', '\\']);
-  if root.is_empty() {
-    return text.to_string();
-  }
   let own_name = path.rsplit('/').next().unwrap_or(path);
   let mut out = text.to_string();
-  for prefix in [format!(r"\\?\{root}"), root.to_string(), root.replace('\\', "/")] {
-    let mut from = 0;
-    while let Some(at) = out[from..].find(&prefix).map(|i| i + from) {
-      let rest = &out[at..];
-      // The path runs to the end of its token: a quote, a bracket, a line end or ": ".
-      let mut end = rest.find(['"', '\'', ')', '\n']).unwrap_or(rest.len());
-      if let Some(colon) = rest[..end].find(": ") {
-        end = colon;
+  if !root.is_empty() {
+    let root_name = root.rsplit(['/', '\\']).next().unwrap_or_default();
+    let playlist = format!("{}/{path}.m3u8", crate::fs::PLAYLISTS_DIR);
+    let known = [
+      (path, own_name.to_string()),
+      (playlist.as_str(), format!("{own_name}.m3u8")),
+    ];
+    let parent = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+    let temp_dirs = [parent, crate::fs::PLAYLISTS_DIR, ""];
+    for prefix in [format!(r"\\?\{root}"), root.to_string(), root.replace('\\', "/")] {
+      let mut from = 0;
+      while let Some(at) = out[from..].find(&prefix).map(|i| i + from) {
+        let after = at + prefix.len();
+        let (len, shown) =
+          inside_root(&out[after..], &known, &temp_dirs, path, own_name).unwrap_or_else(|| (0, root_name.to_string()));
+        out.replace_range(at..after + len, &shown);
+        from = at + shown.len();
       }
-      let last = rest[..end].rsplit(['/', '\\']).next().unwrap_or_default();
-      let shown = if last.starts_with(crate::fs::TMP_PREFIX) {
-        own_name.to_string()
-      } else {
-        last.to_string()
-      };
-      out.replace_range(at..at + end, &shown);
-      from = at + shown.len();
+    }
+  }
+  // A temp's own name, wherever it is left (a message that names it without the root).
+  let mut from = 0;
+  while let Some(at) = out[from..].find(crate::fs::TMP_PREFIX).map(|i| i + from) {
+    match temp_name_len(&out[at..], path) {
+      Some(len) => {
+        out.replace_range(at..at + len, own_name);
+        from = at + own_name.len();
+      }
+      None => from = at + crate::fs::TMP_PREFIX.len(),
     }
   }
   out
+}
+
+/// What follows the root in a text: `(bytes it covers, what to show)` for a path inside the root,
+/// `None` when the root is not followed by a separator (the root itself).
+fn inside_root(
+  rest: &str,
+  known: &[(&str, String)],
+  temp_dirs: &[&str],
+  path: &str,
+  own_name: &str,
+) -> Option<(usize, String)> {
+  let rel = rest.strip_prefix(['/', '\\'])?;
+  for (name, shown) in known {
+    if !name.is_empty() && starts_with_path(rel, name) {
+      return Some((1 + name.len(), shown.clone()));
+    }
+  }
+  for dir in temp_dirs {
+    let at = if dir.is_empty() {
+      0
+    } else if starts_with_path(rel, dir) && rel[dir.len()..].starts_with(['/', '\\']) {
+      dir.len() + 1
+    } else {
+      continue;
+    };
+    if let Some(len) = temp_name_len(&rel[at..], path) {
+      return Some((1 + at + len, own_name.to_string()));
+    }
+  }
+  // Another path inside the library: shown relative, as it is.
+  Some((1, String::new()))
+}
+
+/// `text` starts with the library-relative `rel`, its `/` written as `/` or `\`.
+fn starts_with_path(text: &str, rel: &str) -> bool {
+  text.len() >= rel.len()
+    && text
+      .bytes()
+      .zip(rel.bytes())
+      .all(|(t, r)| t == r || (r == b'/' && t == b'\\'))
+}
+
+/// Length of the temp name `text` starts with, of the exact shape the core gives its temps
+/// (`fs::tmp_path`): the prefix, a 32-digit entry id, an optional `-p<n>` / `-r<n>` / `-c<n>`, and
+/// an optional extension, which is `path`'s own or `m3u8`. `None` for anything else.
+fn temp_name_len(text: &str, path: &str) -> Option<usize> {
+  let rest = text.strip_prefix(crate::fs::TMP_PREFIX)?;
+  let id = rest.get(..32)?;
+  if !id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+    return None;
+  }
+  let mut len = crate::fs::TMP_PREFIX.len() + 32;
+  let tail = &text[len..];
+  if let Some(n) = tail.strip_prefix(['-']).and_then(|t| t.strip_prefix(['p', 'r', 'c'])) {
+    let digits = n.bytes().take_while(u8::is_ascii_digit).count();
+    if digits > 0 {
+      len += 2 + digits;
+    }
+  }
+  // A longer id or another suffix is a name of another shape (`fs::temp_entry_id` refuses it too).
+  if text[len..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    return None;
+  }
+  let own_ext = path.rsplit_once('.').map(|(_, e)| e).filter(|e| !e.contains('/'));
+  if let Some(ext) = text[len..].strip_prefix('.') {
+    let word = ext.bytes().take_while(u8::is_ascii_alphanumeric).count();
+    let ext = &ext[..word];
+    if word > 0 && (ext.eq_ignore_ascii_case("m3u8") || own_ext.is_some_and(|o| o.eq_ignore_ascii_case(ext))) {
+      len += 1 + word;
+    }
+  }
+  Some(len)
 }
 
 /// An I/O error in plain words, without the OS error number.
@@ -350,14 +447,85 @@ mod tests {
     );
     let file = format!("{}{sep}Ambient{sep}Song (Live).mp3", root.display());
     assert_eq!(
-      scrub(&format!("could not move {file} to the bin"), root, path),
+      scrub(
+        &format!("could not move {file} to the bin"),
+        root,
+        "Ambient/Song (Live).mp3"
+      ),
       "could not move Song (Live).mp3 to the bin"
+    );
+    // A path the text is not about keeps its library-relative part; the root goes.
+    assert_eq!(
+      scrub(&format!("could not move {file} to the bin"), root, path),
+      format!("could not move Ambient{sep}Song (Live).mp3 to the bin")
     );
     let verbatim = format!(r"\\?\{}{sep}a.mp3", root.display());
     assert_eq!(scrub(&format!("x '{verbatim}' y"), root, path), "x 'a.mp3' y");
     let slashes = format!("{}/Chill/b.mp3", root.display().to_string().replace('\\', "/"));
-    assert_eq!(scrub(&slashes, root, path), "b.mp3");
+    assert_eq!(scrub(&slashes, root, path), "Chill/b.mp3");
+    assert_eq!(scrub(&slashes, root, "Chill/b.mp3"), "b.mp3");
     assert_eq!(scrub("file in use", root, path), "file in use");
+    assert_eq!(
+      scrub(&format!("{} is not a folder", root.display()), root, path),
+      "Music is not a folder"
+    );
+  }
+
+  /// Quotes, apostrophes and brackets in the root or in a folder name never cut a path short: the
+  /// end of a path comes from the names the write path knows, so nothing of the root, and no temp
+  /// name, is left behind in the text.
+  #[test]
+  fn scrub_finds_the_path_end_from_known_names_not_punctuation() {
+    let root = if cfg!(windows) {
+      Path::new(r"C:\Users\O'Brien (home)\Music")
+    } else {
+      Path::new("/home/o'brien (home)/Music")
+    };
+    let sep = std::path::MAIN_SEPARATOR;
+    let id = "0123456789abcdef0123456789abcdef";
+    let path = "Chill (2019)/Don't Stop (Live).m4a";
+    let r = root.display();
+    let cases = [
+      (
+        format!("not changed: {r}{sep}Chill (2019){sep}.soundhood-tmp-{id}.m4a: mp4 error"),
+        "not changed: Don't Stop (Live).m4a: mp4 error".to_string(),
+      ),
+      (
+        format!("x '{r}{sep}Chill (2019){sep}Don't Stop (Live).m4a' y"),
+        "x 'Don't Stop (Live).m4a' y".to_string(),
+      ),
+      (
+        format!("panicked at \"{r}{sep}Chill (2019){sep}.soundhood-tmp-{id}.m4a\")"),
+        "panicked at \"Don't Stop (Live).m4a\")".to_string(),
+      ),
+      (
+        format!("{r}{sep}_Playlists{sep}.soundhood-tmp-{id}-p0.m3u8 exists"),
+        "Don't Stop (Live).m4a exists".to_string(),
+      ),
+      (
+        format!("in '{r}{sep}Other (B){sep}x.mp3'"),
+        format!("in 'Other (B){sep}x.mp3'"),
+      ),
+      (
+        format!("bare .soundhood-tmp-{id}-c3.m4a name"),
+        "bare Don't Stop (Live).m4a name".to_string(),
+      ),
+    ];
+    for (text, want) in cases {
+      let got = scrub(&text, root, path);
+      assert_eq!(got, want, "{text}");
+      assert!(!got.contains("Brien") && !got.contains("soundhood-tmp"), "{got}");
+    }
+    // A playlist: its own file and its temps become its name.
+    assert_eq!(
+      scrub(&format!("{r}{sep}_Playlists{sep}Mix (2).m3u8: in use"), root, "Mix (2)"),
+      "Mix (2).m3u8: in use"
+    );
+    // A user's file that only starts like a temp is not one: it is left as it is.
+    assert_eq!(
+      scrub("saw .soundhood-tmp-My Song.m4a", root, path),
+      "saw .soundhood-tmp-My Song.m4a"
+    );
   }
 
   #[test]
