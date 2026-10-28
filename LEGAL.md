@@ -23,8 +23,11 @@ a link; from Phase 2 the helper is off until you enable it.
   PC, never inside the library and never synced.
 - **One download at a time.** Queued links are fetched one after another, never in parallel. From
   Phase 2: pauses between requests and a per-device download archive, so nothing is fetched twice.
-- **No "download a whole channel".** A link to a whole channel, or to one of its tabs (videos,
-  shorts, streams, releases), is refused. A playlist link is the most it takes.
+- **No "download a whole channel".** Whole YouTube channels are refused, on the PC and on the
+  phone alike: a link to a channel or to one of its tabs (videos, shorts, streams, releases), a
+  YouTube Music artist page, and a channel's uploads list. Other pages that hold many items without
+  being a playlist (search results, a hashtag, an artist's page on another site) are not capped yet;
+  a ceiling on the number of items per link comes in Phase 2 ([OPEN](docs/OPEN.md)).
 
 **The honest framing.** The helper is meant for personal, non-commercial use, started by the user for
 each link, with no redistribution. Soundhood does **not** claim that such downloads are covered by a
@@ -91,7 +94,9 @@ nothing from the internet: it uses the system's fonts, and from Phase 1 the bund
 which is part of Windows. Left at its defaults, that runtime contacts Microsoft by itself (a
 configuration service, component update checks, proxy auto-detection). Soundhood starts it with
 browser flags that switch this traffic off; the flags, and any connection they cannot stop, are
-recorded in [DECISIONS](docs/DECISIONS.md) and tracked in [OPEN](docs/OPEN.md).
+recorded in [DECISIONS](docs/DECISIONS.md) and tracked in [OPEN](docs/OPEN.md). WebView2's crash
+handler still runs with every window and, only after a crash, may send a crash report to Microsoft
+under Windows' diagnostic data setting; Soundhood itself sends none.
 
 Building Soundhood from source also uses the network: npm and Cargo download their packages, and the
 build script and the release workflow download yt-dlp and deno as described above.

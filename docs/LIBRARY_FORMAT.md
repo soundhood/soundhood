@@ -73,6 +73,10 @@ How the app writes them:
   comes from a user gesture.
 - **Make playlists from folders** is a one-time import: one playlist per first-level folder, tracks in
   file-name order. It never overwrites an existing playlist.
+- **A playlist another program wrote is never written.** The app writes only its own format, so a
+  playlist that is not in it (`#EXTINF` or other directives, comments, a BOM, CRLF, backslashes) is
+  read but left exactly as it is: a move, rename, delete or undo that would have to rewrite it is
+  refused whole, with nothing half-done, and the report names the playlist.
 
 ## App bookkeeping
 
@@ -127,18 +131,26 @@ playlists it joins. Lists are union-merged by exact URL when read, newest first.
 | `file_hash_before`, `file_hash_after` | string or null | BLAKE3 of the file bytes, hex |
 | `playlists_touched` | array | `{name, before, after, before_hash, after_hash}`; `before`/`after` are entry lists, `null` = file absent |
 | `bin` | object or null | where a delete went: `{kind: "os" or "app", original, bin_rel, deleted_at}` |
-| `source` | string | `user`, `undo:<batch>`, `cleanup`, ... |
+| `source` | string | `user`, `undo:<batch>`, `cleanup`, `recovery`, ... |
 | `batch` | string | groups the entries of one user action |
 | `label` | string | plain words for the UI, e.g. "Edited tags of Song - Artist.m4a" |
-| `committed` | bool | `false` = pre-image, `true` = done |
+| `committed` | bool | `false` = pre-image (or a "not applied" closing line), `true` = done |
+| `note` | string, optional | what the record needs beyond the fields above: why a change was given up (`not applied: ...`), that startup recovery finished it, that a decode check was skipped. Never an absolute path |
 
 **Write order.** Before a user file is touched the app appends a pre-image line (`committed:false`);
 once the file is in place it appends a commit line with the same `id`, `committed:true` and the after
-hashes.
+hashes. A change the app gives up on after the pre-image but before it changes anything (for example
+the file changed since it was read, or the rewritten copy did not check out) gets a **closing line**
+instead: same `id`, still `committed:false`,
+with a `note` that starts with `not applied: `.
 
-**Fold rule.** Readers group lines by `id`; the last line for an id wins. An entry that never reached
-`committed:true` is an interrupted write; on the next start the app removes any temp file it left
-behind ([temp files](#temp-files)).
+**Fold rule.** Readers group lines by `id`; the last line for an id wins. An entry whose last line is
+a commit line happened; any other entry did not (a closing line says so explicitly; a bare pre-image
+is a write a crash interrupted). On the next start the app looks at this device's last entry only:
+when it is still a bare pre-image and the disk shows the change did happen (the crash came after the
+rename but before the commit line), it writes the commit line then, with `source: "recovery"` (an
+undo keeps its `undo:<batch>`) and the note `finished after an interrupted run`, so "Undo last
+change" can reach it. It also removes any temp file the crash left behind ([temp files](#temp-files)).
 
 Illustrative pair (hashes and ids shortened):
 
@@ -177,9 +189,12 @@ Nothing is deleted outright; every delete is journaled with the `bin` field.
   `<destination folder>/.soundhood-tmp-<job>`, fsync, rename to the final name, then remove the source.
 - Downloads in flight live in `incoming/<job-id>/` in the app's data folder, outside the root, so a
   partial file is never synced.
-- **Orphan cleanup:** on every start the app removes `.soundhood-tmp-*` files under the root whose
-  journal entry never committed (or that no entry names) and journals each removal (`kind: cleanup`).
-  It removes nothing else.
+- **Orphan cleanup:** on every start the app removes the temp files it made itself, and only those:
+  names of the exact shape the core mints, `.soundhood-tmp-<id>[-<p|r|c><n>][.<ext>]` with `<id>` the
+  32 lower-case hex digits of a journal entry id, anywhere under the root (not inside dot-folders),
+  whether or not that entry committed (a temp that outlived its rename is stale either way). Each
+  removal is journaled (`kind: cleanup`). A file that merely starts with `.soundhood-tmp-`
+  (`.soundhood-tmp-My Song.m4a`) is not one of the app's and is left alone. It removes nothing else.
 
 ## The index is a cache
 

@@ -24,7 +24,7 @@ pub struct YtDlpArgs {
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn ytdlp_download_audio(_app: AppHandle, _args: YtDlpArgs) -> Result<(), String> {
-  Err("Downloading is not available on the phone yet — it lands with the on-device downloader.".into())
+  Err("The phone downloads through its own downloader, not this command.".into())
 }
 
 /// Starts one download and returns once yt-dlp is running; progress, the files it wrote and the exit
@@ -50,33 +50,46 @@ fn sanitize_folder_name(raw: &str) -> Result<String, String> {
   Ok(name.to_string())
 }
 
+/// The link as it will reach yt-dlp (trimmed), or why it never will: not a web link, or a whole
+/// channel (the core's rule, the one the phone plugin applies too). Checked before anything is
+/// created on disk; `build` refuses both again.
+#[cfg_attr(mobile, allow(dead_code))]
+fn check_link(raw: &str) -> Result<String, String> {
+  use soundhood_core::ytdlp::args::{is_channel_link, is_web_link};
+  let url = raw.trim();
+  if !is_web_link(url) {
+    return Err(format!("Not a web link: {url}"));
+  }
+  if is_channel_link(url) {
+    return Err(tauri_plugin_soundhood_ytdl::CHANNEL_REFUSED.into());
+  }
+  Ok(url.to_string())
+}
+
 #[cfg(desktop)]
 mod desktop {
-  use super::{sanitize_folder_name, YtDlpArgs};
+  use super::{check_link, sanitize_folder_name, YtDlpArgs};
   use crate::paths::{tilde, tilde_in};
   use crate::sidecar;
   use crate::state::{home_dir, reason};
-  use soundhood_core::ytdlp::args::{build, is_web_link, DownloadArgs};
+  use soundhood_core::ytdlp::args::{build, DownloadArgs};
   use std::path::{Path, PathBuf};
   use tauri::{AppHandle, Emitter, Manager};
   use tauri_plugin_shell::process::CommandEvent;
   use tauri_plugin_shell::ShellExt;
 
   pub fn start(app: AppHandle, args: YtDlpArgs) -> Result<(), String> {
-    // The library root is REQUIRED. No silent fallback to the OS Music folder —
+    // The library root is REQUIRED. No silent fallback to the OS Music folder:
     // that is how downloads used to vanish into a folder the app never scans.
     let base_dir: PathBuf = match args.library_dir.as_deref().map(str::trim) {
       Some(ld) if !ld.is_empty() => PathBuf::from(ld),
-      _ => return Err("No Music folder selected — click Import first.".into()),
+      _ => return Err("No Music folder selected. Click Import first.".into()),
     };
     if !base_dir.is_dir() {
       return Err(format!("Music folder does not exist: {}", base_dir.display()));
     }
-    // `build` refuses it too; checking first means a bad link creates no folder.
-    let url = args.url.trim().to_string();
-    if !is_web_link(&url) {
-      return Err(format!("Not a web link: {url}"));
-    }
+    // `build` refuses these too; checking first means a refused link creates no folder.
+    let url = check_link(&args.url)?;
 
     let target = sanitize_folder_name(args.target_folder.as_deref().unwrap_or("Downloads"))?;
     let out_dir = base_dir.join(&target);
@@ -196,5 +209,33 @@ mod tests {
     assert!(sanitize_folder_name("..").is_err());
     assert!(sanitize_folder_name("a/b").is_err());
     assert!(sanitize_folder_name("..\\x").is_err());
+  }
+
+  #[test]
+  fn a_channel_link_is_refused_before_any_folder_is_made() {
+    for url in [
+      "https://www.youtube.com/@artist/videos",
+      " https://www.youtube.com/SomeLegacyName ",
+      "https://www.youtube.com/playlist?list=UUabcdefghijklmnopqrstuv",
+      "https://music.youtube.com/browse/UCabcdefghijklmnopqrstuv",
+    ] {
+      assert_eq!(
+        check_link(url),
+        Err(tauri_plugin_soundhood_ytdl::CHANNEL_REFUSED.to_string()),
+        "{url}"
+      );
+    }
+    assert_eq!(
+      check_link("--exec=calc"),
+      Err("Not a web link: --exec=calc".to_string())
+    );
+    assert_eq!(
+      check_link("  https://www.youtube.com/watch?v=AbCdEfGhIjK "),
+      Ok("https://www.youtube.com/watch?v=AbCdEfGhIjK".to_string())
+    );
+    assert_eq!(
+      check_link("https://www.youtube.com/playlist?list=PLabc"),
+      Ok("https://www.youtube.com/playlist?list=PLabc".to_string())
+    );
   }
 }

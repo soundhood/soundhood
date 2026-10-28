@@ -47,7 +47,7 @@ greyed out with nothing to undo, hovering shows what it will undo, one click und
 status line.
 
 **Developer row** (new in Phase 0, hidden): Ctrl+Alt+Shift+D shows or hides a row under the top bar
-with **Use fixture root** (on or off), **Run self-test** and **Rebuild index**.
+with **Test library** (on or off), **Run self-test** and **Rebuild index**.
 
 **Download box.** A link field, the folder it lands in (with "+ New folder"), the playlists it joins,
 **Download**, **Copy log** (new in Phase 0, while there is a log; it copies the log with the app and

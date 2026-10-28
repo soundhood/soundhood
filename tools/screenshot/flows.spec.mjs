@@ -1,8 +1,10 @@
 // Behaviour checks on the mocked UI (no screenshots): the log, Copy log, the narrow desktop window,
 // the test library switch and what it turns off, the download queue after a refusal, channel links.
+import { readFileSync } from "node:fs";
 import { expect, test } from "./harness.mjs";
 
-const CHANNEL_REFUSAL = "Whole channels are not downloaded. Share a single video or a playlist link.";
+// The one refusal sentence, from the vector file the UI and plugin unit tests share.
+const CHANNEL_REFUSAL = JSON.parse(readFileSync(new URL("./channel-links.json", import.meta.url), "utf8")).refusal;
 const SYNC_OFF = "Sync is off while the test library is shown";
 
 /** The settings store as the mock holds it. */
@@ -106,12 +108,12 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     const fixtureRoot = await page.evaluate(() => window.__soundhoodMock.fixtureRoot);
     await page.keyboard.press("Control+Alt+Shift+KeyD");
     const sw = page.getByRole("switch");
-    await expect(sw).toHaveText("Use fixture root: off");
+    await expect(sw).toHaveText("Test library: off");
     await expect(page.locator(".pathLine")).toHaveText(`Folder: ${app.data.root}`);
     await expect(page.locator(".testLibraryNote")).toHaveCount(0);
 
     await sw.click();
-    await expect(sw).toHaveText("Use fixture root: on");
+    await expect(sw).toHaveText("Test library: on");
     await expect(sw).toHaveAttribute("aria-checked", "true");
     await expect(page.locator(".pathLine")).toHaveText("Folder: test library");
     await expect(page.locator(".testLibraryNote")).toHaveText("Test library");
@@ -127,7 +129,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await page.keyboard.press("Control+Alt+Shift+KeyD");
 
     await sw.click();
-    await expect(sw).toHaveText("Use fixture root: off");
+    await expect(sw).toHaveText("Test library: off");
     await expect(page.locator(".pathLine")).toHaveText(`Folder: ${app.data.root}`);
     await expect(page.locator(".testLibraryNote")).toHaveCount(0);
     s = await storeOf(page);
@@ -145,10 +147,10 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await app.open();
     await expect(page.locator(".pathLine")).toHaveText("Folder: test library");
     await expect(page.locator(".testLibraryNote")).toBeVisible();
-    await expect(page.getByRole("switch")).toHaveText("Use fixture root: on");
+    await expect(page.getByRole("switch")).toHaveText("Test library: on");
     await page.getByRole("switch").click();
     await expect(page.locator(".pathLine")).toHaveText("Folder: C:/Music");
-    await expect(page.getByRole("switch")).toHaveText("Use fixture root: off");
+    await expect(page.getByRole("switch")).toHaveText("Test library: off");
   });
 
   test("no real library known: on then off closes the library instead of keeping the test one", async ({ app, page }) => {
@@ -165,7 +167,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect((await storeOf(page)).real_library_dir).toBeUndefined();
 
     await sw.click();
-    await expect(sw).toHaveText("Use fixture root: off");
+    await expect(sw).toHaveText("Test library: off");
     await expect(page.locator(".pathLine")).toHaveText("Pick a folder to begin.");
     await expect(status(page)).toHaveText("Status: Test library off: choose your library folder again");
     await expect(page.locator(".testLibraryNote")).toHaveCount(0);
@@ -204,13 +206,43 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       window.__soundhoodMock.store.set("share_queue", [{ url: "https://www.youtube.com/@someartist/videos", added: 1 }]);
     });
     await app.open();
-    await page.locator(".downloadBar .downloadInput").fill("https://www.youtube.com/channel/UC0123456789abcdefghijkl");
-    await page.getByRole("button", { name: "Download", exact: true }).click();
-    await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
+    // The common shape, then the ones only the core used to know: an uploads list, a legacy name.
+    for (const url of [
+      "https://www.youtube.com/channel/UC0123456789abcdefghijkl",
+      "https://www.youtube.com/playlist?list=UU0123456789abcdefghijkl",
+      "https://www.youtube.com/SomeLegacyName/videos",
+    ]) {
+      // Move the status off the refusal first (the developer toggle names itself there).
+      await page.keyboard.press("Control+Alt+Shift+KeyD");
+      await expect(status(page)).toHaveText(/^Status: Developer tools (on|off)$/);
+      await page.locator(".downloadBar .downloadInput").fill(url);
+      await page.getByRole("button", { name: "Download", exact: true }).click();
+      await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
+    }
     await page.getByRole("button", { name: "Download queue (1)" }).click();
     await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
     await app.settled();
     expect(await ipcCount(page, "downloads")).toBe(0);
+  });
+
+  test("a download the host refuses to start says why on the status line", async ({ app, page }) => {
+    await beforeLoad(page, (reason) => {
+      window.__soundhoodMock.downloadError = reason;
+    }, CHANNEL_REFUSAL);
+    await app.open();
+    await page.locator(".downloadBar .downloadInput").fill("https://www.youtube.com/watch?v=AbCdEfGhIjK");
+    await page.getByRole("button", { name: "Download", exact: true }).click();
+    await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
+    await expect(page.locator(".downloadLogs")).toContainText(`[error] ${CHANNEL_REFUSAL}`);
+    expect(await ipcCount(page, "downloads")).toBe(1);
+    await expect(page.getByRole("button", { name: "Download", exact: true })).toBeEnabled();
+  });
+
+  test("the self-test result reads in sentence case", async ({ app, page }) => {
+    await beforeLoad(page, () => window.__soundhoodMock.store.set("dev_mode", true));
+    await app.open();
+    await page.getByRole("button", { name: "Run self-test" }).click();
+    await expect(status(page)).toHaveText("Status: Self-test: 2 passed, 0 failed");
   });
 });
 

@@ -7,11 +7,14 @@
 
   1. Installs the npm dependencies (npm ci) when app\node_modules is missing or older than
      app\package-lock.json.
-  2. Fetches yt-dlp and deno into app\src-tauri\bin with scripts\fetch-sidecars.ps1: the pinned
-     releases from GitHub over HTTPS, each checked against the release's published SHA-256 and the
-     pin in core\src\ytdlp\pins.rs before it replaces the file there. -SkipSidecarFetch keeps
-     what bin\ holds (an offline rebuild); step 4 still holds it to the pins.
-  3. Builds soundhood-tools (npm run build:tools), the third bundled helper.
+  2. Builds this checkout's release soundhood-tools (npm run build:tools), the third bundled helper.
+     It goes first because step 3 runs it: the fetch code and the pins are then always this
+     checkout's, never a stale build or the copy an installed Soundhood carries.
+  3. Fetches yt-dlp and deno into app\src-tauri\bin with scripts\fetch-sidecars.ps1, running the
+     soundhood-tools step 2 built: the pinned releases from GitHub over HTTPS, each checked against
+     the release's published SHA-256 and the pin in core\src\ytdlp\pins.rs before it replaces the
+     file there. -SkipSidecarFetch keeps what bin\ holds (an offline rebuild); step 4 still holds
+     it to the pins.
   4. Checks every bundled helper (node .github\scripts\sidecars.mjs check): present, not a
      placeholder, and yt-dlp and deno exactly the pinned builds. Stops here when one is not.
   5. Runs `npm run tauri build` in app\ (release build + NSIS installer).
@@ -47,20 +50,30 @@ function Install-NpmDependencies {
   if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit $LASTEXITCODE)" }
 }
 
+function Get-HostTriple {
+  $line = & rustc -vV | Where-Object { $_ -match '^host: (\S+)$' } | Select-Object -First 1
+  if (-not $line) { throw 'Could not read the host target triple from `rustc -vV`.' }
+  return ($line -replace '^host: ', '').Trim()
+}
+
 Push-Location $app
 try {
   Install-NpmDependencies
+
+  # Release build: build-tools.mjs builds debug only when TAURI_ENV_DEBUG=true, which only
+  # `tauri dev` / `tauri build --debug` set. It copies the result to bin\soundhood-tools-<triple>.exe.
+  & npm run build:tools
+  if ($LASTEXITCODE -ne 0) { throw "npm run build:tools failed (exit $LASTEXITCODE)" }
+  $tools = Join-Path $app ("src-tauri\bin\soundhood-tools-{0}.exe" -f (Get-HostTriple))
+  if (-not (Test-Path -LiteralPath $tools -PathType Leaf)) { throw "npm run build:tools left no $tools" }
 
   if ($SkipSidecarFetch) {
     Write-Host 'sidecars: using what app\src-tauri\bin holds (-SkipSidecarFetch)'
   } else {
     Write-Host 'sidecars: fetching the pinned yt-dlp and deno (verified)'
-    & (Join-Path $PSScriptRoot 'fetch-sidecars.ps1')
+    & (Join-Path $PSScriptRoot 'fetch-sidecars.ps1') -Tools $tools
     if ($LASTEXITCODE -ne 0) { throw "fetching the sidecars failed (exit $LASTEXITCODE); nothing was built" }
   }
-
-  & npm run build:tools
-  if ($LASTEXITCODE -ne 0) { throw "npm run build:tools failed (exit $LASTEXITCODE)" }
 
   & node (Join-Path $repo '.github\scripts\sidecars.mjs') check
   if ($LASTEXITCODE -ne 0) {

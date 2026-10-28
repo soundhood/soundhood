@@ -105,8 +105,8 @@ Committed screenshots and gate runs on real devices use the fixture library, nev
   the settings sheet; on the PC, press
   Ctrl+Alt+Shift+D and it appears as a row under the top bar. The same gesture hides it again; the
   app remembers whether it is shown.
-- **Use fixture root** installs the generated fixture library on the device (under the app's own
-  data) and points the app at it. While it is on, Proton sync (Sync now, Get new, Send new) is
+- **Test library** (the switch reads "Test library: on" or "off") installs the generated fixture
+  library on the device (under the app's own data) and points the app at it. While it is on, Proton sync (Sync now, Get new, Send new) is
   switched off, so the test library never reaches the real Proton Drive. The same library can be
   generated on the PC with `soundhood-tools fixture-lib <dir>`.
 - **Run self-test** runs the bundled fixture corpus through the installed app's own Rust code and
@@ -117,9 +117,16 @@ Committed screenshots and gate runs on real devices use the fixture library, nev
   app's data is never touched ([DEV](DEV.md#desktop)). Start it with
   `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222 --disable-lcd-text"` and
   connect Playwright with `connectOverCDP`. `--disable-lcd-text` turns off ClearType's coloured text
-  fringes, which blue-scan would count as blue. The variable takes the place of the browser arguments
-  the app sets itself, so add those too (`additionalBrowserArgs` of the window in
-  `app/src-tauri/tauri.conf.json`), or the run is not the shipped configuration.
+  fringes, which blue-scan would count as blue. The variable is merged with the browser arguments
+  the app sets itself (`additionalBrowserArgs` of the window in `app/src-tauri/tauri.conf.json`), so
+  the run keeps the shipped configuration. The one exception: a `--disable-features` in the variable
+  replaces the app's own `--disable-features` list instead of adding to it, so never pass one there.
+- For exact-size evidence, do not use Playwright's `page.screenshot()` over CDP: it returns images
+  scaled by the display's scale factor (1414x884 for a 1280x800 window at 110 %), even after
+  `Emulation.setDeviceMetricsOverride` with scale 1. Set the size with
+  `Emulation.setDeviceMetricsOverride` (`width`, `height`, `deviceScaleFactor: 1`, `mobile: false`),
+  then capture with the protocol's own `Page.captureScreenshot` (`format: "png"`) through a CDP
+  session (`page.context().newCDPSession(page)`), and write the returned base64 to the file.
 - Phone screenshots, saved on the phone and then pulled (a PowerShell `>` redirect can corrupt binary
   output):
 

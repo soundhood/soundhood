@@ -21,13 +21,16 @@ You should see `True`. If you see `False`, you are in another folder: close the 
 
 ## Install the app on the PC
 
-Build the installer. It takes a few minutes; let it finish.
+Build the installer. It takes a few minutes; let it finish. The build script also fetches the two
+download helpers the installer carries (yt-dlp and deno) and checks that they are exactly the
+versions the project pins, so it needs the internet, and it stops with a message if a check fails.
 
 ```powershell
-cd app; npm run tauri build; cd ..
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 ```
 
-The last lines name a file ending in `_x64-setup.exe`.
+The last lines name the installer (a file ending in `_x64-setup.exe`), its size and how long the
+build took.
 
 Start the installer you just built:
 
@@ -122,16 +125,16 @@ file.
 
 ## The developer section
 
-A hidden set of switches the team uses for tests: **Use fixture root**, **Run self-test** and
+A hidden set of switches the team uses for tests: **Test library**, **Run self-test** and
 **Rebuild index**. You only need it when the team asks.
 
 - **On the phone:** tap the status line in the top bar (next to the gear icon) 7 times quickly. The
   switches appear at the bottom of the settings sheet.
 - **On the PC:** press Ctrl+Alt+Shift+D. A row of switches appears under the top bar.
 
-Do the same again to hide them. **Use fixture root** swaps your library for a small test library the
-app makes itself; while it is on, Proton sync is off on the phone. Turn it off again to get your own
-library back.
+Do the same again to hide them. **Test library** swaps your library for a small test library the
+app makes itself (the switch reads "Test library: on"); while it is on, Proton sync is off on the
+phone. Turn it off again to get your own library back.
 
 ## Take a library snapshot and compare two
 

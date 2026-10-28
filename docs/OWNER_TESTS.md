@@ -13,7 +13,7 @@ Whenever the team runs the phase checks on the devices:
 - On the phone, USB debugging and All-files access are on.
 - Proton VPN is off, unless a test says to turn it on.
 - The fixture library (a small test library the app generates) is installed on both devices with
-  **Use fixture root** in the hidden developer section ([how to open it](OWNER_GUIDE.md#the-developer-section)).
+  **Test library** in the hidden developer section ([how to open it](OWNER_GUIDE.md#the-developer-section)).
   Every screenshot the team commits is taken with it, never with your own library. While it is on,
   Proton sync is switched off on the phone, so the test library never reaches your Proton Drive.
 

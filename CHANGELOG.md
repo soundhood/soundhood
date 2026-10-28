@@ -37,7 +37,7 @@ below ships in 0.2.0 unless an entry names a later phase. What is not verified y
   the files alone.
 - Library snapshots: `soundhood-tools manifest` and PowerShell wrappers that take a snapshot and
   compare two in one line ([OWNER_GUIDE](docs/OWNER_GUIDE.md#take-a-library-snapshot-and-compare-two)).
-- The fixture library and a hidden developer section ("Use fixture root", "Run self-test", "Rebuild
+- The fixture library and a hidden developer section ("Test library", "Run self-test", "Rebuild
   index"), opened with 7 taps on the status line on the phone or Ctrl+Alt+Shift+D on the PC. While
   the fixture library is shown, Proton sync is off.
 - **Copy log** on the PC, next to Download: it copies the log with the app and device details on top,
@@ -63,8 +63,9 @@ below ships in 0.2.0 unless an entry names a later phase. What is not verified y
   seconds, is left alone ("changed since"); a change cut off by a crash is finished on the next start.
 - A queued download that fails stops the queue instead of trying the next link.
 - Deleting a track on the phone moves it to the app's bin instead of erasing it.
-- Links to a whole channel, or to one of its tabs, are refused; a playlist link is the most a
-  download takes.
+- Whole YouTube channels are refused on the PC and on the phone, by the same rule: a link to a
+  channel or one of its tabs, a YouTube Music artist page or a channel's uploads list. Other pages
+  with many items (search results, a hashtag) are not capped yet.
 - On Windows the WebView2 runtime that draws the window is started with flags that switch off its
   own calls to Microsoft (configuration service, component updates, proxy auto-detection); see
   [DECISIONS](docs/DECISIONS.md).

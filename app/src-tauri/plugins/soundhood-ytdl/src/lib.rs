@@ -19,7 +19,7 @@ mod models;
 mod rules;
 
 pub use error::{Error, Result};
-pub use rules::{is_channel_link, FIXTURE_MARKER};
+pub use rules::{is_channel_link, CHANNEL_REFUSED, FIXTURE_MARKER};
 
 #[cfg(desktop)]
 pub use desktop::Ytdl;
