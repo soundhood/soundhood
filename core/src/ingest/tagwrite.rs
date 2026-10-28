@@ -1,7 +1,8 @@
 //! The one write path. Every change to a user file goes through here, in this order: journal
 //! pre-image (`committed: false`, fsynced) -> the change (a verified hidden temp renamed over the
 //! original, a no-clobber rename, a move to the bin, or the sole m3u8 writer) -> the m3u8
-//! consistency rewrites of the same batch -> journal commit line with the after hashes.
+//! consistency rewrites of the same batch -> journal commit line with the after hashes. A tag edit
+//! writes one more open line between its checked temp and the rename: the temp's hash ([`READY`]).
 //!
 //! Read-only files, files another process holds and the track playing now are skipped, never
 //! failed, and never count toward the abort rule: 3 consecutive failed checks of a rewritten temp
@@ -65,8 +66,12 @@ const NOT_ATTEMPTED: &str = "not attempted: the batch stopped";
 const UNREADABLE_TAGS: &str = "its tags could not be read, so nothing was changed";
 const NOT_CHECKED_OUT: &str = "not changed: the rewritten copy did not check out";
 /// Start of the note on the line that closes a pre-image the write path gave up on before
-/// changing anything; startup recovery never looks at such an entry.
+/// changing anything, or that startup recovery found not done; recovery never looks at such an
+/// entry again.
 pub(crate) const NOT_APPLIED: &str = "not applied: ";
+/// The note on a tag edit's second open line, written once its checked copy is ready and before
+/// the file can be replaced; that line's `file_hash_after` is the checked copy's hash.
+pub(crate) const READY: &str = "ready: the checked copy goes in place next";
 /// How long a file must have been left alone before the write path acts on it (brief: never act
 /// on a file whose size changed in the last 10 s; the Proton client rewrites files mid-sync).
 const SETTLE: Duration = Duration::from_secs(10);
@@ -128,10 +133,12 @@ pub fn land(lib: &Library, staged: &Path, dest: &RelPath, opts: &ApplyOptions) -
 /// Startup: remove orphaned .soundhood-tmp-* files whose journal entry never committed (or that no
 /// entry names), journaling each removal as Kind::Cleanup. Returns what was removed.
 ///
-/// First, the change a crash interrupted after it happened on disk is finished on record (see
-/// `recover`), so "Undo last change" can reach it. Then the temps: a temp whose entry did commit
-/// is a leftover after its rename and goes too, so every temp the core made is removed; the journal
-/// line records which case it was. Only names of the exact shape the core gives its temps count
+/// First, the change a crash interrupted is decided (see `recover`): finished on record when it
+/// happened on disk, so "Undo last change" can reach it, closed as not applied when it did not,
+/// so no later start takes a change made some other way for it. Then the temps: a temp whose
+/// entry did commit is a leftover after its rename and goes too, so every temp the core made is
+/// removed; the journal line records which case it was. Only names of the exact shape the core
+/// gives its temps count
 /// (`fs::temp_entry_id`): a user's own file that merely starts with the prefix is left alone. A
 /// temp that cannot be removed now (another program holds it) is left for the next start.
 pub fn cleanup_orphans(lib: &Library) -> Result<Vec<RelPath>> {
@@ -401,6 +408,21 @@ pub(crate) fn preimage(lib: &Library, e: &JournalEntry, path: &str) -> std::resu
     )),
   })?;
   fault::point("after_preimage");
+  Ok(())
+}
+
+/// The tag edit's second open line, right before the file can be replaced: the pre-image again,
+/// with `file_hash_after` holding the checked copy's hash and the note [`READY`]. A failure means
+/// nothing was touched and the batch must stop (the pre-image without it means "never happened").
+fn ready_line(lib: &Library, e: &JournalEntry, path: &str) -> std::result::Result<(), Outcome> {
+  journal::append(lib, e).map_err(|err| Outcome::Stop {
+    path: path.to_string(),
+    err: Error::Other(format!(
+      "nothing changed: the journal could not be written ({})",
+      message(&err)
+    )),
+  })?;
+  fault::point("after_ready");
   Ok(())
 }
 
@@ -729,6 +751,23 @@ pub(crate) fn write_tags(
       return give_up(lib, &mut e, failed, Some(&message(&err)));
     }
   };
+  // The checked copy's hash goes on record before anything can replace the file: a second line
+  // for the same id, still open. Startup recovery finishes a tag edit only when the file holds
+  // exactly these bytes, so it never takes a change made some other way for this one. Written
+  // before the last check, so the instant between that check and the rename does not grow.
+  let ready = match fs::file_hash(&tmp) {
+    Ok(h) => h,
+    Err(err) => {
+      let _ = fs::remove_file(&tmp);
+      return give_up(lib, &mut e, skip_or_fail(path, err), None);
+    }
+  };
+  e.file_hash_after = Some(ready);
+  e.note = Some(READY.to_string());
+  if let Err(o) = ready_line(lib, &e, path) {
+    let _ = fs::remove_file(&tmp);
+    return o;
+  }
   if let Some(o) = still_as_seen(&abs, &seen, path, undoing) {
     let _ = fs::remove_file(&tmp);
     return give_up(lib, &mut e, o, None);
@@ -738,7 +777,8 @@ pub(crate) fn write_tags(
     return give_up(lib, &mut e, skip_or_fail(path, err), None);
   }
   fault::point("after_replace");
-  e.file_hash_after = fs::file_hash(&abs).ok();
+  // `file_hash_after` stays the checked copy's hash: the bytes this edit put in place (a version
+  // that lands right after the rename is not ours, and undo must not take it for ours).
   e.note = note.map(|n| scrub(&n, &lib.root, path));
   if let Err(o) = commit(lib, &mut e, path) {
     return o;

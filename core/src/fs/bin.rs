@@ -99,24 +99,45 @@ fn restore_from_os_bin(lib: &Library, rec: &BinRecord) -> Result<()> {
   })
 }
 
-/// For startup recovery: the OS recycle bin's item for `rel`, when the newest deletion of that path
-/// happened at or after `since_ms` (a delete a crash interrupted before it was journaled as done).
-/// `None` when there is none, or the bin cannot be listed. Slow on a full bin; it only runs after a
-/// crash in the middle of a delete.
+/// For startup recovery: the OS recycle bin's item for `rel` that holds exactly the bytes `hash`
+/// (blake3) and was deleted at or after `since_ms` (a delete a crash interrupted before it was
+/// journaled as done); the newest such item. The hash keeps a deletion made some other way, of
+/// other bytes, from being taken for the app's. `Ok(None)` when there is none; `Err` when the bin
+/// cannot be listed. Slow on a full bin; it only runs after a crash in the middle of a delete.
 #[cfg(any(
   windows,
   all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
 ))]
-pub(crate) fn find_in_os_bin(lib: &Library, rel: &RelPath, since_ms: i64) -> Option<BinRecord> {
-  let items = trash::os_limited::list().ok()?;
-  let item = newest_match(items, &lib.abs(rel))?;
+pub(crate) fn find_in_os_bin(lib: &Library, rel: &RelPath, since_ms: i64, hash: &str) -> Result<Option<BinRecord>> {
+  let items = trash::os_limited::list().map_err(|e| Error::Other(format!("cannot read the recycle bin: {e}")))?;
   // The bin keeps whole seconds; the entry's clock reading may be a little later than the delete.
-  (item.time_deleted >= since_ms.div_euclid(1000) - 2).then(|| BinRecord {
+  let since = since_ms.div_euclid(1000) - 2;
+  let item = same_path(items, &lib.abs(rel))
+    .into_iter()
+    .filter(|item| item.time_deleted >= since)
+    .filter(|item| super::file_hash(&bin_file(item)).ok().as_deref() == Some(hash))
+    .max_by_key(|item| item.time_deleted);
+  Ok(item.map(|item| BinRecord {
     kind: BinKind::Os,
     original: rel.clone(),
     bin_rel: None,
     deleted_at: item.time_deleted,
-  })
+  }))
+}
+
+/// Where the recycle bin keeps an item's bytes. Windows: the item's parsing name is the file in
+/// `$Recycle.Bin\<SID>\` (`$R…`). Freedesktop: `<trash>/files/<name>` beside `<trash>/info/<name>.trashinfo`.
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+fn bin_file(item: &trash::TrashItem) -> std::path::PathBuf {
+  let id = Path::new(&item.id);
+  if cfg!(windows) {
+    return id.to_path_buf();
+  }
+  let trash = id.parent().and_then(Path::parent).unwrap_or(Path::new(""));
+  trash.join("files").join(id.file_stem().unwrap_or_default())
 }
 
 /// The macOS Trash and another device's bin cannot be searched: nothing is recovered from them.
@@ -124,8 +145,8 @@ pub(crate) fn find_in_os_bin(lib: &Library, rel: &RelPath, since_ms: i64) -> Opt
   windows,
   all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
 )))]
-pub(crate) fn find_in_os_bin(_lib: &Library, _rel: &RelPath, _since_ms: i64) -> Option<BinRecord> {
-  None
+pub(crate) fn find_in_os_bin(_lib: &Library, _rel: &RelPath, _since_ms: i64, _hash: &str) -> Result<Option<BinRecord>> {
+  Ok(None)
 }
 
 /// For startup recovery: where a delete a crash interrupted put `rel` in the app bin. The name is
@@ -193,13 +214,27 @@ fn restore_from_os_bin(_lib: &Library, rec: &BinRecord) -> Result<()> {
   all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
 ))]
 fn newest_match(items: Vec<trash::TrashItem>, original: &Path) -> Option<trash::TrashItem> {
-  let name = fold(Path::new(original.file_name()?));
+  same_path(items, original)
+    .into_iter()
+    .max_by_key(|item| item.time_deleted)
+}
+
+/// Every bin item that is a deletion of `original` (see [`newest_match`] for how they are matched).
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+fn same_path(items: Vec<trash::TrashItem>, original: &Path) -> Vec<trash::TrashItem> {
+  let Some(file_name) = original.file_name() else {
+    return Vec::new();
+  };
+  let name = fold(Path::new(file_name));
   let parent = canonical_parent(original);
   items
     .into_iter()
     .filter(|item| fold(Path::new(&item.name)) == name)
     .filter(|item| same_parent(&item.original_parent, original, parent.as_deref()))
-    .max_by_key(|item| item.time_deleted)
+    .collect()
 }
 
 /// The canonical form of `p`'s folder, when it exists.
@@ -427,10 +462,19 @@ mod tests {
     l.platform = Platform::Desktop;
     let rel = RelPath::new(&format!("soundhood-bin-test-{}.mp3", uuid::Uuid::new_v4())).unwrap();
     fs::write(l.abs(&rel), b"binned").unwrap();
+    let hash = super::super::file_hash(&l.abs(&rel)).unwrap();
+    let since_ms = time::OffsetDateTime::now_utc().unix_timestamp() * 1000;
     let rec = to_os_bin(&l, &rel).unwrap();
     assert_eq!(rec.kind, BinKind::Os);
     assert!(rec.bin_rel.is_none());
     assert!(!l.abs(&rel).exists());
+    // Recovery finds the item by its bytes, and not with other bytes or before the delete.
+    let found = find_in_os_bin(&l, &rel, since_ms, &hash)
+      .unwrap()
+      .expect("found by hash");
+    assert_eq!(found.original, rel);
+    assert!(find_in_os_bin(&l, &rel, since_ms, &"0".repeat(64)).unwrap().is_none());
+    assert!(find_in_os_bin(&l, &rel, since_ms + 60_000, &hash).unwrap().is_none());
     let started = std::time::Instant::now();
     restore_from_bin(&l, &rec).unwrap();
     eprintln!("restore from the OS bin took {:?}", started.elapsed());

@@ -23,10 +23,14 @@ pub use tagwrite::ApplyOptions;
 
 /// One line of the journal. A pre-image line (`committed: false`) is written before a user file is
 /// touched; a commit line with the same `id` (`committed: true`, after hashes) once it is in place.
-/// A change the write path gives up on before touching anything gets a closing line instead, still
-/// `committed: false`, whose `note` starts with `"not applied: "`. One left open by a crash after
-/// the change happened is finished at the next start by a commit line with source `"recovery"`
-/// (an undo keeps `"undo:<batch>"`) and note `"finished after an interrupted run"`.
+/// A tag edit writes one more open line in between, right before the rename: `file_hash_after` is
+/// the checked copy's hash, note `"ready: the checked copy goes in place next"`. A change the
+/// write path gives up on before touching anything gets a closing line instead, still
+/// `committed: false`, whose `note` starts with `"not applied: "`. One left open by a crash is
+/// decided at the next start: finished by a commit line with source `"recovery"` (an undo keeps
+/// `"undo:<batch>"`) and note `"finished after an interrupted run"` when the disk shows exactly
+/// what it would have left, else closed by a `"not applied: interrupted before the change"` or
+/// `"not applied: interrupted, and the change is not on disk"` line.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct JournalEntry {
   pub id: String,
@@ -40,7 +44,8 @@ pub struct JournalEntry {
   pub tags_after: Option<TagSet>,
   pub file_hash_before: Option<String>,
   /// On a commit line, the bytes left in place. A landing's pre-image carries it already (the
-  /// download's hash), so a crash right after the rename can be recognised and finished.
+  /// download's hash), and a tag edit's ready line the checked copy's, so a crash right after the
+  /// rename can be recognised and finished.
   pub file_hash_after: Option<String>,
   #[serde(default)]
   pub playlists_touched: Vec<PlaylistChange>,

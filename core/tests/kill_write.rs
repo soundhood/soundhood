@@ -166,6 +166,11 @@ fn after_restart(lib: &Library, interrupted: Kind, point: &str) -> JournalEntry 
     );
   } else {
     assert!(!e.committed, "{point}: the crash came before the change");
+    assert_eq!(
+      e.note.as_deref(),
+      Some(INTERRUPTED),
+      "{point}: the first start closes the entry, so no later start looks at it again"
+    );
     assert!(undo::last_change(lib).unwrap().is_none(), "{point}: nothing to undo");
   }
   let lines = journal_lines(lib);
@@ -173,6 +178,11 @@ fn after_restart(lib: &Library, interrupted: Kind, point: &str) -> JournalEntry 
   assert_eq!(journal_lines(lib), lines, "a second start writes nothing");
   e
 }
+
+/// The note on the line that closes an entry whose change the crash came before.
+const INTERRUPTED: &str = "not applied: interrupted before the change";
+/// The same when the disk does not show the state from before the change either.
+const NOT_ON_DISK: &str = "not applied: interrupted, and the change is not on disk";
 
 /// "Undo last change" after a recovered crash: one change undone, nothing skipped.
 fn undo_recovered(lib: &Library, e: &JournalEntry) {
@@ -190,7 +200,9 @@ fn tag_write_at(point: &str, ext: &str) {
   let temp_left = !temps(&lib.root).is_empty();
   match point {
     "after_preimage" => assert!(!temp_left, "no temp before the copy"),
-    "after_tmp_write" | "after_verify" => assert!(temp_left, "the temp is there for cleanup to find"),
+    "after_tmp_write" | "after_verify" | "after_ready" => {
+      assert!(temp_left, "the temp is there for cleanup to find")
+    }
     _ => {}
   }
   if point == "after_replace" {
@@ -244,10 +256,90 @@ fn kill_tag_write_after_verify() {
   tag_write_at("after_verify", "opus");
 }
 
+/// The checked copy's hash is on record, the rename has not run: the file is untouched, so the
+/// entry is closed as interrupted, not finished.
+#[test]
+fn kill_tag_write_after_ready() {
+  tag_write_at("after_ready", "m4a");
+  tag_write_at("after_ready", "mp3");
+}
+
 #[test]
 fn kill_tag_write_after_replace() {
   tag_write_at("after_replace", "ogg");
   tag_write_at("after_replace", "m4a");
+}
+
+/// The temp a crash left (its bytes are exactly what the edit would have put in place).
+fn the_temp(lib: &Library) -> PathBuf {
+  let t = temps(&lib.root);
+  assert_eq!(t.len(), 1, "{t:?}");
+  lib.abs(&t[0])
+}
+
+/// A crash before the rename, then the same change made some other way before the next start: here
+/// the very bytes the app's checked copy held, copied over the track by hand. The journal never
+/// said the rename was about to run (no checked-copy hash on record), so the change is not taken
+/// for the app's: the entry is closed as interrupted, Undo has nothing to offer, and the file keeps
+/// what the hand put there.
+#[test]
+fn an_identical_change_made_by_hand_after_a_crash_before_the_rename_is_not_taken_for_the_apps() {
+  for ext in ["m4a", "flac"] {
+    let (_d, lib, report) = fixture_lib(10, false);
+    let r = track_with_ext(&report, ext);
+    crash(&lib, "tags", &r, "", "after_verify");
+    let by_hand = std::fs::read(the_temp(&lib)).unwrap();
+    std::fs::write(lib.abs(&r), &by_hand).unwrap();
+    assert_eq!(tags::read(&lib.abs(&r)).unwrap().title, NEW_TITLE, "{ext}");
+    let e = after_restart(&lib, Kind::Tags, "after_verify");
+    assert_eq!(e.note.as_deref(), Some(INTERRUPTED), "{ext}");
+    assert_eq!(read_bytes(&lib, &r), by_hand, "{ext}: the hand's change stays");
+  }
+}
+
+/// A crash after the checked copy's hash went on record, then another version of the track arrives
+/// before the next start: the file holds neither the old bytes nor the checked copy's, so the entry
+/// is closed as not on disk and the new version is left alone.
+#[test]
+fn a_tag_edit_is_finished_only_when_the_file_holds_exactly_the_checked_copy() {
+  let (_d, lib, report) = fixture_lib(10, false);
+  let r = track_with_ext(&report, "mp3");
+  let other = report
+    .tracks
+    .iter()
+    .map(|t| rel(&t.rel))
+    .find(|o| *o != r && o.as_str().ends_with(".mp3"))
+    .unwrap();
+  crash(&lib, "tags", &r, "", "after_ready");
+  let newer = read_bytes(&lib, &other);
+  std::fs::write(lib.abs(&r), &newer).unwrap();
+  cleanup_orphans(&lib).unwrap();
+  let e = entries(&lib).into_iter().find(|e| e.kind == Kind::Tags).unwrap();
+  assert!(!e.committed);
+  assert_eq!(e.note.as_deref(), Some(NOT_ON_DISK));
+  assert!(undo::last_change(&lib).unwrap().is_none());
+  assert_eq!(read_bytes(&lib, &r), newer);
+  let lines = journal_lines(&lib);
+  cleanup_orphans(&lib).unwrap();
+  assert_eq!(journal_lines(&lib), lines, "a second start writes nothing");
+}
+
+/// The first start after a crash before a move decides the entry once: closed as interrupted. A
+/// move to that same place made by hand later is never taken for the app's at a later start.
+#[test]
+fn a_move_made_by_hand_after_the_first_start_is_never_taken_for_the_apps() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let (r, folder) = favourite(&lib);
+  let to = rel(&format!("{folder}/{}", r.file_name()));
+  let lists = playlists(&lib);
+  crash(&lib, "move", &r, &folder, "after_preimage");
+  after_restart(&lib, Kind::Move, "after_preimage");
+  let lines = journal_lines(&lib);
+  std::fs::rename(lib.abs(&r), lib.abs(&to)).unwrap();
+  cleanup_orphans(&lib).unwrap();
+  assert_eq!(journal_lines(&lib), lines, "nothing is finished on record");
+  assert!(undo::last_change(&lib).unwrap().is_none());
+  assert_eq!(playlists(&lib), lists, "no playlist is rewritten for it");
 }
 
 /// A Favourites track in a folder, a folder to move it to, and a lyrics file beside it.
