@@ -7,7 +7,7 @@
 //! alone would delete them); Ogg pictures stay in the comments lofty parsed.
 
 use super::bytes::{be24, le32, syncsafe, Source};
-use super::{ensure_kept, lofty_error, parse_options, refused, write_options, Field, Group, Item, Wanted};
+use super::{crowded, ensure_kept, lofty_error, parse_options, refused, write_options, Field, Group, Item, Wanted};
 use crate::error::Result;
 use lofty::config::WriteOptions;
 use lofty::file::AudioFile;
@@ -106,6 +106,15 @@ fn canonical(f: Field) -> &'static str {
   }
 }
 
+/// The first field `wanted` edits that has more than one comment here (two ARTIST entries, or
+/// DATE and YEAR, ALBUMARTIST and ALBUM ARTIST: one value per field is all the journal keeps).
+fn several(c: Option<&Comments>, wanted: &Wanted) -> Option<Field> {
+  let items = c.map_or(&[][..], |c| &c.items);
+  crowded(wanted, |f| {
+    items.iter().filter(|raw| classify(raw).1 == Some(f)).count()
+  })
+}
+
 fn comment_items(c: &Comments, kind: &str) -> Vec<Item> {
   let mut items = vec![Item::of(
     Group::Header,
@@ -122,14 +131,13 @@ fn comment_items(c: &Comments, kind: &str) -> Vec<Item> {
 }
 
 /// The comment list to hand lofty: `wanted` applied, everything else exactly as the file has it.
-fn rebuild(path: &Path, comments: Option<&Comments>, wanted: &Wanted, flac: bool) -> Result<Vec<(String, String)>> {
+fn rebuild(comments: Option<&Comments>, wanted: &Wanted, flac: bool) -> Result<Vec<(String, String)>> {
   let mut out = Vec::new();
   let mut done = [false; 7];
   for raw in comments.map_or(&[][..], |c| &c.items) {
     let name = String::from_utf8_lossy(key(raw).unwrap_or(raw)).into_owned();
     if name.eq_ignore_ascii_case("COVERART") {
       return Err(refused(
-        path,
         "the legacy COVERART comment cannot be kept byte-for-byte; nothing was written",
       ));
     }
@@ -137,7 +145,6 @@ fn rebuild(path: &Path, comments: Option<&Comments>, wanted: &Wanted, flac: bool
     if group == Group::Picture {
       if flac {
         return Err(refused(
-          path,
           "a METADATA_BLOCK_PICTURE comment inside a FLAC file cannot be kept byte-for-byte; nothing was written",
         ));
       }
@@ -161,10 +168,9 @@ fn rebuild(path: &Path, comments: Option<&Comments>, wanted: &Wanted, flac: bool
       (valid_key(k) && !v.is_empty()).then(|| (k.to_string(), v.to_string()))
     });
     out.push(kept.ok_or_else(|| {
-      refused(
-        path,
-        format!("the comment {name:?} cannot be kept byte-for-byte; nothing was written"),
-      )
+      refused(format!(
+        "the comment {name:?} cannot be kept byte-for-byte; nothing was written"
+      ))
     })?);
   }
   for f in Field::ALL {
@@ -179,7 +185,6 @@ fn rebuild(path: &Path, comments: Option<&Comments>, wanted: &Wanted, flac: bool
 
 /// The pre-write check: `vc` encoded in memory must keep every untouched comment and picture.
 fn precheck(
-  path: &Path,
   before: Option<&Comments>,
   vc: &VorbisComments,
   wanted: &Wanted,
@@ -188,11 +193,11 @@ fn precheck(
 ) -> Result<()> {
   let mut encoded = Vec::new();
   vc.dump_to(&mut encoded, options)
-    .map_err(|e| lofty_error(path, "cannot encode the comments", &e))?;
+    .map_err(|e| lofty_error("cannot encode the comments", &e))?;
   let (rebuilt, _) =
-    parse_comments(&encoded).ok_or_else(|| refused(path, "the rebuilt comments are invalid; nothing was written"))?;
+    parse_comments(&encoded).ok_or_else(|| refused("the rebuilt comments are invalid; nothing was written"))?;
   let before = before.map(|c| comment_items(c, kind)).unwrap_or_default();
-  ensure_kept(path, &before, &comment_items(&rebuilt, kind), wanted)
+  ensure_kept(&before, &comment_items(&rebuilt, kind), wanted)
 }
 
 /// One FLAC file's metadata.
@@ -239,7 +244,7 @@ pub(super) fn parse_flac(path: &Path) -> Result<FlacMeta> {
     let (start, end) = (pos + 4, pos + 4 + len);
     match ty {
       1 => {} // PADDING: lofty adds one when there was none
-      4 if comments.is_some() => return Err(refused(path, "the file has more than one VORBIS_COMMENT block")),
+      4 if comments.is_some() => return Err(refused("the file has more than one VORBIS_COMMENT block")),
       4 => {
         let block = src.read_at(start, len)?;
         let parsed = parse_comments(&block).ok_or_else(|| src.malformed("the VORBIS_COMMENT block is malformed"))?;
@@ -271,6 +276,11 @@ pub(super) fn parse_flac(path: &Path) -> Result<FlacMeta> {
 }
 
 impl FlacMeta {
+  /// See [`several`].
+  pub(super) fn several(&self, wanted: &Wanted) -> Option<Field> {
+    several(self.comments.as_ref(), wanted)
+  }
+
   pub(super) fn items(&self) -> Vec<Item> {
     let mut items = self.container.clone();
     if let Some(c) = &self.comments {
@@ -290,9 +300,9 @@ pub(super) fn write_flac(path: &Path, meta: &FlacMeta, wanted: Wanted) -> Result
   } else {
     wanted.seeded(path)?
   };
-  let items = rebuild(path, meta.comments.as_ref(), &wanted, true)?;
+  let items = rebuild(meta.comments.as_ref(), &wanted, true)?;
   let mut flac = FlacFile::read_from(&mut BufReader::new(File::open(path)?), parse_options())
-    .map_err(|e| lofty_error(path, "cannot read the FLAC file", &e))?;
+    .map_err(|e| lofty_error("cannot read the FLAC file", &e))?;
   // lofty re-encodes the PICTURE blocks it parsed; they must come out as they went in.
   let pictures: Vec<Vec<u8>> = flac
     .pictures()
@@ -301,7 +311,6 @@ pub(super) fn write_flac(path: &Path, meta: &FlacMeta, wanted: Wanted) -> Result
     .collect();
   if pictures != meta.pictures {
     return Err(refused(
-      path,
       "a FLAC PICTURE block cannot be kept byte-for-byte; nothing was written",
     ));
   }
@@ -311,14 +320,14 @@ pub(super) fn write_flac(path: &Path, meta: &FlacMeta, wanted: Wanted) -> Result
     vc.push(k, v);
   }
   let options = write_options(false);
-  precheck(path, meta.comments.as_ref(), &vc, &wanted, options, "FLAC")?;
+  precheck(meta.comments.as_ref(), &vc, &wanted, options, "FLAC")?;
   let _ = flac.set_vorbis_comments(vc);
   // A FLAC's ID3v2 tag is read-only in lofty; out of the struct, it is left in the file untouched.
   let _ = flac.remove_id3v2();
   let mut file = OpenOptions::new().read(true).write(true).open(path)?;
   flac
     .save_to(&mut file, options)
-    .map_err(|e| lofty_error(path, "cannot write the FLAC tags", &e))?;
+    .map_err(|e| lofty_error("cannot write the FLAC tags", &e))?;
   Ok(wanted)
 }
 
@@ -347,14 +356,14 @@ pub(super) fn parse_ogg(path: &Path, codec: Codec) -> Result<OggMeta> {
     let body_len: u64 = lacing.iter().map(|&l| u64::from(l)).sum();
     let page_serial = le32(&h[14..18]);
     if *serial.get_or_insert(page_serial) != page_serial {
-      return Err(refused(path, "Ogg files with more than one stream are not written yet"));
+      return Err(refused("Ogg files with more than one stream are not written yet"));
     }
     if packets.len() < headers {
       let data = src.read_at(body, body_len)?;
       let mut at = 0usize;
       for &l in &lacing {
         if packets.len() == headers {
-          return Err(refused(path, "audio data shares a page with the Ogg headers"));
+          return Err(refused("audio data shares a page with the Ogg headers"));
         }
         partial.extend_from_slice(&data[at..at + usize::from(l)]);
         at += usize::from(l);
@@ -413,6 +422,11 @@ pub(super) fn parse_ogg(path: &Path, codec: Codec) -> Result<OggMeta> {
 }
 
 impl OggMeta {
+  /// See [`several`].
+  pub(super) fn several(&self, wanted: &Wanted) -> Option<Field> {
+    several(Some(&self.comments), wanted)
+  }
+
   pub(super) fn items(&self) -> Vec<Item> {
     let mut items = self.container.clone();
     items.extend(comment_items(&self.comments, "Ogg"));
@@ -422,9 +436,9 @@ impl OggMeta {
 
 /// Rewrites the Ogg comment header with `wanted` applied; returns the edit as applied.
 pub(super) fn write_ogg(path: &Path, meta: &OggMeta, codec: Codec, wanted: Wanted) -> Result<Wanted> {
-  let items = rebuild(path, Some(&meta.comments), &wanted, false)?;
+  let items = rebuild(Some(&meta.comments), &wanted, false)?;
   let mut reader = BufReader::new(File::open(path)?);
-  let read_error = |e: lofty::error::FileParseError| lofty_error(path, "cannot read the Ogg file", &e);
+  let read_error = |e: lofty::error::FileParseError| lofty_error("cannot read the Ogg file", &e);
   let mut vc = match codec {
     Codec::Vorbis => VorbisFile::read_from(&mut reader, parse_options())
       .map_err(read_error)?
@@ -441,9 +455,9 @@ pub(super) fn write_ogg(path: &Path, meta: &OggMeta, codec: Codec, wanted: Wante
     vc.push(k, v);
   }
   let options = write_options(false);
-  precheck(path, Some(&meta.comments), &vc, &wanted, options, "Ogg")?;
+  precheck(Some(&meta.comments), &vc, &wanted, options, "Ogg")?;
   vc.save_to_path(path, options)
-    .map_err(|e| lofty_error(path, "cannot write the Ogg tags", &e))?;
+    .map_err(|e| lofty_error("cannot write the Ogg tags", &e))?;
   Ok(wanted)
 }
 
@@ -523,7 +537,7 @@ mod tests {
       album: Some("Album".into()),
       ..TagSet::default()
     });
-    let out = rebuild(Path::new("t.flac"), Some(&c), &wanted, true).unwrap();
+    let out = rebuild(Some(&c), &wanted, true).unwrap();
     let pairs: Vec<(&str, &str)> = out.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     assert_eq!(
       pairs,
@@ -547,14 +561,14 @@ mod tests {
         vendor: Vec::new(),
         items: vec![bad.to_vec()],
       };
-      let err = rebuild(Path::new("t.ogg"), Some(&c), &wanted, false).unwrap_err();
+      let err = rebuild(Some(&c), &wanted, false).unwrap_err();
       assert!(matches!(err, crate::Error::Refused(_)), "{bad:?}: {err}");
     }
     let picture = Comments {
       vendor: Vec::new(),
       items: vec![b"METADATA_BLOCK_PICTURE=AAAA".to_vec()],
     };
-    assert!(rebuild(Path::new("t.flac"), Some(&picture), &wanted, true).is_err());
-    assert!(rebuild(Path::new("t.ogg"), Some(&picture), &wanted, false).is_ok());
+    assert!(rebuild(Some(&picture), &wanted, true).is_err());
+    assert!(rebuild(Some(&picture), &wanted, false).is_ok());
   }
 }

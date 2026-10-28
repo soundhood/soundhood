@@ -6,7 +6,7 @@
 //! unknown `covr` type is dropped). Edited atoms keep their position; new ones go at the end.
 
 use super::bytes::{be24, be32, be64, Source};
-use super::{ensure_kept, lofty_error, refused, write_options, Field, Group, Item, Wanted};
+use super::{crowded, ensure_kept, lofty_error, refused, write_options, Field, Group, Item, Wanted};
 use crate::error::Result;
 use lofty::mp4::{Atom, AtomData, AtomIdent, DataType, Ilst};
 use lofty::tag::TagExt;
@@ -170,7 +170,7 @@ pub(super) fn parse(path: &Path) -> Result<Meta> {
       return Err(src.malformed(format!("the {} box at {pos} has an impossible size", fourcc(kind))));
     }
     match &kind {
-      b"moov" if moov.is_some() => return Err(refused(path, "the file has more than one moov box")),
+      b"moov" if moov.is_some() => return Err(refused("the file has more than one moov box")),
       b"moov" => moov = Some(src.read_at(pos, size)?),
       b"mdat" => {
         let hash = src.hash_range(pos + header, pos + size)?;
@@ -191,7 +191,7 @@ pub(super) fn parse(path: &Path) -> Result<Meta> {
   let moov_kids = children(&moov, 8, moov.len()).map_err(bad)?;
   let udtas: Vec<&BoxRef> = moov_kids.iter().filter(|b| &b.kind == b"udta").collect();
   if udtas.len() > 1 {
-    return Err(refused(path, "the file has more than one moov.udta box"));
+    return Err(refused("the file has more than one moov.udta box"));
   }
   let mut ilst = None;
   if let Some(udta) = udtas.first() {
@@ -261,7 +261,7 @@ fn table(body: &[u8], at: usize, count: usize, width: usize) -> Option<Vec<u64>>
 /// rewrites every chunk offset when a growing `moov` sits in front of `mdat`; this proves each
 /// sample is still where the tables say, unchanged. `None` when the tables cannot be followed
 /// (fragmented files keep their samples in `moof`, which the top-level boxes cover).
-fn track_samples(moov: &[u8], trak: &BoxRef, n: usize, src: &mut Source<'_>) -> Result<Option<Item>> {
+fn track_samples(moov: &[u8], trak: &BoxRef, n: usize, src: &mut Source) -> Result<Option<Item>> {
   let Some(stbl) = child(moov, trak, b"mdia")
     .and_then(|m| child(moov, &m, b"minf"))
     .and_then(|m| child(moov, &m, b"stbl"))
@@ -339,6 +339,28 @@ impl Meta {
     items.extend(atom_items(&self.atoms));
     items
   }
+
+  /// The first field `wanted` edits that holds more than one value here: more than one atom for it
+  /// (`gnre` and `©gen` both count as genre), or one atom with several `data` boxes (how Picard
+  /// stores several artists).
+  pub(super) fn several(&self, wanted: &Wanted) -> Option<Field> {
+    crowded(wanted, |f| {
+      self
+        .atoms
+        .iter()
+        .filter(|a| a.field == Some(f))
+        .map(|a| data_boxes(&a.bytes).max(1))
+        .sum()
+    })
+  }
+}
+
+/// How many `data` boxes an `ilst` atom holds.
+fn data_boxes(atom: &[u8]) -> usize {
+  let header = if be32(atom) == 1 { 16 } else { 8 };
+  children(atom, header.min(atom.len()), atom.len())
+    .map(|kids| kids.iter().filter(|k| &k.kind == b"data").count())
+    .unwrap_or(1)
 }
 
 fn atom_items(atoms: &[RawAtom]) -> Vec<Item> {
@@ -416,7 +438,7 @@ pub(super) fn write(path: &Path, meta: &Meta, wanted: Wanted) -> Result<Wanted> 
       }
       None => {
         let atom =
-          to_lofty(a).map_err(|why| refused(path, format!("the MP4 atom {} cannot be rewritten: {why}", a.label)))?;
+          to_lofty(a).map_err(|why| refused(format!("the MP4 atom {} cannot be rewritten: {why}", a.label)))?;
         ilst.insert(atom);
       }
     }
@@ -433,17 +455,17 @@ pub(super) fn write(path: &Path, meta: &Meta, wanted: Wanted) -> Result<Wanted> 
   let mut encoded = Vec::new();
   ilst
     .dump_to(&mut encoded, options)
-    .map_err(|e| lofty_error(path, "cannot encode the MP4 tags", &e))?;
+    .map_err(|e| lofty_error("cannot encode the MP4 tags", &e))?;
   let rebuilt = if encoded.is_empty() {
     Vec::new()
   } else {
-    atoms(&encoded, 8, encoded.len()).map_err(|e| refused(path, format!("the rebuilt ilst is invalid: {e}")))?
+    atoms(&encoded, 8, encoded.len()).map_err(|e| refused(format!("the rebuilt ilst is invalid: {e}")))?
   };
-  ensure_kept(path, &atom_items(&meta.atoms), &atom_items(&rebuilt), &wanted)?;
+  ensure_kept(&atom_items(&meta.atoms), &atom_items(&rebuilt), &wanted)?;
 
   ilst
     .save_to_path(path, options)
-    .map_err(|e| lofty_error(path, "cannot write the MP4 tags", &e))?;
+    .map_err(|e| lofty_error("cannot write the MP4 tags", &e))?;
   Ok(wanted)
 }
 

@@ -23,12 +23,17 @@ fn open(root: &std::path::Path) -> (Core, tempfile::TempDir) {
 #[test]
 fn open_removes_orphans_and_write_tags_returns_the_reread_track() {
   let (d, _, report) = fixture_lib(10, false);
-  std::fs::write(d.path().join("Ambient/.soundhood-tmp-0123abcd.m4a"), b"partial").unwrap();
+  std::fs::write(
+    d.path()
+      .join("Ambient/.soundhood-tmp-0123456789abcdef0123456789abcdef.m4a"),
+    b"partial",
+  )
+  .unwrap();
   let app = tempfile::tempdir().unwrap();
   let (core, opened) = Core::open(d.path(), app.path(), None).unwrap();
   assert_eq!(
     opened.orphans_removed,
-    vec!["Ambient/.soundhood-tmp-0123abcd.m4a".to_string()]
+    vec!["Ambient/.soundhood-tmp-0123456789abcdef0123456789abcdef.m4a".to_string()]
   );
   assert!(!opened.device.is_empty());
   assert_eq!(core.index_path().parent(), Some(app.path()));

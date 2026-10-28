@@ -6,7 +6,11 @@ use super::{rename_no_clobber, APP_DIR};
 use crate::error::{Error, Result};
 use crate::model::{Library, RelPath};
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_os = "android"))]
+// Only the recycle-bin search (Windows, Linux) takes paths apart.
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
 use std::path::Path;
 
 /// Which bin a deleted file went to.
@@ -83,12 +87,7 @@ fn restore_from_os_bin(lib: &Library, rec: &BinRecord) -> Result<()> {
     return Err(Error::Exists(rec.original.to_string()));
   }
   let items = trash::os_limited::list().map_err(|e| Error::Other(format!("cannot read the recycle bin: {e}")))?;
-  // The same path may have been binned more than once: the newest deletion is ours.
-  let newest = items
-    .into_iter()
-    .filter(|item| same_path(&item.original_path(), &original))
-    .max_by_key(|item| item.time_deleted);
-  let Some(item) = newest else {
+  let Some(item) = newest_match(items, &original) else {
     return Err(Error::NotFound(format!(
       "{} is no longer in the recycle bin",
       rec.original
@@ -98,6 +97,77 @@ fn restore_from_os_bin(lib: &Library, rec: &BinRecord) -> Result<()> {
     trash::Error::RestoreCollision { .. } => Error::Exists(rec.original.to_string()),
     e => Error::Other(format!("could not restore {} from the recycle bin: {e}", rec.original)),
   })
+}
+
+/// For startup recovery: the OS recycle bin's item for `rel`, when the newest deletion of that path
+/// happened at or after `since_ms` (a delete a crash interrupted before it was journaled as done).
+/// `None` when there is none, or the bin cannot be listed. Slow on a full bin; it only runs after a
+/// crash in the middle of a delete.
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+pub(crate) fn find_in_os_bin(lib: &Library, rel: &RelPath, since_ms: i64) -> Option<BinRecord> {
+  let items = trash::os_limited::list().ok()?;
+  let item = newest_match(items, &lib.abs(rel))?;
+  // The bin keeps whole seconds; the entry's clock reading may be a little later than the delete.
+  (item.time_deleted >= since_ms.div_euclid(1000) - 2).then(|| BinRecord {
+    kind: BinKind::Os,
+    original: rel.clone(),
+    bin_rel: None,
+    deleted_at: item.time_deleted,
+  })
+}
+
+/// The macOS Trash and another device's bin cannot be searched: nothing is recovered from them.
+#[cfg(not(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+)))]
+pub(crate) fn find_in_os_bin(_lib: &Library, _rel: &RelPath, _since_ms: i64) -> Option<BinRecord> {
+  None
+}
+
+/// For startup recovery: where a delete a crash interrupted put `rel` in the app bin. The name is
+/// chosen at delete time (`_Soundhood/.bin/<yyyy-mm>/<rel>`, ` (n)` for a repeat), so the months of
+/// now and of `since_ms` are searched, newest first, for a copy holding `hash`.
+pub(crate) fn find_in_app_bin(lib: &Library, rel: &RelPath, since_ms: i64, hash: &str) -> Option<BinRecord> {
+  let month = |t: time::OffsetDateTime| t.format(time::macros::format_description!("[year]-[month]")).ok();
+  let since = time::OffsetDateTime::from_unix_timestamp(since_ms.div_euclid(1000)).ok()?;
+  let mut months = vec![month(time::OffsetDateTime::now_utc())?, month(since)?];
+  months.dedup();
+  for m in months {
+    let base = format!("{APP_DIR}/.bin/{m}/{}", rel.as_str());
+    let mut found = None;
+    let mut misses = 0;
+    for n in 1..1000 {
+      let Ok(bin_rel) = RelPath::new(&numbered(&base, n)) else {
+        break;
+      };
+      let abs = lib.abs(&bin_rel);
+      if !abs.is_file() {
+        // Restored copies leave gaps in the numbering; a long run of free names ends the search.
+        misses += 1;
+        if misses > 20 {
+          break;
+        }
+        continue;
+      }
+      misses = 0;
+      if super::file_hash(&abs).ok().as_deref() == Some(hash) {
+        found = Some(bin_rel);
+      }
+    }
+    if let Some(bin_rel) = found {
+      return Some(BinRecord {
+        kind: BinKind::App,
+        original: rel.clone(),
+        bin_rel: Some(bin_rel),
+        deleted_at: since_ms.div_euclid(1000),
+      });
+    }
+  }
+  None
 }
 
 #[cfg(target_os = "macos")]
@@ -114,22 +184,51 @@ fn restore_from_os_bin(_lib: &Library, rec: &BinRecord) -> Result<()> {
   )))
 }
 
-/// The recycle bin reports the path it was given, possibly in another spelling (`\\?\` prefix,
-/// case, 8.3 names). Compare canonical parents and the name, case-insensitively on Windows.
-#[cfg(not(target_os = "android"))]
-fn same_path(a: &Path, b: &Path) -> bool {
-  let canon_parent = |p: &Path| p.parent().and_then(|d| std::fs::canonicalize(d).ok());
-  let (Some(an), Some(bn)) = (a.file_name(), b.file_name()) else {
-    return false;
-  };
-  let parents_equal = match (canon_parent(a), canon_parent(b)) {
-    (Some(x), Some(y)) => fold(&x) == fold(&y),
-    _ => a.parent().map(fold) == b.parent().map(fold),
-  };
-  parents_equal && fold(Path::new(an)) == fold(Path::new(bn))
+/// The bin item that is `original`'s newest deletion (the same path may have been binned more than
+/// once: the newest is ours). A full recycle bin holds thousands of items, so they are matched by
+/// file name first, which is a string compare; only the few with the right name get their folder
+/// canonicalized (a file-system call each, which made an undo take a minute on a 10,000-item bin).
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+fn newest_match(items: Vec<trash::TrashItem>, original: &Path) -> Option<trash::TrashItem> {
+  let name = fold(Path::new(original.file_name()?));
+  let parent = canonical_parent(original);
+  items
+    .into_iter()
+    .filter(|item| fold(Path::new(&item.name)) == name)
+    .filter(|item| same_parent(&item.original_parent, original, parent.as_deref()))
+    .max_by_key(|item| item.time_deleted)
 }
 
-#[cfg(not(target_os = "android"))]
+/// The canonical form of `p`'s folder, when it exists.
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+fn canonical_parent(p: &Path) -> Option<std::path::PathBuf> {
+  p.parent().and_then(|d| std::fs::canonicalize(d).ok())
+}
+
+/// The recycle bin reports the folder it was given, possibly in another spelling (`\\?\` prefix,
+/// case, 8.3 names). Compare canonical folders (case-insensitively on Windows); `canon_b` is
+/// `b`'s canonical folder, computed once by the caller.
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+fn same_parent(a_parent: &Path, b: &Path, canon_b: Option<&Path>) -> bool {
+  match (std::fs::canonicalize(a_parent).ok(), canon_b) {
+    (Some(x), Some(y)) => fold(&x) == fold(y),
+    _ => Some(fold(a_parent)) == b.parent().map(fold),
+  }
+}
+
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
 fn fold(p: &Path) -> String {
   let s = p.to_string_lossy();
   let s = s.strip_prefix(r"\\?\").unwrap_or(&s).replace('/', "\\");
@@ -282,6 +381,41 @@ mod tests {
     assert!(matches!(to_app_bin(&l, &rel), Err(Error::NotFound(_))));
   }
 
+  /// Restore picks the newest deletion of the same path among items with that name, ignores the
+  /// same name from another folder and other names in the same folder, and matches the folder in
+  /// another spelling (case on Windows, a trailing separator).
+  #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
+  #[test]
+  fn restore_picks_the_newest_deletion_of_that_path() {
+    let d = tempfile::tempdir().unwrap();
+    let here = d.path().join("Chill");
+    let elsewhere = d.path().join("Other");
+    fs::create_dir_all(&here).unwrap();
+    fs::create_dir_all(&elsewhere).unwrap();
+    let item = |id: &str, parent: &Path, name: &str, t: i64| trash::TrashItem {
+      id: id.into(),
+      name: name.into(),
+      original_parent: parent.to_path_buf(),
+      time_deleted: t,
+    };
+    let mut respelled = here.clone().into_os_string();
+    if cfg!(windows) {
+      respelled = respelled.to_string_lossy().to_uppercase().into();
+    }
+    respelled.push(std::path::MAIN_SEPARATOR_STR);
+    let items = vec![
+      item("old", &here, "Song - Artist.m4a", 100),
+      item("other-folder", &elsewhere, "Song - Artist.m4a", 900),
+      item("other-name", &here, "Other - Artist.m4a", 950),
+      item("newest", Path::new(&respelled), "Song - Artist.m4a", 500),
+      item("older", &here, "Song - Artist.m4a", 300),
+    ];
+    let original = here.join("Song - Artist.m4a");
+    let got = newest_match(items.clone(), &original).map(|i| i.id);
+    assert_eq!(got, Some("newest".into()));
+    assert!(newest_match(items, &here.join("Missing.m4a")).is_none());
+  }
+
   /// Touches the real OS recycle bin (adds one temp file, then restores it), so it only runs on
   /// request: `cargo test -p soundhood-core -- --ignored os_bin`.
   #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
@@ -297,7 +431,9 @@ mod tests {
     assert_eq!(rec.kind, BinKind::Os);
     assert!(rec.bin_rel.is_none());
     assert!(!l.abs(&rel).exists());
+    let started = std::time::Instant::now();
     restore_from_bin(&l, &rec).unwrap();
+    eprintln!("restore from the OS bin took {:?}", started.elapsed());
     assert_eq!(fs::read(l.abs(&rel)).unwrap(), b"binned");
   }
 }

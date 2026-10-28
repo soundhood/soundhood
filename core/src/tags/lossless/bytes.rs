@@ -8,17 +8,16 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 /// A file opened read-only for the snapshot.
-pub(super) struct Source<'p> {
+pub(super) struct Source {
   file: File,
   pub len: u64,
-  path: &'p Path,
 }
 
-impl<'p> Source<'p> {
-  pub fn open(path: &'p Path) -> Result<Self> {
+impl Source {
+  pub fn open(path: &Path) -> Result<Self> {
     let file = File::open(path)?;
     let len = file.metadata()?.len();
-    Ok(Source { file, len, path })
+    Ok(Source { file, len })
   }
 
   /// Exactly `len` bytes at `pos`; an error when they lie past the end of the file.
@@ -63,9 +62,10 @@ impl<'p> Source<'p> {
     Ok(*hasher.finalize().as_bytes())
   }
 
-  /// A structural problem in the file (`Error::Tag`, naming the file).
+  /// A structural problem in the file (`Error::Tag`). The message never names the file: the one
+  /// being written is a hidden temp copy, and its path shows where the library lives.
   pub fn malformed(&self, what: impl std::fmt::Display) -> Error {
-    Error::Tag(format!("{}: {what}", self.path.display()))
+    Error::Tag(what.to_string())
   }
 }
 

@@ -7,6 +7,7 @@ use soundhood_core::fixtures::{self, FixtureReport, FixtureSpec};
 use soundhood_core::ingest::{journal, BatchReport, JournalEntry};
 use soundhood_core::model::{DeviceId, Library, Platform, RelPath};
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 pub const DEVICE: &str = "test-device";
 
@@ -33,8 +34,29 @@ pub fn fixture_lib(tracks: usize, messy: bool) -> (tempfile::TempDir, Library, F
     messy,
   };
   let report = fixtures::generate(dir.path(), &spec).unwrap();
+  age_all(dir.path());
   let lib = lib_at(dir.path());
   (dir, lib, report)
+}
+
+/// Makes `path` look like a file the user has had for a while: its modification time an hour
+/// back. The write path leaves alone a file that changed in the last 10 s (it may be mid-sync), and
+/// a freshly generated fixture would be one.
+pub fn age(path: &Path) {
+  let f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+  f.set_modified(SystemTime::now() - Duration::from_secs(3600)).unwrap();
+}
+
+/// [`age`] for every file under `root`.
+pub fn age_all(root: &Path) {
+  for e in std::fs::read_dir(root).unwrap() {
+    let p = e.unwrap().path();
+    if p.is_dir() {
+      age_all(&p);
+    } else {
+      age(&p);
+    }
+  }
 }
 
 /// The first fixture track with this extension that sits in a folder.

@@ -40,6 +40,19 @@ pub(super) enum Field {
 }
 
 impl Field {
+  /// The field's name in the words the app shows.
+  fn plain(self) -> &'static str {
+    match self {
+      Field::Title => "title",
+      Field::Artist => "artist",
+      Field::Album => "album",
+      Field::AlbumArtist => "album artist",
+      Field::Genre => "genre",
+      Field::Year => "year",
+      Field::Comment => "comment",
+    }
+  }
+
   const ALL: [Field; 7] = [
     Field::Title,
     Field::Artist,
@@ -151,6 +164,12 @@ impl Item {
 /// The first item, outside the fields `wanted` touches, that differs between two snapshots; the
 /// message names it.
 fn first_difference(before: &[Item], after: &[Item], wanted: &Wanted) -> Option<String> {
+  first_difference_of(before, after, wanted).map(|(what, _)| what)
+}
+
+/// [`first_difference`], with the `TagSet` field of the item it names (`None` for an item outside
+/// the fields, or for the container).
+fn first_difference_of(before: &[Item], after: &[Item], wanted: &Wanted) -> Option<(String, Option<Field>)> {
   let kept = |items: &[Item], g: Group| -> Vec<Item> {
     items
       .iter()
@@ -163,11 +182,11 @@ fn first_difference(before: &[Item], after: &[Item], wanted: &Wanted) -> Option<
     for i in 0..b.len().max(a.len()) {
       match (b.get(i), a.get(i)) {
         (Some(x), Some(y)) if x == y => {}
-        (Some(x), Some(y)) if x.label == y.label => return Some(format!("{} changed", x.label)),
-        (Some(x), _) if !a.contains(x) => return Some(format!("{} is missing", x.label)),
-        (_, Some(y)) if !b.contains(y) => return Some(format!("{} was added", y.label)),
-        (Some(x), _) => return Some(format!("{} moved", x.label)),
-        (None, _) => return Some("an item was added".into()),
+        (Some(x), Some(y)) if x.label == y.label => return Some((format!("{} changed", x.label), x.field)),
+        (Some(x), _) if !a.contains(x) => return Some((format!("{} is missing", x.label), x.field)),
+        (_, Some(y)) if !b.contains(y) => return Some((format!("{} was added", y.label), y.field)),
+        (Some(x), _) => return Some((format!("{} moved", x.label), x.field)),
+        (None, _) => return Some(("an item was added".into(), None)),
       }
     }
   }
@@ -179,7 +198,7 @@ fn first_difference(before: &[Item], after: &[Item], wanted: &Wanted) -> Option<
   };
   for b in before.iter().filter(|i| i.group == Group::Header) {
     if header(after, &b.label).is_some_and(|a| a != *b) {
-      return Some(format!("{} changed", b.label));
+      return Some((format!("{} changed", b.label), None));
     }
   }
   None
@@ -212,7 +231,7 @@ impl Format {
           .map(|e| e.to_string_lossy().to_lowercase())
           .unwrap_or_else(|| format!("{other:?}").to_lowercase());
         return Err(Error::Refused(format!(
-          "tag writes are not supported for {ext} files yet"
+          "the app cannot change tags in {ext} files yet, so nothing was changed"
         )));
       }
     })
@@ -233,18 +252,22 @@ impl Format {
     Ok(match self {
       Format::Mp4 => {
         let meta = mp4::parse(path)?;
+        ensure_single(meta.several(&wanted))?;
         (meta.items(), mp4::write(path, &meta, wanted)?)
       }
       Format::Id3(host) => {
         let meta = id3::parse(path, host)?;
+        ensure_single(meta.several(&wanted))?;
         (meta.items(), id3::write(path, &meta, wanted)?)
       }
       Format::Flac => {
         let meta = vorbis::parse_flac(path)?;
+        ensure_single(meta.several(&wanted))?;
         (meta.items(), vorbis::write_flac(path, &meta, wanted)?)
       }
       Format::Ogg(codec) => {
         let meta = vorbis::parse_ogg(path, codec)?;
+        ensure_single(meta.several(&wanted))?;
         (meta.items(), vorbis::write_ogg(path, &meta, codec, wanted)?)
       }
     })
@@ -254,7 +277,7 @@ impl Format {
 /// See `tags::write`.
 pub(super) fn write(path: &Path, changes: &TagSet) -> Result<()> {
   if std::fs::metadata(path)?.permissions().readonly() {
-    return Err(Error::Refused(format!("read-only: {}", path.display())));
+    return Err(Error::Refused("read-only file".into()));
   }
   let wanted = Wanted::new(changes);
   if wanted.is_empty() {
@@ -265,21 +288,47 @@ pub(super) fn write(path: &Path, changes: &TagSet) -> Result<()> {
     let (before, applied) = format.write(path, wanted)?;
     let after = format.snapshot(path)?;
     match first_difference(&before, &after, &applied) {
-      Some(what) => Err(Error::Verify(format!("{}: {what} after the tag write", path.display()))),
+      Some(what) => Err(Error::Verify(format!("{what} after the tag write"))),
       None => Ok(()),
     }
   })
 }
 
 /// The pre-write check: `rebuilt` is the tag lofty is about to write, parsed back from memory.
-fn ensure_kept(path: &Path, before: &[Item], rebuilt: &[Item], wanted: &Wanted) -> Result<()> {
-  match first_difference(before, rebuilt, wanted) {
-    Some(what) => Err(refused(
-      path,
-      format!("{what} in the rebuilt tag, so it cannot be kept byte-for-byte; nothing was written"),
-    )),
+/// The refusal names the field of the item that would change in plain words ("this file's genre
+/// tag cannot be kept exactly"), the item itself only in the detail line.
+fn ensure_kept(before: &[Item], rebuilt: &[Item], wanted: &Wanted) -> Result<()> {
+  let Some((what, field)) = first_difference_of(before, rebuilt, wanted) else {
+    return Ok(());
+  };
+  let plain = match field {
+    Some(f) => format!(
+      "this file's {} tag cannot be kept exactly, so nothing was changed",
+      f.plain()
+    ),
+    None => "some of this file's other tags cannot be kept exactly, so nothing was changed".to_string(),
+  };
+  Err(Error::Refused(format!(
+    "{plain}\n{what} in the rebuilt tag, so it cannot be kept byte-for-byte; nothing was written"
+  )))
+}
+
+/// Refuses an edit of a field the file holds more than one value for (two ARTIST comments, a
+/// multi-value TPE1, several ©ART data boxes): the journal keeps one value per field, so undo
+/// could not give the others back. Nothing is written.
+fn ensure_single(several: Option<Field>) -> Result<()> {
+  match several {
+    Some(f) => Err(Error::Refused(format!(
+      "this file has several {} values; edit it in a tag editor so nothing is lost",
+      f.plain()
+    ))),
     None => Ok(()),
   }
+}
+
+/// The first field `wanted` touches for which `values(field)` is more than one.
+fn crowded(wanted: &Wanted, values: impl Fn(Field) -> usize) -> Option<Field> {
+  Field::ALL.into_iter().find(|&f| wanted.touches(f) && values(f) > 1)
 }
 
 /// lofty parses for the write path: no implicit conversions (`gnre` -> `©gen`, "3/12" track
@@ -297,13 +346,18 @@ fn write_options(id3v23: bool) -> WriteOptions {
   options.parse_options(parse_options())
 }
 
-fn refused(path: &Path, why: impl std::fmt::Display) -> Error {
-  Error::Refused(format!("{}: {why}", path.display()))
+/// The plain words of a refusal the writer cannot explain field by field.
+const CANNOT_KEEP: &str = "this file's tags cannot be changed without losing something, so nothing was changed";
+
+/// A refusal: a plain sentence for the report, then a newline and `why` (the technical detail the
+/// write path keeps in the journal). Never a path: the file being written is a hidden temp copy.
+fn refused(why: impl std::fmt::Display) -> Error {
+  Error::Refused(format!("{CANNOT_KEEP}\n{why}"))
 }
 
 /// A lofty failure as `Error::Tag`, with its whole `source()` chain.
-fn lofty_error(path: &Path, what: &str, e: &dyn std::error::Error) -> Error {
-  Error::Tag(format!("{}: {what}: {}", path.display(), super::error_chain(e)))
+fn lofty_error(what: &str, e: &dyn std::error::Error) -> Error {
+  Error::Tag(format!("{what}: {}", super::error_chain(e)))
 }
 
 #[cfg(test)]

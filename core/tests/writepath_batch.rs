@@ -213,6 +213,53 @@ fn read_only_and_held_open_files_are_skipped_without_aborting() {
   std::fs::set_permissions(lib.abs(read_only), perm).unwrap();
 }
 
+/// A handle that shares nothing (an exclusive lock) makes even reading the original fail: a tag
+/// write, a move and a delete are each skipped as "file in use", the file untouched, nothing
+/// counted toward the abort rule.
+#[cfg(windows)]
+#[test]
+fn a_file_held_exclusively_is_skipped_as_in_use() {
+  use std::os::windows::fs::OpenOptionsExt;
+  let (_d, lib, report) = fixture_lib(10, false);
+  let r = track_with_ext(&report, "m4a");
+  let bytes = read_bytes(&lib, &r);
+  let holder = std::fs::OpenOptions::new()
+    .read(true)
+    .share_mode(0)
+    .open(lib.abs(&r))
+    .unwrap();
+  let ops = [
+    Op::WriteTags {
+      rel: r.clone(),
+      changes: TagSet {
+        title: Some("Locked".into()),
+        ..TagSet::default()
+      },
+    },
+    Op::Move {
+      rel: r.clone(),
+      to_folder: "Evenings".into(),
+    },
+    Op::Delete { rel: r.clone() },
+  ];
+  for op in ops {
+    let rep = apply(&lib, vec![op], &ApplyOptions::default());
+    assert!(
+      rep.applied.is_empty() && rep.failed.is_empty() && !rep.aborted,
+      "{}",
+      show(&rep)
+    );
+    assert_eq!(rep.skipped.len(), 1, "{}", show(&rep));
+    assert_eq!(
+      (rep.skipped[0].path.as_str(), rep.skipped[0].reason.as_str()),
+      (r.as_str(), "file in use")
+    );
+  }
+  drop(holder);
+  assert_eq!(read_bytes(&lib, &r), bytes, "untouched");
+  assert!(temps(&lib.root).is_empty());
+}
+
 fn fake_entry(lib: &Library, id: &str, committed: bool) -> JournalEntry {
   JournalEntry {
     id: id.into(),
@@ -237,37 +284,51 @@ fn fake_entry(lib: &Library, id: &str, committed: bool) -> JournalEntry {
 
 #[test]
 fn startup_cleanup_removes_every_leftover_temp_and_nothing_else() {
-  let (_d, lib, _) = fixture_lib(10, false);
-  journal::append(&lib, &fake_entry(&lib, "aaaa", false)).unwrap();
-  journal::append(&lib, &fake_entry(&lib, "bbbb", true)).unwrap();
+  let (_d, lib, report) = fixture_lib(10, false);
+  let (a, b, c) = (
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "cccccccccccccccccccccccccccccccc",
+  );
+  journal::append(&lib, &fake_entry(&lib, a, false)).unwrap();
+  journal::append(&lib, &fake_entry(&lib, b, true)).unwrap();
   let put = |p: &str| {
     let abs = lib.abs(&rel(p));
     std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
     std::fs::write(abs, b"x").unwrap();
   };
   let orphans = [
-    "Ambient/.soundhood-tmp-aaaa.m4a",        // its write never committed
-    "Archive/.soundhood-tmp-bbbb.mp3",        // its write committed: a leftover
-    "Evenings/.soundhood-tmp-cccc.opus",      // no entry names it
-    "_Playlists/.soundhood-tmp-aaaa-p0.m3u8", // a playlist rewrite's temp
+    format!("Ambient/.soundhood-tmp-{a}.m4a"),        // its write never committed
+    format!("Archive/.soundhood-tmp-{b}.mp3"),        // its write committed: a leftover
+    format!("Evenings/.soundhood-tmp-{c}.opus"),      // no entry names it
+    format!("_Playlists/.soundhood-tmp-{a}-p0.m3u8"), // a playlist rewrite's temp
   ];
   let keep = [
-    "Ambient/notes.soundhood-tmp-x.txt",
-    "Ambient/.soundhood-other",
-    ".stfolder/.soundhood-tmp-dddd", // inside a dot-folder: never the core's
+    "Ambient/notes.soundhood-tmp-x.txt".to_string(),
+    "Ambient/.soundhood-other".to_string(),
+    format!(".stfolder/.soundhood-tmp-{}", "d".repeat(32)), // inside a dot-folder: never the core's
+    // A user's own files that only start with the prefix: not the core's temps, never removed
+    // (they used to be deleted for good on every start).
+    "Ambient/.soundhood-tmp-My Favourite Song.m4a".to_string(),
+    "Ambient/.soundhood-tmp-aaaa.m4a".to_string(),
+    format!("Ambient/.soundhood-tmp-{a}-final.m4a"),
   ];
+  let mine = read_bytes(&lib, &track_with_ext(&report, "m4a"));
   for p in orphans.iter().chain(keep.iter()) {
     put(p);
   }
+  let user_song = lib.abs(&rel("Ambient/.soundhood-tmp-My Favourite Song.m4a"));
+  std::fs::write(&user_song, &mine).unwrap();
   let removed = cleanup_orphans(&lib).unwrap();
   let mut removed: Vec<&str> = removed.iter().map(RelPath::as_str).collect();
   removed.sort();
-  let mut want = orphans.to_vec();
+  let mut want: Vec<&str> = orphans.iter().map(String::as_str).collect();
   want.sort();
   assert_eq!(removed, want);
-  for p in keep {
+  for p in &keep {
     assert!(lib.abs(&rel(p)).is_file(), "{p} kept");
   }
+  assert_eq!(std::fs::read(&user_song).unwrap(), mine, "the user's song is untouched");
   let cleanups: Vec<JournalEntry> = entries(&lib).into_iter().filter(|e| e.kind == Kind::Cleanup).collect();
   assert_eq!(cleanups.len(), 4);
   assert!(cleanups.iter().all(|e| e.committed && e.source == "cleanup"));
@@ -278,9 +339,9 @@ fn startup_cleanup_removes_every_leftover_temp_and_nothing_else() {
       .and_then(|e| e.note.clone())
       .unwrap()
   };
-  assert!(note(orphans[0]).contains("never committed"));
-  assert!(note(orphans[1]).contains("had committed"));
-  assert!(note(orphans[2]).contains("no journal entry"));
+  assert!(note(&orphans[0]).contains("never committed"));
+  assert!(note(&orphans[1]).contains("had committed"));
+  assert!(note(&orphans[2]).contains("no journal entry"));
   assert!(
     cleanup_orphans(&lib).unwrap().is_empty(),
     "nothing left the second time"
@@ -377,4 +438,65 @@ fn last_change_walks_back_and_counts_an_undo_from_another_device() {
     undo::last_change(&phone).unwrap().is_none(),
     "the phone made no change of its own"
   );
+}
+
+/// Startup recovery looks only at this device's last entry, and never at one the write path gave
+/// up on. Each case below is an open pre-image whose change the disk does show (the file holds
+/// the edited title, and not the "before" bytes): only the one that is the last entry and was not
+/// given up is finished on record.
+#[test]
+fn startup_recovery_finishes_only_an_open_last_entry() {
+  let (_d, lib, report) = fixture_lib(10, false);
+  let r = track_with_ext(&report, "m4a");
+  let edit = apply(
+    &lib,
+    vec![Op::WriteTags {
+      rel: r.clone(),
+      changes: TagSet {
+        title: Some("Edited".into()),
+        ..TagSet::default()
+      },
+    }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(edit.applied.len(), 1, "{}", show(&edit));
+  let template = entries(&lib).pop().unwrap();
+  let open = |id: char, note: Option<&str>| JournalEntry {
+    id: id.to_string().repeat(32),
+    batch: format!("b-{id}"),
+    committed: false,
+    file_hash_before: Some("0".repeat(64)),
+    file_hash_after: None,
+    note: note.map(str::to_string),
+    ..template.clone()
+  };
+  let state = |lib: &Library, id: char| {
+    let e = entries(lib)
+      .into_iter()
+      .find(|e| e.id == id.to_string().repeat(32))
+      .unwrap();
+    (e.committed, e.source)
+  };
+
+  // Given up (its last line says "not applied"): never finished, even as the last entry.
+  journal::append(&lib, &open('a', Some("not applied: changed since, not changed"))).unwrap();
+  cleanup_orphans(&lib).unwrap();
+  assert!(!state(&lib, 'a').0);
+
+  // Open, but not the last entry: a later change was made after it, so it was not in flight.
+  journal::append(&lib, &open('b', None)).unwrap();
+  let later = apply(
+    &lib,
+    vec![Op::PlaylistCreate { name: "Later".into() }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(later.applied.len(), 1);
+  cleanup_orphans(&lib).unwrap();
+  assert!(!state(&lib, 'b').0);
+
+  // Open and last: what a crash right after the rename leaves. Finished, and undoable.
+  journal::append(&lib, &open('c', None)).unwrap();
+  cleanup_orphans(&lib).unwrap();
+  assert_eq!(state(&lib, 'c'), (true, "recovery".to_string()));
+  assert_eq!(undo::last_change(&lib).unwrap().unwrap().batch, "b-c");
 }
