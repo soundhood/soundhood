@@ -41,7 +41,7 @@ pub(crate) const NOT_ON_DISK: &str = "not applied: interrupted, and the change i
 /// What the disk says about an open entry's change.
 enum Found {
   /// It happened: the entry with its after-state filled in.
-  Done(JournalEntry),
+  Done(Box<JournalEntry>),
   /// It is not on disk: the note of the line that closes the entry.
   NotApplied(&'static str),
 }
@@ -183,7 +183,7 @@ fn finished(lib: &Library, mut e: JournalEntry) -> Option<Found> {
     }
     Kind::Cleanup => return None,
   }
-  Some(Found::Done(e))
+  Some(Found::Done(Box::new(e)))
 }
 
 /// Whether a file named exactly `rel`'s name sits in its folder (not another case or
