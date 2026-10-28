@@ -31,7 +31,7 @@ impl Cores {
   pub fn get(&self, app: &AppHandle, dir: &str) -> Result<Arc<Core>, String> {
     let root = clean_root(dir);
     if root.as_os_str().is_empty() {
-      return Err("No Music folder selected — click Import first.".into());
+      return Err("No Music folder selected. Click Import first.".into());
     }
     if !root.is_dir() {
       return Err(format!("Music folder not found: {}", root.display()));

@@ -29,6 +29,8 @@ const FIXTURE_ROOT =
  * - `store`: the settings store (a Map), e.g. delete "library_dir" to start without a library;
  * - `proton`: what proton_status answers; `protonSyncs`: every proton_sync call;
  * - `downloads`: every ytdlp_download_audio call (desktop), `phoneDownload`: the next phone result;
+ * - `downloadError`: a reason the next ytdlp_download_audio call is refused with, a plain string as
+ *   the host's start errors arrive;
  * - `history`: the journal behind last_change / undo_last (core/CONTRACT.md "Host IPC (Phase 0)"),
  *   newest last; it starts empty, so the baselines have nothing to undo;
  * - `undoSkipped`: [{ path, reason }] makes the next undo_last leave the change as it is.
@@ -41,6 +43,7 @@ const mock = {
   protonSyncs: [],
   downloads: [],
   phoneDownload: { exitCode: 0, files: [], log: "" },
+  downloadError: "",
   history: [],
 };
 window.__soundhoodMock = mock;
@@ -154,6 +157,11 @@ function answer(cmd, args) {
     case "ytdlp_download_audio":
       // The download runs in the host; the test sends its output and end with __soundhoodEmit.
       mock.downloads.push(structuredClone(args.args));
+      if (mock.downloadError) {
+        const reason = mock.downloadError;
+        mock.downloadError = "";
+        throw reason;
+      }
       return null;
     case "plugin:soundhood-ytdl|download":
       mock.downloads.push(structuredClone(args.args));

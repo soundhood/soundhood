@@ -224,6 +224,19 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await app.settled();
     expect(await ipcCount(page, "downloads")).toBe(0);
   });
+
+  test("a download the host refuses to start says why on the status line", async ({ app, page }) => {
+    await beforeLoad(page, (reason) => {
+      window.__soundhoodMock.downloadError = reason;
+    }, CHANNEL_REFUSAL);
+    await app.open();
+    await page.locator(".downloadBar .downloadInput").fill("https://www.youtube.com/watch?v=AbCdEfGhIjK");
+    await page.getByRole("button", { name: "Download", exact: true }).click();
+    await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
+    await expect(page.locator(".downloadLogs")).toContainText(`[error] ${CHANNEL_REFUSAL}`);
+    expect(await ipcCount(page, "downloads")).toBe(1);
+    await expect(page.getByRole("button", { name: "Download", exact: true })).toBeEnabled();
+  });
 });
 
 test.describe("phone layout (platform android)", { tag: "@phone" }, () => {

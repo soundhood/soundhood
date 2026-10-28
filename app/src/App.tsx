@@ -1123,7 +1123,7 @@ export default function App() {
     // Never download "somewhere": without a Music root there is no playlist to land in.
     const lib = folderRef.current || "";
     if (!lib) {
-      setDlLogs("[error] Pick your Music folder first (Import) — downloads land in a playlist folder under it.\n");
+      setDlLogs("[error] Pick your Music folder first (Import). Downloads land in a playlist folder under it.\n");
       return false;
     }
     // The target may come from the synced queue file (written on another device): check it before
@@ -1175,8 +1175,11 @@ export default function App() {
       });
       return true;
     } catch (err) {
+      // The host refused to start (a channel link, no Music folder, no yt-dlp): say why on the
+      // status line too, not only in the log.
       setDlBusy(false);
       setDlLogs((prev) => prev + `\n[error] ${String(err)}\n`);
+      setStatus(String(err).split("\n")[0].slice(0, 160));
       return false;
     }
   }
