@@ -55,18 +55,23 @@ fn a_tag_edit_writes_a_journal_pair_and_undoes_cleanly() {
   assert_eq!(after.artist, before.artist);
   assert!(temps(&lib.root).is_empty(), "no temp left behind");
 
-  // Two lines, one id: the pre-image before the file was touched, then the commit.
+  // Three lines, one id: the pre-image before the file was touched; the ready line with the
+  // checked copy's hash, right before the rename (what startup recovery needs to tell a crash
+  // after the rename from one before it); then the commit.
   let dir = lib.root.join("_Soundhood/journal").join(DEVICE);
   let files: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
   assert_eq!(files.len(), 1);
   let text = std::fs::read_to_string(&files[0]).unwrap();
   let lines: Vec<serde_json::Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-  assert_eq!(lines.len(), 2);
-  assert_eq!(lines[0]["id"], lines[1]["id"]);
+  assert_eq!(lines.len(), 3);
+  assert!(lines.iter().all(|l| l["id"] == lines[0]["id"]));
   assert_eq!(lines[0]["committed"], false);
-  assert_eq!(lines[1]["committed"], true);
+  assert_eq!(lines[1]["committed"], false);
+  assert_eq!(lines[2]["committed"], true);
   assert_eq!(lines[0]["kind"], "tags");
   assert!(lines[0]["file_hash_after"].is_null());
+  assert_eq!(lines[1]["note"], "ready: the checked copy goes in place next");
+  assert_eq!(lines[1]["file_hash_after"], lines[2]["file_hash_after"]);
   let e = &entries(&lib)[0];
   assert_eq!(e.kind, Kind::Tags);
   assert_eq!(e.source, "user");
