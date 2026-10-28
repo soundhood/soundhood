@@ -193,9 +193,10 @@ pub struct ChangeSummary { pub batch: String, pub ts: i64, pub label: String, pu
 ```
 
 Fault injection (feature `fault-injection`, tests only): `ingest::fault::point(name)` calls
-`std::process::abort()` when env `SOUNDHOOD_CRASH_AT` equals `name`. Points: `after_preimage`,
-`after_tmp_write`, `after_verify`, `after_replace`, `after_stage_copy`. The kill tests re-run the test
-binary as a child with that env set, then assert the original is intact and `cleanup_orphans` leaves
+`std::process::abort()` when env `SOUNDHOOD_CRASH_AT` equals `name`. Points: `after_preimage`, `after_tmp_write`, `after_verify`, `after_ready` (tag edit: ready line written,
+not yet renamed), `after_stage_copy`, `after_link` (unix no-replace rename), `after_replace`. Hooks (`fault::once_at`):
+`before_replace` (right before the last check) and `before_rename` (playlists: after that check).
+The kill tests re-run the test binary as a child with that env set, then assert the original is intact and `cleanup_orphans` leaves
 no temp behind.
 
 ## index — `src/index/` (zone: core-index)
@@ -301,8 +302,9 @@ Behaviour behind the same shapes:
   (`playlist_create`: the existing playlist) and emits nothing: nothing was journaled.
 - the UI keeps the root returned by `dev_fixture_root` under the settings key `fixture_root` and treats the
   library as the test library while `library_dir` equals it; `real_library_dir` never holds it.
-- channel links are refused by `ytdlp::args::is_channel_link` (core), a copy in the plugin (`src/rules.rs`,
-  Kotlin `isChannelLink`) and the UI.
+- channel links are refused by `ytdlp::args::is_channel_link` (core), called by the desktop host before it creates
+  the target folder and by the plugin's `check_download`, with `args::CHANNEL_REFUSED` as the one sentence; the UI's
+  `isChannelLink` is a port held to the same vectors (`tools/screenshot/channel-links.json`). Kotlin has no copy.
 
 Removed: `fix_tags_from_filenames`.
 

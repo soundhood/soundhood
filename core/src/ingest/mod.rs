@@ -477,7 +477,7 @@ mod tests {
   #[test]
   fn scrub_finds_the_path_end_from_known_names_not_punctuation() {
     let root = if cfg!(windows) {
-      Path::new(r"C:\Users\O'Brien (home)\Music")
+      Path::new(r"D:\O'Brien (home)\Music")
     } else {
       Path::new("/home/o'brien (home)/Music")
     };

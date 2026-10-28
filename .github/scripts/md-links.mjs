@@ -8,7 +8,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const files = execFileSync("git", ["ls-files", "-z", "--", "*.md"], { cwd: repo, encoding: "utf8" })
+// Vendored upstream docs (third_party/) link to files the published crate does not ship.
+const files = execFileSync("git", ["ls-files", "-z", "--", "*.md", ":(exclude)third_party/**"], { cwd: repo, encoding: "utf8" })
   .split("\0")
   .filter(Boolean);
 

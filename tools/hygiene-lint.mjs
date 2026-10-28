@@ -38,6 +38,8 @@ const findings = [];
 for (const file of tracked) {
   // The path first: a keystore is binary, so its contents are never read.
   for (const f of scanPath(file, hashes, deny.terms)) findings.push({ file, ...f });
+  // Vendored upstream code (third_party/) keeps its authors' addresses; only its paths are checked.
+  if (file.startsWith("third_party/")) continue;
   const abs = path.join(REPO_ROOT, file);
   let bytes;
   try {

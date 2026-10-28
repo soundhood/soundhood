@@ -5,18 +5,11 @@
 
 use std::path::Path;
 
-pub use soundhood_core::ytdlp::args::is_channel_link;
+pub use soundhood_core::ytdlp::args::{is_channel_link, CHANNEL_REFUSED};
 
 /// The file that marks a generated fixture library; the same name as
 /// `soundhood_core::fixtures::MARKER` (the host's tests check that the two stay equal).
 pub const FIXTURE_MARKER: &str = ".soundhood-fixture";
-
-/// What the UI shows when a channel link is refused, on the phone and on the PC. The same sentence
-/// as the UI's `CHANNEL_REFUSAL`; both are checked against `tools/screenshot/channel-links.json`.
-//
-// TODO(after the Phase 0 round-2 merge): use `soundhood_core::ytdlp::args::CHANNEL_REFUSED` here
-// once the core carries this sentence, and drop the literal.
-pub const CHANNEL_REFUSED: &str = "Whole channels are not downloaded. Use a single video or a playlist link.";
 
 /// What the UI shows when sync is asked for while the fixture library is the library.
 pub const SYNC_OFF_FOR_FIXTURE: &str = "Sync is off while the test library is shown";

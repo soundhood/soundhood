@@ -137,7 +137,10 @@ playlists it joins. Lists are union-merged by exact URL when read, newest first.
 | `committed` | bool | `false` = pre-image (or a "not applied" closing line), `true` = done |
 | `note` | string, optional | what the record needs beyond the fields above: why a change was given up (`not applied: ...`), that startup recovery finished it, that a decode check was skipped. Never an absolute path |
 
-**Write order.** Before a user file is touched the app appends a pre-image line (`committed:false`);
+**Write order.** Before a user file is touched the app appends a pre-image line (`committed:false`).
+A tag edit appends one more open line right before its checked copy replaces the file: same `id`,
+`committed:false`, `file_hash_after` = the checked copy's BLAKE3, `note: "ready: the checked copy goes
+in place next"` (startup recovery finishes a tag edit only when the file holds exactly that hash);
 once the file is in place it appends a commit line with the same `id`, `committed:true` and the after
 hashes. A change the app gives up on after the pre-image but before it changes anything (for example
 the file changed since it was read, or the rewritten copy did not check out) gets a **closing line**
