@@ -492,5 +492,5 @@ fn undo_never_forces_a_move_back_or_touches_a_missing_file() {
   assert_eq!(gone.applied.len(), 1);
   let u = undo::undo_batch(&lib, &edit.batch).unwrap();
   assert!(u.applied.is_empty() && u.failed.is_empty(), "{}", show(&u));
-  assert_eq!(u.skipped[0].reason, "changed since — not undone");
+  assert_eq!(u.skipped[0].reason, "changed since, not undone");
 }

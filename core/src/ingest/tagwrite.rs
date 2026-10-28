@@ -6,18 +6,28 @@
 //! Read-only files, files another process holds and the track playing now are skipped, never
 //! failed, and never count toward the abort rule: 3 consecutive failed checks of a rewritten temp
 //! stop the batch. Nothing is ever overwritten to make room, and nothing is deleted except to a bin.
+//!
+//! A file is hashed when a change is planned and checked again right before the rename that
+//! replaces, moves or bins it; a playlist likewise right before its new version is renamed over
+//! it. A newer version a sync client put there meanwhile is left alone ("changed since"), never
+//! overwritten. A file modified in the last 10 s is not touched at all unless this device's own
+//! write path put those bytes there. When a change is given up after its pre-image, one more line
+//! with the same id says so (`NOT_APPLIED`); a pre-image left open by a crash is finished or left
+//! by startup recovery (`recover`), which [`cleanup_orphans`] runs first.
 
 use super::{
-  companions, decode, fault, folder_label, journal, message, tracks, validate_folder_name, validate_segment, Applied,
-  BatchReport, Failed, JournalEntry, Kind, Op, PlaylistChange, Skipped,
+  companions, decode, fault, folder_label, journal, message, recover, report_text, scrub, scrubbed, tracks,
+  validate_folder_name, validate_segment, Applied, BatchReport, Failed, JournalEntry, Kind, Op, PlaylistChange,
+  Skipped,
 };
 use crate::error::{Error, Result};
 use crate::fs::{self, BinRecord};
 use crate::model::{Library, Platform, PlaylistFile, RelPath, TagSet};
-use crate::playlist;
+use crate::playlist::{self, Expect};
 use crate::tags::{self, TagRead};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 /// How a batch is applied.
 #[derive(Clone, Debug)]
@@ -44,8 +54,31 @@ const ABORT_AFTER: u32 = 3;
 pub(crate) const FILE_IN_USE: &str = "file in use";
 pub(crate) const READ_ONLY: &str = "read-only file";
 pub(crate) const PLAYING_NOW: &str = "playing now";
-pub(crate) const CHANGED_SINCE: &str = "changed since — not undone";
+/// The file is no longer what was read when the change was planned (a sync client put a newer
+/// version there meanwhile): it is left as it is.
+pub(crate) const CHANGED_SINCE: &str = "changed since, not changed";
+/// The same for an undo: the file is no longer as the change being undone left it.
+pub(crate) const CHANGED_SINCE_UNDO: &str = "changed since, not undone";
+/// The file changed a few seconds ago and may still be arriving from the other device.
+pub(crate) const JUST_CHANGED: &str = "changed a few seconds ago, not changed; try again in a moment";
 const NOT_ATTEMPTED: &str = "not attempted: the batch stopped";
+const UNREADABLE_TAGS: &str = "its tags could not be read, so nothing was changed";
+const NOT_CHECKED_OUT: &str = "not changed: the rewritten copy did not check out";
+/// Start of the note on the line that closes a pre-image the write path gave up on before
+/// changing anything; startup recovery never looks at such an entry.
+pub(crate) const NOT_APPLIED: &str = "not applied: ";
+/// How long a file must have been left alone before the write path acts on it (brief: never act
+/// on a file whose size changed in the last 10 s; the Proton client rewrites files mid-sync).
+const SETTLE: Duration = Duration::from_secs(10);
+
+/// The "changed since" reason for a change or for an undo.
+pub(crate) fn changed_since(undoing: bool) -> &'static str {
+  if undoing {
+    CHANGED_SINCE_UNDO
+  } else {
+    CHANGED_SINCE
+  }
+}
 
 /// Applies ops in order as one batch. Tier-1 mechanics for audio files (journal pre-image ->
 /// hidden temp copy -> tag write -> verify -> fsync -> atomic replace with retries -> commit line);
@@ -95,12 +128,14 @@ pub fn land(lib: &Library, staged: &Path, dest: &RelPath, opts: &ApplyOptions) -
 /// Startup: remove orphaned .soundhood-tmp-* files whose journal entry never committed (or that no
 /// entry names), journaling each removal as Kind::Cleanup. Returns what was removed.
 ///
-/// A temp whose entry did commit is a leftover after its rename and goes too, so every temp the
-/// core made is removed; the journal line records which case it was. Only names of the exact shape
-/// the core gives its temps count (`fs::temp_entry_id`): a user's own file that merely starts with
-/// the prefix is left alone. A temp that cannot be removed now (another program holds it) is left
-/// for the next start.
+/// First, the change a crash interrupted after it happened on disk is finished on record (see
+/// `recover`), so "Undo last change" can reach it. Then the temps: a temp whose entry did commit
+/// is a leftover after its rename and goes too, so every temp the core made is removed; the journal
+/// line records which case it was. Only names of the exact shape the core gives its temps count
+/// (`fs::temp_entry_id`): a user's own file that merely starts with the prefix is left alone. A
+/// temp that cannot be removed now (another program holds it) is left for the next start.
 pub fn cleanup_orphans(lib: &Library) -> Result<Vec<RelPath>> {
+  recover::recover(lib);
   let temps: Vec<RelPath> = fs::list_tmp_files(&lib.root)?
     .into_iter()
     .filter(|rel| fs::temp_entry_id(rel.file_name()).is_some())
@@ -194,6 +229,15 @@ impl Outcome {
       extra_failed,
     }
   }
+
+  /// The report path and the words a skip or failure would show.
+  fn path_and_reason(&self) -> (&str, String) {
+    match self {
+      Outcome::Skipped { path, reason } | Outcome::NoChange { path, reason } => (path, reason.clone()),
+      Outcome::Failed { path, err, .. } | Outcome::Stop { path, err } => (path, message(err)),
+      Outcome::Done { .. } => ("", String::new()),
+    }
+  }
 }
 
 /// One batch in progress: its id, the report so far and the abort counter.
@@ -247,8 +291,15 @@ impl<'a> Batch<'a> {
     }
   }
 
-  /// Writes an outcome into the report and keeps the abort counter.
+  /// This batch undoes another one.
+  pub fn undoing(&self) -> bool {
+    self.source.starts_with("undo:")
+  }
+
+  /// Writes an outcome into the report and keeps the abort counter. Every reason and error is
+  /// scrubbed of absolute paths on the way in (see `ingest::scrub`), whatever produced it.
   pub fn record(&mut self, outcome: Outcome) -> OpResult {
+    let root = self.lib.root.clone();
     match outcome {
       Outcome::Done {
         rows,
@@ -256,7 +307,10 @@ impl<'a> Batch<'a> {
         extra_failed,
       } => {
         self.report.applied.extend(rows);
-        self.report.failed.extend(extra_failed);
+        self.report.failed.extend(extra_failed.into_iter().map(|f| Failed {
+          error: scrub(&f.error, &root, &f.path),
+          path: f.path,
+        }));
         self.failures_in_row = 0;
         OpResult::Done(path_after)
       }
@@ -265,6 +319,7 @@ impl<'a> Batch<'a> {
         OpResult::NoChange
       }
       Outcome::Skipped { path, reason } => {
+        let reason = scrub(&reason, &root, &path);
         let err = if reason == FILE_IN_USE {
           Error::InUse(path.clone())
         } else {
@@ -275,8 +330,8 @@ impl<'a> Batch<'a> {
       }
       Outcome::Failed { path, err, counts } => {
         self.report.failed.push(Failed {
-          path,
-          error: message(&err),
+          error: report_text(&err, &root, &path),
+          path: path.clone(),
         });
         if counts {
           self.failures_in_row += 1;
@@ -285,16 +340,16 @@ impl<'a> Batch<'a> {
             self.stopped = true;
           }
         }
-        OpResult::Failed(err)
+        OpResult::Failed(scrubbed(err, &root, &path))
       }
       Outcome::Stop { path, err } => {
         self.report.failed.push(Failed {
-          path,
-          error: message(&err),
+          error: report_text(&err, &root, &path),
+          path: path.clone(),
         });
         self.report.aborted = true;
         self.stopped = true;
-        OpResult::Failed(err)
+        OpResult::Failed(scrubbed(err, &root, &path))
       }
     }
   }
@@ -317,7 +372,7 @@ fn new_id() -> String {
   uuid::Uuid::new_v4().simple().to_string()
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
   let now = time::OffsetDateTime::now_utc();
   now.unix_timestamp() * 1000 + i64::from(now.millisecond())
 }
@@ -349,6 +404,20 @@ pub(crate) fn preimage(lib: &Library, e: &JournalEntry, path: &str) -> std::resu
   Ok(())
 }
 
+/// Closes a pre-image the write path gave up on before changing anything: one more line for the
+/// same id, still `committed: false`, whose note starts with [`NOT_APPLIED`] and says why
+/// (`detail`, else the reason the report shows). The technical detail behind a plain report row is
+/// kept here instead of being shown. Startup recovery never looks at such an entry. Best effort: a
+/// journal that cannot take the line leaves an open pre-image, which also means "never happened".
+pub(crate) fn give_up(lib: &Library, e: &mut JournalEntry, outcome: Outcome, detail: Option<&str>) -> Outcome {
+  let (path, reason) = outcome.path_and_reason();
+  let why = detail.map(str::to_string).unwrap_or(reason);
+  e.ts = now_ms();
+  e.note = Some(format!("{NOT_APPLIED}{}", scrub(&why, &lib.root, path)));
+  let _ = journal::append(lib, e);
+  outcome
+}
+
 /// The report path of an op: the file for audio ops, the playlist name for playlist ops.
 fn op_path(op: &Op) -> String {
   match op {
@@ -364,14 +433,14 @@ fn op_path(op: &Op) -> String {
 fn run(b: &mut Batch, op: Op) -> Outcome {
   match op {
     Op::WriteTags { rel, changes } => {
-      if let Some(o) = audio_guard(b, &rel) {
+      if let Some(o) = audio_guard(b, &rel).or_else(|| settle_guard(b.lib, &rel)) {
         return o;
       }
       let label = format!("Edited tags of {}", rel.file_name());
       write_tags(b, &rel, &changes, label, None)
     }
     Op::Move { rel, to_folder } => {
-      if let Some(o) = audio_guard(b, &rel) {
+      if let Some(o) = audio_guard(b, &rel).or_else(|| settle_guard(b.lib, &rel)) {
         return o;
       }
       let path = rel.to_string();
@@ -392,7 +461,7 @@ fn run(b: &mut Batch, op: Op) -> Outcome {
       relocate(b, &rel, &to, Kind::Move, label, None, &[], true)
     }
     Op::Rename { rel, to } => {
-      if let Some(o) = audio_guard(b, &rel) {
+      if let Some(o) = audio_guard(b, &rel).or_else(|| settle_guard(b.lib, &rel)) {
         return o;
       }
       let path = rel.to_string();
@@ -406,7 +475,7 @@ fn run(b: &mut Batch, op: Op) -> Outcome {
       relocate(b, &rel, &to, Kind::Rename, label, None, &[], true)
     }
     Op::Delete { rel } => {
-      if let Some(o) = audio_guard(b, &rel) {
+      if let Some(o) = audio_guard(b, &rel).or_else(|| settle_guard(b.lib, &rel)) {
         return o;
       }
       let label = format!("Deleted {} (in the bin)", rel.file_name());
@@ -433,6 +502,35 @@ fn audio_guard(b: &Batch, rel: &RelPath) -> Option<Outcome> {
     ));
   }
   None
+}
+
+/// The brief's rule for a file a sync client may still be writing: one modified less than
+/// [`SETTLE`] ago is left alone ("try again in a moment"), unless its bytes are ones this device's
+/// write path itself left there (an edit right after an edit, a move right after a download).
+/// A modification time in the future says nothing about that, so it does not hold the file back.
+fn settle_guard(lib: &Library, rel: &RelPath) -> Option<Outcome> {
+  let abs = lib.abs(rel);
+  let modified = std::fs::metadata(&abs).and_then(|m| m.modified()).ok()?;
+  let age = SystemTime::now().duration_since(modified).ok()?;
+  if age >= SETTLE {
+    return None;
+  }
+  let hash = fs::file_hash(&abs).ok()?;
+  if own_bytes(lib, rel, &hash) {
+    return None;
+  }
+  Some(Outcome::skipped(rel.as_str(), JUST_CHANGED))
+}
+
+/// True when one of this device's committed changes left exactly `hash` at `rel`.
+fn own_bytes(lib: &Library, rel: &RelPath, hash: &str) -> bool {
+  let Ok(entries) = journal::read_device(&lib.root, &lib.device) else {
+    return false;
+  };
+  let key = rel.key();
+  entries.iter().any(|e| {
+    e.committed && e.file_hash_after.as_deref() == Some(hash) && e.path_after.as_ref().is_some_and(|p| p.key() == key)
+  })
 }
 
 /// A rename/landing target: every segment a valid name, not inside the app's folders, still an
@@ -462,12 +560,61 @@ fn check_file(abs: &Path, path: &str, undoing: bool) -> Option<Outcome> {
       path,
       Error::InvalidPath(format!("{path} is not a file")),
     )),
-    Err(e) if e.kind() == std::io::ErrorKind::NotFound && undoing => Some(Outcome::skipped(path, CHANGED_SINCE)),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound && undoing => Some(Outcome::skipped(path, CHANGED_SINCE_UNDO)),
     Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Outcome::failed(
       path,
       Error::NotFound(format!("{path} is not there any more")),
     )),
-    Err(e) => Some(Outcome::failed(path, e.into())),
+    Err(e) => Some(skip_or_fail(path, e.into())),
+  }
+}
+
+/// What the write path saw of a file when it planned a change: size and modification time (the
+/// cheap check) and the blake3 of its bytes (the real one).
+pub(crate) struct Seen {
+  len: u64,
+  modified: Option<SystemTime>,
+  pub hash: String,
+}
+
+impl Seen {
+  /// The stamp is taken before hashing, so a change during the hash shows up as a changed stamp.
+  pub(crate) fn of(abs: &Path) -> Result<Seen> {
+    let meta = std::fs::metadata(abs)?;
+    let hash = fs::file_hash(abs)?;
+    Ok(Seen {
+      len: meta.len(),
+      modified: meta.modified().ok(),
+      hash,
+    })
+  }
+
+  /// The file at `abs` is still the one seen: size and modification time first; when they match,
+  /// the bytes are hashed again (a same-size rewrite within the clock's resolution changes them).
+  fn unchanged(&self, abs: &Path) -> Result<bool> {
+    let meta = match std::fs::metadata(abs) {
+      Ok(m) => m,
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+      Err(e) => return Err(e.into()),
+    };
+    if meta.len() != self.len || meta.modified().ok() != self.modified {
+      return Ok(false);
+    }
+    Ok(fs::file_hash(abs)? == self.hash)
+  }
+}
+
+/// `None` while the file at `abs` is still the one `seen` describes; otherwise the skip to report.
+/// Called right before the rename that replaces, moves or bins it: a sync client may have renamed
+/// a newer version over it since it was hashed, and that version must not be overwritten (the
+/// journal's pre-image names only the old one). What remains is the instant between this check
+/// and the rename itself.
+fn still_as_seen(abs: &Path, seen: &Seen, path: &str, undoing: bool) -> Option<Outcome> {
+  fault::hook("before_replace", abs);
+  match seen.unchanged(abs) {
+    Ok(true) => None,
+    Ok(false) => Some(Outcome::skipped(path, changed_since(undoing))),
+    Err(err) => Some(skip_or_fail(path, err)),
   }
 }
 
@@ -517,21 +664,24 @@ pub(crate) fn write_tags(
   expect_hash: Option<&str>,
 ) -> Outcome {
   let path = rel.as_str();
-  let abs = b.lib.abs(rel);
-  if let Some(o) = check_file(&abs, path, expect_hash.is_some()) {
+  let lib = b.lib;
+  let abs = lib.abs(rel);
+  let undoing = expect_hash.is_some();
+  if let Some(o) = check_file(&abs, path, undoing) {
     return o;
+  }
+  let seen = match Seen::of(&abs) {
+    Ok(s) => s,
+    Err(e) => return skip_or_fail(path, e),
+  };
+  if expect_hash.is_some_and(|want| want != seen.hash) {
+    return Outcome::skipped(path, CHANGED_SINCE_UNDO);
   }
   let before = match tags::read(&abs) {
     Ok(t) => t,
+    Err(Error::Tag(_)) => return Outcome::failed(path, Error::Tag(UNREADABLE_TAGS.into())),
     Err(e) => return skip_or_fail(path, e),
   };
-  let hash_before = match fs::file_hash(&abs) {
-    Ok(h) => h,
-    Err(e) => return skip_or_fail(path, e),
-  };
-  if expect_hash.is_some_and(|want| want != hash_before) {
-    return Outcome::skipped(path, CHANGED_SINCE);
-  }
   let changes = effective(changes, &before);
   if changes.is_empty() {
     return Outcome::no_change(path, "no change");
@@ -541,13 +691,13 @@ pub(crate) fn write_tags(
   e.path_after = Some(rel.clone());
   e.tags_before = Some(tags::tagset_of(&before));
   e.tags_after = Some(changes.clone());
-  e.file_hash_before = Some(hash_before);
-  if let Err(o) = preimage(b.lib, &e, path) {
+  e.file_hash_before = Some(seen.hash.clone());
+  if let Err(o) = preimage(lib, &e, path) {
     return o;
   }
   let tmp = match fs::copy_to_tmp(&abs, &e.id) {
     Ok(tmp) => tmp,
-    Err(err) => return skip_or_fail(path, err),
+    Err(err) => return give_up(lib, &mut e, skip_or_fail(path, err), None),
   };
   // From here every way out removes the temp; the original is untouched until the rename.
   let checked = (|| -> Result<Option<String>> {
@@ -561,33 +711,36 @@ pub(crate) fn write_tags(
   })();
   let note = match checked {
     Ok(note) => note,
-    // tags::write refuses before writing anything (an unsupported format, or an item it could not
-    // keep byte-for-byte): nothing went wrong with the file, so it is a skip, not a failed check.
+    // tags::write refuses before writing anything (an unsupported format, a field with several
+    // values, an item it could not keep byte-for-byte): nothing went wrong with the file, so it is
+    // a skip, not a failed check. The first line is the plain reason, the rest goes to the journal.
     Err(Error::Refused(m)) => {
       let _ = fs::remove_file(&tmp);
-      // The first line is the plain reason; the rest is technical detail.
-      return Outcome::skipped(path, m.lines().next().unwrap_or_default());
+      let (reason, detail) = m.split_once('\n').unwrap_or((m.as_str(), m.as_str()));
+      return give_up(lib, &mut e, Outcome::skipped(path, reason), Some(detail));
     }
     Err(err) => {
       let _ = fs::remove_file(&tmp);
-      return Outcome::Failed {
+      let failed = Outcome::Failed {
         path: path.to_string(),
-        err: Error::Verify(format!(
-          "not changed: the rewritten copy did not check out ({})",
-          message(&err)
-        )),
+        err: Error::Verify(NOT_CHECKED_OUT.into()),
         counts: true,
       };
+      return give_up(lib, &mut e, failed, Some(&message(&err)));
     }
   };
+  if let Some(o) = still_as_seen(&abs, &seen, path, undoing) {
+    let _ = fs::remove_file(&tmp);
+    return give_up(lib, &mut e, o, None);
+  }
   if let Err(err) = fs::atomic_replace(&tmp, &abs) {
     let _ = fs::remove_file(&tmp);
-    return skip_or_fail(path, err);
+    return give_up(lib, &mut e, skip_or_fail(path, err), None);
   }
   fault::point("after_replace");
   e.file_hash_after = fs::file_hash(&abs).ok();
-  e.note = note;
-  if let Err(o) = commit(b.lib, &mut e, path) {
+  e.note = note.map(|n| scrub(&n, &lib.root, path));
+  if let Err(o) = commit(lib, &mut e, path) {
     return o;
   }
   Outcome::done(
@@ -622,12 +775,12 @@ pub(crate) fn relocate(
   if let Some(o) = check_file(&src, path, undoing) {
     return o;
   }
-  let hash = match fs::file_hash(&src) {
-    Ok(h) => h,
+  let seen = match Seen::of(&src) {
+    Ok(s) => s,
     Err(e) => return skip_or_fail(path, e),
   };
-  if expect_hash.is_some_and(|want| want != hash) {
-    return Outcome::skipped(path, CHANGED_SINCE);
+  if expect_hash.is_some_and(|want| want != seen.hash) {
+    return Outcome::skipped(path, CHANGED_SINCE_UNDO);
   }
   // A case or normalisation change of the same name is a rename, not a collision.
   let taken = |dest: &RelPath, own: &RelPath| dest.key() != own.key() && lib.abs(dest).symlink_metadata().is_ok();
@@ -658,32 +811,45 @@ pub(crate) fn relocate(
   let mut e = b.entry(kind, label.clone());
   e.path_before = Some(from.clone());
   e.path_after = Some(to.clone());
-  e.file_hash_before = Some(hash.clone());
+  e.file_hash_before = Some(seen.hash.clone());
   e.playlists_touched = changes;
   if let Err(o) = preimage(lib, &e, path) {
     return o;
   }
+  if let Some(o) = still_as_seen(&src, &seen, path, undoing) {
+    return give_up(lib, &mut e, o, None);
+  }
   match fs::rename_no_clobber(&src, &dst) {
     Ok(()) => {}
     // Taken meanwhile, or by a name only the folder listing folds to the same (case-sensitive disks).
-    Err(Error::Exists(_)) => return taken_outcome(path, to, undoing),
-    Err(err) => return skip_or_fail(path, err),
+    Err(Error::Exists(_)) => return give_up(lib, &mut e, taken_outcome(path, to, undoing), None),
+    Err(err) => return give_up(lib, &mut e, skip_or_fail(path, err), None),
   }
   fault::point("after_replace");
   if let Err((err, written)) = rewrite_playlists(lib, &e.id, &mut e.playlists_touched) {
     // Put everything back so the library stays consistent (both steps run either way).
     let undone = restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::rename_no_clobber(&dst, &src));
-    let msg = match undone {
-      Ok(()) => format!("a playlist could not be updated ({}); nothing was moved", message(&err)),
-      Err(back) => format!(
-        "a playlist could not be updated ({}), and moving the file back failed ({}): it is now at {to}",
-        message(&err),
-        message(&back)
+    return match undone {
+      Ok(()) if playlist::is_changed(&err) => {
+        let reason = format!("{}, so nothing was moved", message(&err));
+        give_up(lib, &mut e, Outcome::skipped(path, &reason), None)
+      }
+      Ok(()) => {
+        let msg = format!("a playlist could not be updated ({}); nothing was moved", message(&err));
+        give_up(lib, &mut e, Outcome::failed(path, Error::Other(msg)), None)
+      }
+      // Half done: the entry stays open, so the next start can finish the move on record.
+      Err(back) => Outcome::failed(
+        path,
+        Error::Other(format!(
+          "a playlist could not be updated ({}), and moving the file back failed ({}): it is now at {to}",
+          message(&err),
+          message(&back)
+        )),
       ),
     };
-    return Outcome::failed(path, Error::Other(msg));
   }
-  e.file_hash_after = Some(hash);
+  e.file_hash_after = Some(seen.hash.clone());
   if let Err(o) = commit(lib, &mut e, path) {
     return o;
   }
@@ -724,15 +890,16 @@ pub(crate) fn delete(
   let path = rel.as_str();
   let lib = b.lib;
   let abs = lib.abs(rel);
-  if let Some(o) = check_file(&abs, path, expect_hash.is_some()) {
+  let undoing = expect_hash.is_some();
+  if let Some(o) = check_file(&abs, path, undoing) {
     return o;
   }
-  let hash = match fs::file_hash(&abs) {
-    Ok(h) => h,
+  let seen = match Seen::of(&abs) {
+    Ok(s) => s,
     Err(e) => return skip_or_fail(path, e),
   };
-  if expect_hash.is_some_and(|want| want != hash) {
-    return Outcome::skipped(path, CHANGED_SINCE);
+  if expect_hash.is_some_and(|want| want != seen.hash) {
+    return Outcome::skipped(path, CHANGED_SINCE_UNDO);
   }
   let comps = if with_companions {
     match companions::of(&lib.root, rel) {
@@ -748,30 +915,42 @@ pub(crate) fn delete(
   };
   let mut e = b.entry(Kind::Delete, label.clone());
   e.path_before = Some(rel.clone());
-  e.file_hash_before = Some(hash);
+  e.file_hash_before = Some(seen.hash.clone());
   e.playlists_touched = changes;
   if let Err(o) = preimage(lib, &e, path) {
     return o;
   }
+  if let Some(o) = still_as_seen(&abs, &seen, path, undoing) {
+    return give_up(lib, &mut e, o, None);
+  }
   let rec = match to_bin(lib, rel) {
     Ok(rec) => rec,
-    Err(err) => return skip_or_fail(path, err),
+    Err(err) => return give_up(lib, &mut e, skip_or_fail(path, err), None),
   };
   fault::point("after_replace");
   if let Err((err, written)) = rewrite_playlists(lib, &e.id, &mut e.playlists_touched) {
     let undone = restore_playlists(lib, &e.id, &e.playlists_touched[..written]).and(fs::restore_from_bin(lib, &rec));
-    let msg = match undone {
-      Ok(()) => format!(
-        "a playlist could not be updated ({}); nothing was deleted",
-        message(&err)
-      ),
-      Err(back) => format!(
-        "a playlist could not be updated ({}), and the file could not be brought back from the bin ({})",
-        message(&err),
-        message(&back)
+    return match undone {
+      Ok(()) if playlist::is_changed(&err) => {
+        let reason = format!("{}, so nothing was deleted", message(&err));
+        give_up(lib, &mut e, Outcome::skipped(path, &reason), None)
+      }
+      Ok(()) => {
+        let msg = format!(
+          "a playlist could not be updated ({}); nothing was deleted",
+          message(&err)
+        );
+        give_up(lib, &mut e, Outcome::failed(path, Error::Other(msg)), None)
+      }
+      Err(back) => Outcome::failed(
+        path,
+        Error::Other(format!(
+          "a playlist could not be updated ({}), and the file could not be brought back from the bin ({})",
+          message(&err),
+          message(&back)
+        )),
       ),
     };
-    return Outcome::failed(path, Error::Other(msg));
   }
   e.bin = Some(rec);
   if let Err(o) = commit(lib, &mut e, path) {
@@ -830,9 +1009,10 @@ pub(crate) fn to_bin(lib: &Library, rel: &RelPath) -> Result<BinRecord> {
 /// batch being undone: a playlist still byte-for-byte as that batch left it gets its journaled
 /// `before` back instead, so an undo restores the exact original lines.
 ///
-/// Any playlist that cannot be read, or that the app cannot write back under its own name (a
-/// legacy `.m3u`, a name that does not survive sanitising), refuses the whole op: the file is not
-/// moved rather than leaving that playlist stale.
+/// Any playlist that cannot be read, that the app cannot write back under its own name (a legacy
+/// `.m3u`, a name that does not survive sanitising), or that another program wrote in its own
+/// format (the app would drop that program's lines) refuses the whole op: the file is not moved
+/// rather than leaving that playlist stale.
 pub(crate) fn playlist_changes(
   root: &Path,
   from: &RelPath,
@@ -850,8 +1030,7 @@ pub(crate) fn playlist_changes(
   })?;
   let mut out = Vec::new();
   for pl in found {
-    let abs = writable_playlist(root, &pl)?;
-    let before_hash = fs::file_hash(&abs)?;
+    let before_hash = writable_playlist(root, &pl)?;
     let journaled = restore
       .iter()
       .find(|r| r.name == pl.name && r.after_hash.as_deref() == Some(before_hash.as_str()))
@@ -868,9 +1047,10 @@ pub(crate) fn playlist_changes(
   Ok(out)
 }
 
-/// The `.m3u8` the sole writer would write for `pl`, refusing when that is not the file `pl` was
-/// read from (a legacy `.m3u`, or a file name that sanitising would change).
-fn writable_playlist(root: &Path, pl: &PlaylistFile) -> Result<PathBuf> {
+/// The blake3 of the `.m3u8` the sole writer would write for `pl`, read once with its lines.
+/// Refuses when that is not the file `pl` was read from (a legacy `.m3u`, or a file name that
+/// sanitising would change), or when another program wrote it (`playlist::foreign`).
+fn writable_playlist(root: &Path, pl: &PlaylistFile) -> Result<String> {
   let refuse = || {
     Error::Refused(format!(
       "playlist {} cannot be updated by the app (only .m3u8 files with a clean name are), so nothing was changed",
@@ -881,8 +1061,9 @@ fn writable_playlist(root: &Path, pl: &PlaylistFile) -> Result<PathBuf> {
   if abs.with_extension("m3u").exists() || !abs.is_file() {
     return Err(refuse());
   }
-  match playlist::read(root, &pl.name) {
-    Ok(m3u8) if m3u8.entries == pl.entries => Ok(abs),
+  match playlist::read_exact(root, &pl.name) {
+    Ok(x) if !x.ours => Err(playlist::foreign(&pl.name)),
+    Ok(x) if x.file.entries == pl.entries => Ok(x.hash),
     _ => Err(refuse()),
   }
 }
@@ -892,7 +1073,17 @@ pub(crate) fn content_hash(entries: &[String]) -> String {
   blake3::hash(playlist::render(entries).as_bytes()).to_hex().to_string()
 }
 
+/// What a playlist must still be before its new version replaces it: the journaled hash, or
+/// absent when there was none.
+pub(crate) fn expect_of(hash: Option<&str>) -> Expect<'_> {
+  match hash {
+    Some(h) => Expect::Hash(h),
+    None => Expect::Absent,
+  }
+}
+
 /// Writes each change's `after` (or bins the playlist when `after` is `None`), filling `after_hash`.
+/// Each is renamed into place only while the playlist is still as it was read (`before_hash`).
 /// On failure returns the error and how many were written before it.
 fn rewrite_playlists(
   lib: &Library,
@@ -901,17 +1092,21 @@ fn rewrite_playlists(
 ) -> std::result::Result<(), (Error, usize)> {
   for (i, pc) in changes.iter_mut().enumerate() {
     let after = pc.after.clone().unwrap_or_default();
-    playlist::write(&lib.root, &pc.name, &after, &format!("{entry_id}-p{i}")).map_err(|e| (e, i))?;
+    let expect = expect_of(pc.before_hash.as_deref());
+    playlist::write_expecting(&lib.root, &pc.name, &after, &format!("{entry_id}-p{i}"), Some(expect))
+      .map_err(|e| (e, i))?;
     pc.after_hash = Some(content_hash(&after));
   }
   Ok(())
 }
 
-/// Writes each change's `before` back (the rollback of a half-done op).
+/// Writes each change's `before` back (the rollback of a half-done op), each only while it is
+/// still what this op just wrote.
 fn restore_playlists(lib: &Library, entry_id: &str, changes: &[PlaylistChange]) -> Result<()> {
   for (i, pc) in changes.iter().enumerate() {
     let before = pc.before.clone().unwrap_or_default();
-    playlist::write(&lib.root, &pc.name, &before, &format!("{entry_id}-r{i}"))?;
+    let expect = expect_of(pc.after_hash.as_deref());
+    playlist::write_expecting(&lib.root, &pc.name, &before, &format!("{entry_id}-r{i}"), Some(expect))?;
   }
   Ok(())
 }
@@ -921,6 +1116,9 @@ pub(crate) enum PlaylistState {
   Absent,
   /// Only a legacy `.m3u` of that name exists; the app never writes it.
   Legacy,
+  /// A `.m3u8` another program wrote in its own format (comments, `#EXTINF`, a BOM, CRLF): the
+  /// app never writes it, since every write would drop what that program put there.
+  Foreign,
   /// The `.m3u8`, its lines and the blake3 of its bytes.
   Present(PlaylistFile, String),
 }
@@ -928,11 +1126,9 @@ pub(crate) enum PlaylistState {
 /// The current state of playlist `name`. An unreadable playlist is an error, never `Absent`.
 pub(crate) fn playlist_state(root: &Path, name: &str) -> Result<PlaylistState> {
   let abs = playlist::file_rel(name)?.to_abs(root);
-  match playlist::read(root, name) {
-    Ok(pl) => {
-      let hash = fs::file_hash(&abs)?;
-      Ok(PlaylistState::Present(pl, hash))
-    }
+  match playlist::read_exact(root, name) {
+    Ok(x) if x.ours => Ok(PlaylistState::Present(x.file, x.hash)),
+    Ok(_) => Ok(PlaylistState::Foreign),
     Err(Error::NotFound(_)) if abs.with_extension("m3u").exists() => Ok(PlaylistState::Legacy),
     Err(Error::NotFound(_)) => Ok(PlaylistState::Absent),
     Err(e) => Err(e),
@@ -945,10 +1141,13 @@ fn legacy_refusal(name: &str) -> Error {
   ))
 }
 
-/// Tier 2: one journaled playlist write. `pc.after = None` sends the playlist to the bin.
+/// Tier 2: one journaled playlist write. `pc.after = None` sends the playlist to the bin. Either
+/// way the playlist must still be what `pc.before_hash` says (absent when `None`) at the moment
+/// it is replaced or binned; otherwise it is left as it is ("changed since").
 pub(crate) fn write_playlist(b: &mut Batch, kind: Kind, label: String, pc: PlaylistChange) -> Outcome {
   let path = pc.name.clone();
   let lib = b.lib;
+  let undoing = b.undoing();
   let rel = match playlist::file_rel(&pc.name) {
     Ok(r) => r,
     Err(e) => return Outcome::failed(&path, e),
@@ -962,17 +1161,38 @@ pub(crate) fn write_playlist(b: &mut Batch, kind: Kind, label: String, pc: Playl
   }
   let job = e.id.clone();
   let pc = &mut e.playlists_touched[0];
-  match pc.after.clone() {
+  let done = match pc.after.clone() {
     Some(after) => {
-      if let Err(err) = playlist::write(&lib.root, &pc.name, &after, &job) {
-        return skip_or_fail(&path, err);
-      }
-      pc.after_hash = Some(content_hash(&after));
+      let expect = expect_of(pc.before_hash.as_deref());
+      playlist::write_expecting(&lib.root, &pc.name, &after, &job, Some(expect)).map(|()| {
+        pc.after_hash = Some(content_hash(&after));
+        None
+      })
     }
-    None => match to_bin(lib, &rel) {
-      Ok(rec) => e.bin = Some(rec),
-      Err(err) => return skip_or_fail(&path, err),
-    },
+    None => {
+      fault::hook("before_replace", &lib.abs(&rel));
+      let still = match &pc.before_hash {
+        Some(h) => fs::file_hash(&lib.abs(&rel)).map(|now| now == *h),
+        None => Ok(true),
+      };
+      match still {
+        Ok(true) => to_bin(lib, &rel).map(Some),
+        Ok(false) => Err(playlist::changed(&pc.name)),
+        Err(err) => Err(err),
+      }
+    }
+  };
+  match done {
+    Ok(Some(rec)) => e.bin = Some(rec),
+    Ok(None) => {}
+    Err(err) => {
+      let o = if playlist::is_changed(&err) {
+        Outcome::skipped(&path, changed_since(undoing))
+      } else {
+        skip_or_fail(&path, err)
+      };
+      return give_up(lib, &mut e, o, None);
+    }
   }
   fault::point("after_replace");
   if let Err(o) = commit(lib, &mut e, &path) {
@@ -999,6 +1219,7 @@ fn playlist_add(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
     Ok(PlaylistState::Present(pl, h)) => (Some(pl.entries), Some(h)),
     Ok(PlaylistState::Absent) => (None, None),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
+    Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let current = before.clone().unwrap_or_default();
@@ -1027,6 +1248,7 @@ fn playlist_remove(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
     Ok(PlaylistState::Present(pl, h)) => (pl.entries, h),
     Ok(PlaylistState::Absent) => return Outcome::failed(&clean, Error::NotFound(format!("No playlist named {clean}"))),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
+    Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let after = playlist::with_removed(&current, rels);
@@ -1066,6 +1288,8 @@ fn playlist_create(b: &mut Batch, name: &str) -> Outcome {
   write_playlist(b, Kind::PlaylistCreate, label, pc)
 }
 
+/// To the bin. A playlist another program wrote is refused too: undo would bring back only its
+/// track lines, in the app's format.
 fn playlist_delete(b: &mut Batch, name: &str) -> Outcome {
   let clean = match playlist::sanitize_name(name) {
     Ok(n) => n,
@@ -1075,6 +1299,7 @@ fn playlist_delete(b: &mut Batch, name: &str) -> Outcome {
     Ok(PlaylistState::Present(pl, h)) => (pl.entries, h),
     Ok(PlaylistState::Absent) => return Outcome::failed(&clean, Error::NotFound(format!("No playlist named {clean}"))),
     Ok(PlaylistState::Legacy) => return Outcome::failed(&clean, legacy_refusal(&clean)),
+    Ok(PlaylistState::Foreign) => return Outcome::failed(&clean, playlist::foreign(&clean)),
     Err(e) => return Outcome::failed(&clean, e),
   };
   let label = format!("Deleted playlist {clean}");
@@ -1108,8 +1333,8 @@ fn playlists_from_folders(b: &mut Batch) -> Outcome {
       Ok(_) => continue,
       Err(e) => {
         extra_failed.push(Failed {
+          error: report_text(&e, &root, &pl.name),
           path: pl.name,
-          error: message(&e),
         });
         continue;
       }
@@ -1135,6 +1360,8 @@ fn playlists_from_folders(b: &mut Batch) -> Outcome {
   }
 }
 
+/// The pre-image carries the download's hash as `file_hash_after` already: it is known before
+/// anything is copied, and startup recovery needs it to recognise the landed file after a crash.
 fn land_one(b: &mut Batch, staged: &Path, dest: &RelPath) -> Outcome {
   let path = dest.as_str();
   let lib = b.lib;
@@ -1142,9 +1369,12 @@ fn land_one(b: &mut Batch, staged: &Path, dest: &RelPath) -> Outcome {
     return Outcome::failed(path, e);
   }
   let abs = lib.abs(dest);
-  if abs.symlink_metadata().is_ok() {
+  let taken = || {
     let msg = format!("{} already exists in {}", dest.file_name(), folder_label(dest));
-    return Outcome::failed(path, Error::Exists(msg));
+    Outcome::failed(path, Error::Exists(msg))
+  };
+  if abs.symlink_metadata().is_ok() {
+    return taken();
   }
   let hash = match fs::file_hash(staged) {
     Ok(h) => h,
@@ -1153,16 +1383,18 @@ fn land_one(b: &mut Batch, staged: &Path, dest: &RelPath) -> Outcome {
   let label = format!("Saved {} in {}", dest.file_name(), folder_label(dest));
   let mut e = b.entry(Kind::Ingest, label.clone());
   e.path_after = Some(dest.clone());
+  e.file_hash_after = Some(hash.clone());
   if let Err(o) = preimage(lib, &e, path) {
     return o;
   }
   let tmp = match fs::stage_copy(staged, &abs, &e.id) {
     Ok(t) => t,
-    Err(err) => return skip_or_fail(path, err),
+    Err(Error::Exists(_)) => return give_up(lib, &mut e, taken(), None),
+    Err(err) => return give_up(lib, &mut e, skip_or_fail(path, err), None),
   };
   if fs::file_hash(&tmp).ok().as_deref() != Some(hash.as_str()) {
     let _ = fs::remove_file(&tmp);
-    return Outcome::Failed {
+    let failed = Outcome::Failed {
       path: path.to_string(),
       err: Error::Verify(format!(
         "the copy of {} in the library does not match the download",
@@ -1170,13 +1402,15 @@ fn land_one(b: &mut Batch, staged: &Path, dest: &RelPath) -> Outcome {
       )),
       counts: true,
     };
+    return give_up(lib, &mut e, failed, None);
   }
   fault::point("after_stage_copy");
-  if let Err(err) = fs::stage_finish(&tmp, &abs, staged) {
-    return skip_or_fail(path, err);
+  match fs::stage_finish(&tmp, &abs, staged) {
+    Ok(()) => {}
+    Err(Error::Exists(_)) => return give_up(lib, &mut e, taken(), None),
+    Err(err) => return give_up(lib, &mut e, skip_or_fail(path, err), None),
   }
   fault::point("after_replace");
-  e.file_hash_after = Some(hash);
   if let Err(o) = commit(lib, &mut e, path) {
     return o;
   }

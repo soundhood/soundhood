@@ -254,6 +254,112 @@ fn undo_of_a_playlist_edit_is_refused_once_the_playlist_changed() {
   let bytes = std::fs::read(lib.root.join("_Playlists/Empty.m3u8")).unwrap();
   let u = undo::undo_batch(&lib, &first.batch).unwrap();
   assert!(u.applied.is_empty(), "{}", show(&u));
-  assert_eq!(u.skipped[0].reason, "changed since — not undone");
+  assert_eq!(u.skipped[0].reason, "changed since, not undone");
   assert_eq!(std::fs::read(lib.root.join("_Playlists/Empty.m3u8")).unwrap(), bytes);
+}
+
+/// G06: a playlist another program wrote (a BOM, CRLF, `#PLAYLIST` and `#EXTINF` lines, a blank
+/// line, a backslash path). The app writes only its own format, so any write would drop that
+/// program's lines for good (undo journals the entries only). Adding, removing and deleting the
+/// playlist, and moving or deleting a track it lists, are each refused whole with a plain reason;
+/// the playlist stays byte-for-byte and the track stays where it is.
+#[test]
+fn a_playlist_another_program_wrote_is_never_rewritten() {
+  let (_d, lib, report) = fixture_lib(10, false);
+  let a = rel(&report.tracks[0].rel);
+  let b = rel(&report.tracks[1].rel);
+  let c = rel(&report.tracks[2].rel);
+  let original = format!(
+    "\u{feff}#EXTM3U\r\n#PLAYLIST:Foreign\r\n#EXTINF:123,Artist - First\r\n{}\r\n\r\n#EXTINF:200,Artist - Second\r\n{}\r\n",
+    a.as_str().replace('/', "\\"),
+    b.as_str()
+  );
+  let file = lib.root.join("_Playlists").join("Foreign.m3u8");
+  std::fs::write(&file, &original).unwrap();
+  let reason = "the playlist Foreign was written by another program; it was left as it is";
+  let b_bytes = read_bytes(&lib, &b);
+
+  let ops = [
+    Op::PlaylistAdd {
+      name: "Foreign".into(),
+      rels: vec![c.clone()],
+    },
+    Op::PlaylistRemove {
+      name: "Foreign".into(),
+      rels: vec![a.clone()],
+    },
+    Op::PlaylistDelete { name: "Foreign".into() },
+    Op::Move {
+      rel: b.clone(),
+      to_folder: "Elsewhere".into(),
+    },
+    Op::Delete { rel: b.clone() },
+  ];
+  for op in ops {
+    let rep = one(&lib, op);
+    assert!(rep.applied.is_empty(), "{}", show(&rep));
+    assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
+    assert_eq!(rep.failed[0].error, reason, "{}", show(&rep));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), original, "byte-for-byte");
+  }
+  assert_eq!(read_bytes(&lib, &b), b_bytes, "the track did not move");
+  let create = one(&lib, Op::PlaylistCreate { name: "Foreign".into() });
+  assert!(
+    create.applied.is_empty() && create.failed.is_empty(),
+    "{}",
+    show(&create)
+  );
+  assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+  assert!(undo::last_change(&lib).unwrap().is_none(), "nothing was changed");
+
+  // Kept simple and safe: a BOM alone, or CRLF alone, is another program's file too.
+  let canonical = playlist::render(&[a.to_string(), b.to_string()]);
+  for variant in [format!("\u{feff}{canonical}"), canonical.replace('\n', "\r\n")] {
+    std::fs::write(&file, &variant).unwrap();
+    let rep = one(
+      &lib,
+      Op::PlaylistAdd {
+        name: "Foreign".into(),
+        rels: vec![c.clone()],
+      },
+    );
+    assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), variant);
+  }
+  // The app's own format is written as before.
+  std::fs::write(&file, &canonical).unwrap();
+  let rep = one(
+    &lib,
+    Op::PlaylistAdd {
+      name: "Foreign".into(),
+      rels: vec![c.clone()],
+    },
+  );
+  assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
+}
+
+/// Undo leaves a playlist alone once another program has rewritten it in its own format, even
+/// with the same tracks: it reports why instead of normalising it.
+#[test]
+fn undo_leaves_a_playlist_another_program_rewrote() {
+  let (_d, lib, report) = fixture_lib(10, false);
+  let a = rel(&report.tracks[0].rel);
+  let add = one(
+    &lib,
+    Op::PlaylistAdd {
+      name: "Mine".into(),
+      rels: vec![a.clone()],
+    },
+  );
+  assert_eq!(add.applied.len(), 1, "{}", show(&add));
+  let file = lib.root.join("_Playlists").join("Mine.m3u8");
+  let theirs = format!("#EXTM3U\r\n#EXTINF:1,x\r\n{a}\r\n");
+  std::fs::write(&file, &theirs).unwrap();
+  let u = undo::undo_batch(&lib, &add.batch).unwrap();
+  assert!(u.applied.is_empty(), "{}", show(&u));
+  assert_eq!(
+    u.skipped[0].reason,
+    "not undone: the playlist Mine was written by another program; it was left as it is"
+  );
+  assert_eq!(std::fs::read_to_string(&file).unwrap(), theirs);
 }

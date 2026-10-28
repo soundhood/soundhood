@@ -31,8 +31,7 @@ pub(crate) fn check(tmp: &Path, original: &Path, duration_ms: u64) -> Result<Opt
         "decode check skipped: symphonia cannot decode the original either ({before})"
       ))),
       Ok(()) => Err(Error::Verify(format!(
-        "{}: the audio no longer decodes after the tag write ({after})",
-        original.display()
+        "the audio no longer decodes after the tag write ({after})"
       ))),
     },
   }

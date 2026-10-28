@@ -67,18 +67,81 @@ pub fn list(root: &Path) -> Result<Vec<PlaylistFile>> {
 /// exist: a playlist that exists but cannot be read (locked, not UTF-8, a folder of that name) is
 /// another error, so the write path never takes it for absent and writes over it.
 pub fn read(root: &Path, name: &str) -> Result<PlaylistFile> {
-  let rel = file_rel(name)?;
-  let path = rel.to_abs(root);
-  match std::fs::metadata(&path) {
-    Ok(meta) if meta.is_file() => {}
-    Ok(_) => return Err(Error::Other(format!("{rel} is a folder, not a playlist"))),
-    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(Error::NotFound(rel.to_string())),
-    Err(e) => return Err(e.into()),
-  }
+  let (_, path) = existing(root, name)?;
   Ok(PlaylistFile {
     name: sanitize_name(name)?,
     entries: read_file(&path)?,
   })
+}
+
+/// `name`'s rel path and absolute path, when it is a file; the errors of [`read`] otherwise.
+fn existing(root: &Path, name: &str) -> Result<(RelPath, std::path::PathBuf)> {
+  let rel = file_rel(name)?;
+  let path = rel.to_abs(root);
+  match std::fs::metadata(&path) {
+    Ok(meta) if meta.is_file() => Ok((rel, path)),
+    Ok(_) => Err(Error::Other(format!("{rel} is a folder, not a playlist"))),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(Error::NotFound(rel.to_string())),
+    Err(e) => Err(e.into()),
+  }
+}
+
+/// A playlist as the write path needs it, from one read of its bytes: its lines, the blake3 hex of
+/// the bytes, and whether the app wrote it in its own format (`ours`: rendering the lines gives the
+/// bytes back exactly). Errors as [`read`].
+pub(crate) struct Exact {
+  pub file: PlaylistFile,
+  pub hash: String,
+  pub ours: bool,
+}
+
+/// See [`Exact`].
+pub(crate) fn read_exact(root: &Path, name: &str) -> Result<Exact> {
+  let (_, path) = existing(root, name)?;
+  let bytes = std::fs::read(&path)?;
+  let hash = blake3::hash(&bytes).to_hex().to_string();
+  let text = String::from_utf8(bytes).map_err(|_| not_utf8(&path))?;
+  let entries = parse(&text);
+  let ours = render(&entries) == text;
+  Ok(Exact {
+    file: PlaylistFile {
+      name: sanitize_name(name)?,
+      entries,
+    },
+    hash,
+    ours,
+  })
+}
+
+/// The refusal for a playlist the app did not write in its own format (another program's
+/// `#EXTINF` lines, a BOM, CRLF, backslashes, comments): the app writes only its own format, so
+/// any write would drop what the other program put there, and undo could not bring it back.
+pub(crate) fn foreign(name: &str) -> Error {
+  Error::Refused(format!(
+    "the playlist {name} was written by another program; it was left as it is"
+  ))
+}
+
+const CHANGED: &str = " changed since it was read";
+
+/// The refusal when a playlist is no longer what the write path read (another device's edit arrived
+/// through sync in between): it is not written over.
+pub(crate) fn changed(name: &str) -> Error {
+  Error::Refused(format!("the playlist {name}{CHANGED}"))
+}
+
+/// True for the error of [`changed`].
+pub(crate) fn is_changed(e: &Error) -> bool {
+  matches!(e, Error::Refused(m) if m.starts_with("the playlist ") && m.ends_with(CHANGED))
+}
+
+/// What a playlist file must still be right before the sole writer renames its new version over it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Expect<'a> {
+  /// No file of that name (a playlist being created).
+  Absent,
+  /// The file still holds the bytes with this blake3 hex.
+  Hash(&'a str),
 }
 
 /// `_Playlists/<clean name>.m3u8`.
@@ -106,8 +169,14 @@ pub fn sanitize_name(raw: &str) -> Result<String> {
 /// exactly. Not UTF-8 is an error (decoding lossily would corrupt the names on the next write).
 fn read_file(path: &Path) -> Result<Vec<String>> {
   let bytes = std::fs::read(path)?;
-  let text = String::from_utf8(bytes).map_err(|_| Error::other(format!("{} is not UTF-8 text", path.display())))?;
+  let text = String::from_utf8(bytes).map_err(|_| not_utf8(path))?;
   Ok(parse(&text))
+}
+
+/// A playlist that is not UTF-8, named by its file name only (never where the library lives).
+fn not_utf8(path: &Path) -> Error {
+  let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+  Error::other(format!("{name} is not UTF-8 text"))
 }
 
 fn parse(text: &str) -> Vec<String> {
@@ -235,8 +304,23 @@ pub fn plan_from_folders(root: &Path, stamps: &[FileStamp]) -> Result<Vec<Playli
 /// laid out by [`render`] (a `#` entry gets its `./`). Refuses (`Error::InvalidPath`) a line the
 /// reader could not give back unchanged: empty, padded with spaces, multi-line, or starting with
 /// `./` (the reader strips it).
-#[cfg_attr(not(test), allow(dead_code))] // ingest::tagwrite (zone core-writepath) is the caller
+#[cfg_attr(not(test), allow(dead_code))] // the write path calls write_expecting
 pub(crate) fn write(root: &Path, name: &str, entries: &[String], job: &str) -> Result<()> {
+  write_expecting(root, name, entries, job, None)
+}
+
+/// [`write`], checking right before the rename (after the temp is written and fsynced) that the
+/// playlist is still what `expect` says; otherwise the temp goes and the playlist is left as it is
+/// ([`changed`]). The read that `expect` comes from and this write are apart in time, and an edit
+/// from the other device can land in between: renaming over it would lose its lines on both
+/// devices once sync uploads the result.
+pub(crate) fn write_expecting(
+  root: &Path,
+  name: &str,
+  entries: &[String],
+  job: &str,
+  expect: Option<Expect<'_>>,
+) -> Result<()> {
   for e in entries {
     if e.is_empty() || e.trim() != e || e.contains(['\n', '\r']) || e.starts_with("./") || e.starts_with('\u{feff}') {
       return Err(Error::InvalidPath(format!("cannot be a playlist line: {e:?}")));
@@ -252,7 +336,18 @@ pub(crate) fn write(root: &Path, name: &str, entries: &[String], job: &str) -> R
     .and_then(|_| file.sync_all())
     .map_err(Error::from);
   drop(file);
-  let result = written.and_then(|_| crate::fs::atomic_replace(&tmp, &dest));
+  let still = || match expect {
+    None => true,
+    Some(Expect::Absent) => dest.symlink_metadata().is_err(),
+    Some(Expect::Hash(h)) => crate::fs::file_hash(&dest).ok().as_deref() == Some(h),
+  };
+  let result = written.and_then(|_| {
+    crate::ingest::fault::hook("before_replace", &dest);
+    if !still() {
+      return Err(changed(&sanitize_name(name)?));
+    }
+    crate::fs::atomic_replace(&tmp, &dest)
+  });
   if result.is_err() && tmp.exists() {
     let _ = crate::fs::remove_file(&tmp);
   }

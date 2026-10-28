@@ -9,6 +9,7 @@ mod companions;
 mod decode;
 pub mod fault;
 pub mod journal;
+mod recover;
 pub mod tagwrite;
 pub mod undo;
 
@@ -16,6 +17,7 @@ use crate::error::{Error, Result};
 use crate::fs::BinRecord;
 use crate::model::{DeviceId, RelPath, TagSet};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 pub use tagwrite::ApplyOptions;
 
@@ -233,9 +235,134 @@ pub(crate) fn message(e: &Error) -> String {
   }
 }
 
+/// The words of a report row for `e` on the file (or playlist) `path`: the error's own message,
+/// an I/O error in plain words, and no absolute path (see [`scrub`]).
+pub(crate) fn report_text(e: &Error, root: &Path, path: &str) -> String {
+  let text = match e {
+    Error::Io(io) => plain_io(io),
+    other => message(other),
+  };
+  scrub(&text, root, path)
+}
+
+/// `e` with its message scrubbed (see [`scrub`]), same variant, so a host that shows a single op's
+/// error shows the same words as the report row. An I/O error becomes `Error::Other` with its plain
+/// words.
+pub(crate) fn scrubbed(e: Error, root: &Path, path: &str) -> Error {
+  let fix = |m: String| scrub(&m, root, path);
+  match e {
+    Error::Tag(m) => Error::Tag(fix(m)),
+    Error::InvalidPath(m) => Error::InvalidPath(fix(m)),
+    Error::Exists(m) => Error::Exists(fix(m)),
+    Error::NotFound(m) => Error::NotFound(fix(m)),
+    Error::InUse(m) => Error::InUse(fix(m)),
+    Error::Verify(m) => Error::Verify(fix(m)),
+    Error::Refused(m) => Error::Refused(fix(m)),
+    Error::Other(m) => Error::Other(fix(m)),
+    Error::Io(io) => Error::Other(fix(plain_io(&io))),
+    other => other,
+  }
+}
+
+/// `text` without the absolute path of anything inside `root`: each such path is cut down to its
+/// last name, and a temp copy's name (`.soundhood-tmp-…`) becomes the name of the file in `path`
+/// it was a copy of. Report rows and journal notes must never show where the library lives (on
+/// Windows the account name is part of that path). The words around the path are kept.
+pub(crate) fn scrub(text: &str, root: &Path, path: &str) -> String {
+  let root = root.to_string_lossy();
+  let root = root.trim_end_matches(['/', '\\']);
+  if root.is_empty() {
+    return text.to_string();
+  }
+  let own_name = path.rsplit('/').next().unwrap_or(path);
+  let mut out = text.to_string();
+  for prefix in [format!(r"\\?\{root}"), root.to_string(), root.replace('\\', "/")] {
+    let mut from = 0;
+    while let Some(at) = out[from..].find(&prefix).map(|i| i + from) {
+      let rest = &out[at..];
+      // The path runs to the end of its token: a quote, a bracket, a line end or ": ".
+      let mut end = rest.find(['"', '\'', ')', '\n']).unwrap_or(rest.len());
+      if let Some(colon) = rest[..end].find(": ") {
+        end = colon;
+      }
+      let last = rest[..end].rsplit(['/', '\\']).next().unwrap_or_default();
+      let shown = if last.starts_with(crate::fs::TMP_PREFIX) {
+        own_name.to_string()
+      } else {
+        last.to_string()
+      };
+      out.replace_range(at..at + end, &shown);
+      from = at + shown.len();
+    }
+  }
+  out
+}
+
+/// An I/O error in plain words, without the OS error number.
+fn plain_io(e: &std::io::Error) -> String {
+  use std::io::ErrorKind as K;
+  match e.kind() {
+    K::NotFound => "it is not there any more".into(),
+    K::PermissionDenied => "the system did not allow the change".into(),
+    K::AlreadyExists => "a file of that name is already there".into(),
+    K::StorageFull => "the disk is full".into(),
+    K::ReadOnlyFilesystem => "the drive is read-only".into(),
+    _ => {
+      let text = e.to_string();
+      match text.rfind(" (os error ") {
+        Some(i) => text[..i].to_string(),
+        None => text,
+      }
+    }
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  /// No absolute path survives: the library path is cut down to the last name, a temp copy's
+  /// name becomes the file it copies, and the words around stay.
+  #[test]
+  fn scrub_keeps_the_words_and_drops_the_library_path() {
+    let root = if cfg!(windows) {
+      Path::new(r"C:\Users\someone\Music")
+    } else {
+      Path::new("/home/someone/Music")
+    };
+    let sep = std::path::MAIN_SEPARATOR;
+    let tmp = format!(
+      "{}{sep}Ambient{sep}.soundhood-tmp-0123456789abcdef0123456789abcdef.mp3",
+      root.display()
+    );
+    let path = "Ambient/Song - Artist.mp3";
+    assert_eq!(
+      scrub(&format!("not changed: {tmp}: frame TCON changed"), root, path),
+      "not changed: Song - Artist.mp3: frame TCON changed"
+    );
+    let file = format!("{}{sep}Ambient{sep}Song (Live).mp3", root.display());
+    assert_eq!(
+      scrub(&format!("could not move {file} to the bin"), root, path),
+      "could not move Song (Live).mp3 to the bin"
+    );
+    let verbatim = format!(r"\\?\{}{sep}a.mp3", root.display());
+    assert_eq!(scrub(&format!("x '{verbatim}' y"), root, path), "x 'a.mp3' y");
+    let slashes = format!("{}/Chill/b.mp3", root.display().to_string().replace('\\', "/"));
+    assert_eq!(scrub(&slashes, root, path), "b.mp3");
+    assert_eq!(scrub("file in use", root, path), "file in use");
+  }
+
+  #[test]
+  fn io_errors_read_in_plain_words() {
+    let e = Error::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+    assert_eq!(
+      report_text(&e, Path::new("/x"), "a.mp3"),
+      "the system did not allow the change"
+    );
+    let raw = Error::Io(std::io::Error::from_raw_os_error(if cfg!(windows) { 1117 } else { 5 }));
+    assert!(!report_text(&raw, Path::new("/x"), "a.mp3").contains("os error"));
+    assert!(matches!(scrubbed(raw, Path::new("/x"), "a.mp3"), Error::Other(_)));
+  }
 
   #[test]
   fn folder_names_the_library_would_trip_over_are_refused() {

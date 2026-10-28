@@ -95,6 +95,77 @@ fn restore_from_os_bin(lib: &Library, rec: &BinRecord) -> Result<()> {
   })
 }
 
+/// For startup recovery: the OS recycle bin's item for `rel`, when the newest deletion of that path
+/// happened at or after `since_ms` (a delete a crash interrupted before it was journaled as done).
+/// `None` when there is none, or the bin cannot be listed. Slow on a full bin; it only runs after a
+/// crash in the middle of a delete.
+#[cfg(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+pub(crate) fn find_in_os_bin(lib: &Library, rel: &RelPath, since_ms: i64) -> Option<BinRecord> {
+  let items = trash::os_limited::list().ok()?;
+  let item = newest_match(items, &lib.abs(rel))?;
+  // The bin keeps whole seconds; the entry's clock reading may be a little later than the delete.
+  (item.time_deleted >= since_ms.div_euclid(1000) - 2).then(|| BinRecord {
+    kind: BinKind::Os,
+    original: rel.clone(),
+    bin_rel: None,
+    deleted_at: item.time_deleted,
+  })
+}
+
+/// The macOS Trash and another device's bin cannot be searched: nothing is recovered from them.
+#[cfg(not(any(
+  windows,
+  all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+)))]
+pub(crate) fn find_in_os_bin(_lib: &Library, _rel: &RelPath, _since_ms: i64) -> Option<BinRecord> {
+  None
+}
+
+/// For startup recovery: where a delete a crash interrupted put `rel` in the app bin. The name is
+/// chosen at delete time (`_Soundhood/.bin/<yyyy-mm>/<rel>`, ` (n)` for a repeat), so the months of
+/// now and of `since_ms` are searched, newest first, for a copy holding `hash`.
+pub(crate) fn find_in_app_bin(lib: &Library, rel: &RelPath, since_ms: i64, hash: &str) -> Option<BinRecord> {
+  let month = |t: time::OffsetDateTime| t.format(time::macros::format_description!("[year]-[month]")).ok();
+  let since = time::OffsetDateTime::from_unix_timestamp(since_ms.div_euclid(1000)).ok()?;
+  let mut months = vec![month(time::OffsetDateTime::now_utc())?, month(since)?];
+  months.dedup();
+  for m in months {
+    let base = format!("{APP_DIR}/.bin/{m}/{}", rel.as_str());
+    let mut found = None;
+    let mut misses = 0;
+    for n in 1..1000 {
+      let Ok(bin_rel) = RelPath::new(&numbered(&base, n)) else {
+        break;
+      };
+      let abs = lib.abs(&bin_rel);
+      if !abs.is_file() {
+        // Restored copies leave gaps in the numbering; a long run of free names ends the search.
+        misses += 1;
+        if misses > 20 {
+          break;
+        }
+        continue;
+      }
+      misses = 0;
+      if super::file_hash(&abs).ok().as_deref() == Some(hash) {
+        found = Some(bin_rel);
+      }
+    }
+    if let Some(bin_rel) = found {
+      return Some(BinRecord {
+        kind: BinKind::App,
+        original: rel.clone(),
+        bin_rel: Some(bin_rel),
+        deleted_at: since_ms.div_euclid(1000),
+      });
+    }
+  }
+  None
+}
+
 #[cfg(target_os = "macos")]
 fn restore_from_os_bin(_lib: &Library, _rec: &BinRecord) -> Result<()> {
   Err(Error::Refused("restore from the Trash".into()))

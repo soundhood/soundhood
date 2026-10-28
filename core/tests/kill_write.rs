@@ -1,6 +1,8 @@
 //! Kill-mid-write: the test binary re-runs itself as a child that aborts (no unwinding, no
 //! destructors) at one fault point inside the write path; the parent then checks that the library
-//! is intact and that startup cleanup leaves no temp behind. Feature `fault-injection`.
+//! is intact and that startup cleanup leaves no temp behind. A crash after the change happened
+//! (`after_replace`) is finished on record at the next start, so "Undo last change" names it and
+//! reverts it. Feature `fault-injection`.
 #![cfg(feature = "fault-injection")]
 
 #[path = "writepath_support.rs"]
@@ -8,7 +10,7 @@ mod support;
 
 use soundhood_core::ingest::fault::CRASH_ENV;
 use soundhood_core::ingest::tagwrite::{apply, cleanup_orphans, land, ApplyOptions};
-use soundhood_core::ingest::{Kind, Op};
+use soundhood_core::ingest::{undo, JournalEntry, Kind, Op};
 use soundhood_core::model::{Library, RelPath, TagSet};
 use soundhood_core::{playlist, tags};
 use std::collections::BTreeMap;
@@ -131,17 +133,52 @@ fn playlists(lib: &Library) -> BTreeMap<String, Vec<u8>> {
     .collect()
 }
 
-/// Startup after the crash: cleanup runs, no temp is left, and the interrupted entry is on record
-/// as never committed.
-fn after_restart(lib: &Library, interrupted: Kind) {
+/// Every line of every journal file of the library.
+fn journal_lines(lib: &Library) -> usize {
+  walk(&lib.root.join("_Soundhood/journal"))
+    .iter()
+    .map(|f| std::fs::read_to_string(f).unwrap().lines().count())
+    .sum()
+}
+
+/// Startup after the crash: cleanup runs (recovery first) and no temp is left. A crash before the
+/// change happened leaves its pre-image open, which means "never happened", and there is nothing to
+/// undo. A crash after it (`after_replace`) is finished on record: committed, source "recovery",
+/// and "Undo last change" names exactly that change. A second start writes nothing more. Returns
+/// the interrupted entry as it is now.
+fn after_restart(lib: &Library, interrupted: Kind, point: &str) -> JournalEntry {
   cleanup_orphans(lib).unwrap();
   assert!(temps(&lib.root).is_empty(), "cleanup left a temp behind");
-  let journal = entries(lib);
-  let e = journal
-    .iter()
+  let e = entries(lib)
+    .into_iter()
     .find(|e| e.kind == interrupted)
     .expect("the pre-image was journaled");
-  assert!(!e.committed, "the crash came before the commit line");
+  if point == "after_replace" {
+    assert!(e.committed, "{point}: recovery finished the change on record");
+    assert_eq!(e.source, "recovery");
+    assert_eq!(e.note.as_deref(), Some("finished after an interrupted run"));
+    let last = undo::last_change(lib)
+      .unwrap()
+      .expect("the interrupted change can be undone");
+    assert_eq!(
+      (last.batch.as_str(), last.label.as_str()),
+      (e.batch.as_str(), e.label.as_str())
+    );
+  } else {
+    assert!(!e.committed, "{point}: the crash came before the change");
+    assert!(undo::last_change(lib).unwrap().is_none(), "{point}: nothing to undo");
+  }
+  let lines = journal_lines(lib);
+  cleanup_orphans(lib).unwrap();
+  assert_eq!(journal_lines(lib), lines, "a second start writes nothing");
+  e
+}
+
+/// "Undo last change" after a recovered crash: one change undone, nothing skipped.
+fn undo_recovered(lib: &Library, e: &JournalEntry) {
+  let u = undo::undo_batch(lib, &e.batch).unwrap();
+  assert_eq!(u.applied.len(), 1, "{}", show(&u));
+  assert!(u.skipped.is_empty() && u.failed.is_empty(), "{}", show(&u));
 }
 
 fn tag_write_at(point: &str, ext: &str) {
@@ -167,10 +204,27 @@ fn tag_write_at(point: &str, ext: &str) {
     assert_eq!(read_bytes(&lib, &r), original, "{ext}: the original is untouched");
   }
   assert_eq!(playlists(&lib), lists, "playlists intact");
-  after_restart(&lib, Kind::Tags);
-  if point != "after_replace" {
+  let e = after_restart(&lib, Kind::Tags, point);
+  if point == "after_replace" {
+    assert_eq!(
+      e.file_hash_after.as_deref(),
+      Some(soundhood_core::fs::file_hash(&lib.abs(&r)).unwrap().as_str())
+    );
+    undo_recovered(&lib, &e);
+    let t = tags::read(&lib.abs(&r)).unwrap();
+    assert_ne!(t.title, NEW_TITLE, "{ext}: the title is back");
+    assert_eq!(t.title, original_title(&original, ext), "{ext}");
+  } else {
     assert_eq!(read_bytes(&lib, &r), original);
   }
+}
+
+/// The title the original bytes carried, read from a scratch copy.
+fn original_title(bytes: &[u8], ext: &str) -> String {
+  let d = tempfile::tempdir().unwrap();
+  let p = d.path().join(format!("original.{ext}"));
+  std::fs::write(&p, bytes).unwrap();
+  tags::read(&p).unwrap().title
 }
 
 #[test]
@@ -239,7 +293,19 @@ fn move_at(point: &str) {
   for pl in playlist::list(&lib.root).unwrap() {
     assert!(!pl.entries.is_empty() || pl.name == "Empty", "{} still parses", pl.name);
   }
-  after_restart(&lib, Kind::Move);
+  let e = after_restart(&lib, Kind::Move, point);
+  if point == "after_replace" {
+    // Recovery finished the move: the playlists list the track where it is now.
+    let fav = playlist::read(&lib.root, "Favourites").unwrap().entries;
+    assert!(
+      fav.contains(&to.to_string()) && !fav.contains(&r.to_string()),
+      "{fav:?}"
+    );
+    undo_recovered(&lib, &e);
+    assert_eq!(read_bytes(&lib, &r), audio);
+    assert!(!lib.abs(&to).exists());
+    assert_eq!(playlists(&lib), lists, "undo puts every playlist line back exactly");
+  }
 }
 
 #[test]
@@ -267,7 +333,15 @@ fn delete_at(point: &str) {
     assert_eq!(std::fs::read(&binned[0]).unwrap(), audio, "intact in the bin");
   }
   assert_eq!(playlists(&lib), lists);
-  after_restart(&lib, Kind::Delete);
+  let e = after_restart(&lib, Kind::Delete, point);
+  if point == "after_replace" {
+    assert!(e.bin.is_some(), "recovery found the file in the bin");
+    let fav = playlist::read(&lib.root, "Favourites").unwrap().entries;
+    assert!(!fav.contains(&r.to_string()), "recovery took the line out: {fav:?}");
+    undo_recovered(&lib, &e);
+    assert_eq!(read_bytes(&lib, &r), audio);
+    assert_eq!(playlists(&lib), lists, "undo puts every playlist line back exactly");
+  }
 }
 
 fn walk(dir: &Path) -> Vec<PathBuf> {
@@ -315,7 +389,15 @@ fn playlist_add_at(point: &str) {
     want.push(newcomer.to_string());
     assert_eq!(String::from_utf8(now).unwrap(), playlist::render(&want));
   }
-  after_restart(&lib, Kind::Playlist);
+  let e = after_restart(&lib, Kind::Playlist, point);
+  if point == "after_replace" {
+    undo_recovered(&lib, &e);
+    assert_eq!(
+      std::fs::read(&file).unwrap(),
+      before,
+      "undo restores the playlist exactly"
+    );
+  }
 }
 
 #[test]
@@ -354,8 +436,11 @@ fn land_at(point: &str) {
       "the download is still there to retry"
     );
   }
-  after_restart(&lib, Kind::Ingest);
-  if point != "after_replace" {
+  let e = after_restart(&lib, Kind::Ingest, point);
+  if point == "after_replace" {
+    undo_recovered(&lib, &e);
+    assert!(!lib.abs(&dest).exists(), "undo of the landing sent it to the bin");
+  } else {
     assert!(!lib.abs(&dest).exists());
   }
 }

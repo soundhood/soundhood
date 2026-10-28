@@ -439,3 +439,64 @@ fn last_change_walks_back_and_counts_an_undo_from_another_device() {
     "the phone made no change of its own"
   );
 }
+
+/// Startup recovery looks only at this device's last entry, and never at one the write path gave
+/// up on. Each case below is an open pre-image whose change the disk does show (the file holds
+/// the edited title, and not the "before" bytes): only the one that is the last entry and was not
+/// given up is finished on record.
+#[test]
+fn startup_recovery_finishes_only_an_open_last_entry() {
+  let (_d, lib, report) = fixture_lib(10, false);
+  let r = track_with_ext(&report, "m4a");
+  let edit = apply(
+    &lib,
+    vec![Op::WriteTags {
+      rel: r.clone(),
+      changes: TagSet {
+        title: Some("Edited".into()),
+        ..TagSet::default()
+      },
+    }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(edit.applied.len(), 1, "{}", show(&edit));
+  let template = entries(&lib).pop().unwrap();
+  let open = |id: char, note: Option<&str>| JournalEntry {
+    id: id.to_string().repeat(32),
+    batch: format!("b-{id}"),
+    committed: false,
+    file_hash_before: Some("0".repeat(64)),
+    file_hash_after: None,
+    note: note.map(str::to_string),
+    ..template.clone()
+  };
+  let state = |lib: &Library, id: char| {
+    let e = entries(lib)
+      .into_iter()
+      .find(|e| e.id == id.to_string().repeat(32))
+      .unwrap();
+    (e.committed, e.source)
+  };
+
+  // Given up (its last line says "not applied"): never finished, even as the last entry.
+  journal::append(&lib, &open('a', Some("not applied: changed since, not changed"))).unwrap();
+  cleanup_orphans(&lib).unwrap();
+  assert!(!state(&lib, 'a').0);
+
+  // Open, but not the last entry: a later change was made after it, so it was not in flight.
+  journal::append(&lib, &open('b', None)).unwrap();
+  let later = apply(
+    &lib,
+    vec![Op::PlaylistCreate { name: "Later".into() }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(later.applied.len(), 1);
+  cleanup_orphans(&lib).unwrap();
+  assert!(!state(&lib, 'b').0);
+
+  // Open and last: what a crash right after the rename leaves. Finished, and undoable.
+  journal::append(&lib, &open('c', None)).unwrap();
+  cleanup_orphans(&lib).unwrap();
+  assert_eq!(state(&lib, 'c'), (true, "recovery".to_string()));
+  assert_eq!(undo::last_change(&lib).unwrap().unwrap().batch, "b-c");
+}

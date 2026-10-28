@@ -7,7 +7,7 @@ mod win;
 mod write;
 
 #[allow(unused_imports)] // the bin helpers are reached from ingest::tagwrite (zone core-writepath)
-pub(crate) use bin::{restore_from_bin, to_app_bin, to_bin};
+pub(crate) use bin::{find_in_app_bin, find_in_os_bin, restore_from_bin, to_app_bin, to_bin};
 pub use bin::{BinKind, BinRecord};
 #[allow(unused_imports)] // the write helpers are reached from ingest::tagwrite (zone core-writepath)
 pub(crate) use write::{

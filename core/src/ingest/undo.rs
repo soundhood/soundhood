@@ -1,11 +1,11 @@
 //! "Undo last change": replays a journaled batch in reverse, as a new batch whose source is
 //! `undo:<batch>`, through the same mechanics as any other write. An entry whose file or playlist
-//! is no longer exactly as the batch left it is refused and reported ("changed since — not
+//! is no longer exactly as the batch left it is refused and reported ("changed since, not
 //! undone"); nothing is forced.
 
 use super::tagwrite::{
-  commit, content_hash, delete, playlist_state, preimage, relocate, side_failure, write_playlist, write_tags, Batch,
-  Outcome, PlaylistState, CHANGED_SINCE, FILE_IN_USE,
+  commit, content_hash, delete, expect_of, give_up, playlist_state, preimage, relocate, side_failure, write_playlist,
+  write_tags, Batch, Outcome, PlaylistState, CHANGED_SINCE_UNDO, FILE_IN_USE,
 };
 use super::{
   fault, folder_label, journal, message, Applied, BatchReport, ChangeSummary, Failed, JournalEntry, Kind,
@@ -178,14 +178,14 @@ fn undo_entry(b: &mut Batch, e: &JournalEntry) -> Outcome {
   match e.kind {
     Kind::Tags => {
       let (Some(rel), Some(before), Some(hash)) = (&e.path_after, &e.tags_before, &e.file_hash_after) else {
-        return not_undoable("the journal does not hold what the tags were");
+        return not_undoable("no record of what the tags were");
       };
       let label = format!("Restored tags of {}", rel.file_name());
       write_tags(b, rel, before, label, Some(hash))
     }
     Kind::Move | Kind::Rename => {
       let (Some(from), Some(to), Some(hash)) = (&e.path_after, &e.path_before, &e.file_hash_after) else {
-        return not_undoable("the journal does not say where the file was");
+        return not_undoable("no record of where the file was");
       };
       let label = if e.kind == Kind::Move {
         format!("Moved {} back to {}", from.file_name(), folder_label(to))
@@ -198,7 +198,7 @@ fn undo_entry(b: &mut Batch, e: &JournalEntry) -> Outcome {
     Kind::Delete => restore_deleted(b, e),
     Kind::Ingest => {
       let (Some(rel), Some(hash)) = (&e.path_after, &e.file_hash_after) else {
-        return not_undoable("the journal does not say which file arrived");
+        return not_undoable("no record of which file arrived");
       };
       let label = format!("Deleted {} (in the bin)", rel.file_name());
       delete(b, rel, label, Some(hash), &e.playlists_touched, false)
@@ -220,14 +220,14 @@ fn restore_deleted(b: &mut Batch, e: &JournalEntry) -> Outcome {
   let (Some(rel), Some(rec)) = (&e.path_before, &e.bin) else {
     return Outcome::Skipped {
       path: entry_path(e),
-      reason: "not undone: the journal does not say where the file went".into(),
+      reason: "not undone: no record of where the file went".into(),
     };
   };
   let path = rel.as_str();
   if lib.abs(rel).symlink_metadata().is_ok() {
     return Outcome::Skipped {
       path: path.to_string(),
-      reason: CHANGED_SINCE.into(),
+      reason: CHANGED_SINCE_UNDO.into(),
     };
   }
   let mut extra_failed = Vec::new();
@@ -254,22 +254,24 @@ fn restore_deleted(b: &mut Batch, e: &JournalEntry) -> Outcome {
   }
   if let Err(err) = fs::restore_from_bin(lib, rec) {
     let reason = match err {
-      Error::Exists(_) => CHANGED_SINCE.to_string(),
+      Error::Exists(_) => CHANGED_SINCE_UNDO.to_string(),
       Error::NotFound(_) => "not undone: it is no longer in the bin".to_string(),
       Error::InUse(_) => FILE_IN_USE.to_string(),
       Error::Refused(m) => format!("not undone: {m}"),
       err => {
-        return Outcome::Failed {
+        let failed = Outcome::Failed {
           path: path.to_string(),
           err,
           counts: false,
-        }
+        };
+        return give_up(lib, &mut u, failed, None);
       }
     };
-    return Outcome::Skipped {
+    let skipped = Outcome::Skipped {
       path: path.to_string(),
       reason,
     };
+    return give_up(lib, &mut u, skipped, None);
   }
   fault::point("after_replace");
   let hash = fs::file_hash(&lib.abs(rel)).ok();
@@ -281,7 +283,8 @@ fn restore_deleted(b: &mut Batch, e: &JournalEntry) -> Outcome {
   let mut written = Vec::new();
   for (i, mut pc) in std::mem::take(&mut u.playlists_touched).into_iter().enumerate() {
     let after = pc.after.clone().unwrap_or_default();
-    match playlist::write(&lib.root, &pc.name, &after, &format!("{}-p{i}", u.id)) {
+    let expect = expect_of(pc.before_hash.as_deref());
+    match playlist::write_expecting(&lib.root, &pc.name, &after, &format!("{}-p{i}", u.id), Some(expect)) {
       Ok(()) => {
         pc.after_hash = Some(content_hash(&after));
         written.push(pc);
@@ -309,10 +312,13 @@ fn restore_deleted(b: &mut Batch, e: &JournalEntry) -> Outcome {
 
 /// The rewrite that puts `rel` back into the playlist a delete took it out of: the journaled lines
 /// when the playlist is byte-for-byte as the delete left it, else `rel` appended. `None` when the
-/// playlist is gone or already lists it.
+/// playlist is gone or already lists it. A playlist another program wrote is refused, not
+/// rewritten in the app's format.
 fn back_into(root: &std::path::Path, pc: &PlaylistChange, rel: &RelPath) -> Result<Option<PlaylistChange>> {
-  let PlaylistState::Present(current, hash) = playlist_state(root, &pc.name)? else {
-    return Ok(None);
+  let (current, hash) = match playlist_state(root, &pc.name)? {
+    PlaylistState::Present(current, hash) => (current, hash),
+    PlaylistState::Foreign => return Err(playlist::foreign(&pc.name)),
+    PlaylistState::Absent | PlaylistState::Legacy => return Ok(None),
   };
   let after = match (&pc.before, &pc.after_hash) {
     (Some(before), Some(after_hash)) if *after_hash == hash => before.clone(),
@@ -345,6 +351,12 @@ fn revert_playlist(b: &mut Batch, e: &JournalEntry) -> Outcome {
     Ok(PlaylistState::Present(pl, h)) => (Some(pl.entries), Some(h)),
     Ok(PlaylistState::Absent) => (None, None),
     Ok(PlaylistState::Legacy) => (None, Some(String::new())),
+    Ok(PlaylistState::Foreign) => {
+      return Outcome::Skipped {
+        path: name.to_string(),
+        reason: format!("not undone: {}", message(&playlist::foreign(name))),
+      }
+    }
     Err(err) => {
       return Outcome::Failed {
         path: name.to_string(),
@@ -356,7 +368,7 @@ fn revert_playlist(b: &mut Batch, e: &JournalEntry) -> Outcome {
   if current_hash != pc.after_hash {
     return Outcome::Skipped {
       path: name.to_string(),
-      reason: CHANGED_SINCE.into(),
+      reason: CHANGED_SINCE_UNDO.into(),
     };
   }
   let (kind, label) = match (&pc.before, &current) {

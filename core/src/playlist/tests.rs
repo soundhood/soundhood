@@ -206,3 +206,64 @@ fn a_locked_playlist_is_an_error() {
   drop(holder);
   assert_eq!(read(root.path(), "Locked").unwrap().entries, vec!["a.mp3"]);
 }
+
+const JOB: &str = "0123456789abcdef0123456789abcdef";
+
+/// The checked write renames its new version into place only while the playlist is still what the
+/// caller read: the same bytes, or still absent for a new one. Otherwise the playlist is left as it
+/// is, the temp goes, and the error says the playlist changed.
+#[test]
+fn write_expecting_leaves_a_playlist_that_changed_since_it_was_read() {
+  let root = tmp_root();
+  write(root.path(), "P", &["a.mp3".to_string()], JOB).unwrap();
+  let path = root.path().join("_Playlists/P.m3u8");
+  let read_back = read_exact(root.path(), "P").unwrap();
+  assert!(read_back.ours);
+  // Someone else's version lands after the read.
+  std::fs::write(&path, "#EXTM3U\na.mp3\nphone.mp3\n").unwrap();
+  let new = ["a.mp3".to_string(), "b.mp3".to_string()];
+  let err = write_expecting(root.path(), "P", &new, JOB, Some(Expect::Hash(&read_back.hash))).unwrap_err();
+  assert!(is_changed(&err), "{err}");
+  assert_eq!(err.to_string(), "refused: the playlist P changed since it was read");
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), "#EXTM3U\na.mp3\nphone.mp3\n");
+  assert_eq!(
+    std::fs::read_dir(root.path().join("_Playlists")).unwrap().count(),
+    1,
+    "no temp left"
+  );
+  // A playlist that appeared meanwhile is not taken over by a create.
+  let err = write_expecting(root.path(), "P", &[], JOB, Some(Expect::Absent)).unwrap_err();
+  assert!(is_changed(&err), "{err}");
+  // Still as read: written.
+  let now = read_exact(root.path(), "P").unwrap();
+  write_expecting(root.path(), "P", &new, JOB, Some(Expect::Hash(&now.hash))).unwrap();
+  assert_eq!(read(root.path(), "P").unwrap().entries, new);
+  write_expecting(root.path(), "Q", &new, JOB, Some(Expect::Absent)).unwrap();
+}
+
+/// `ours` is true only for the exact bytes the app writes: any comment, `#EXTINF`, BOM, CRLF,
+/// backslash, blank line or missing header makes it another program's file.
+#[test]
+fn read_exact_tells_the_apps_own_format_from_another_programs() {
+  let root = tmp_root();
+  let dir = root.path().join("_Playlists");
+  std::fs::create_dir_all(&dir).unwrap();
+  let cases: [(&str, bool); 9] = [
+    ("#EXTM3U\na.mp3\nRock/b.mp3\n", true),
+    ("#EXTM3U\n", true),
+    ("#EXTM3U\n./#1 Song.mp3\n", true),
+    ("\u{feff}#EXTM3U\na.mp3\n", false),
+    ("#EXTM3U\r\na.mp3\r\n", false),
+    ("#EXTM3U\n#EXTINF:1,x\na.mp3\n", false),
+    ("#EXTM3U\nRock\\b.mp3\n", false),
+    ("a.mp3\n", false),
+    ("", false),
+  ];
+  for (text, ours) in cases {
+    std::fs::write(dir.join("X.m3u8"), text).unwrap();
+    let x = read_exact(root.path(), "X").unwrap();
+    assert_eq!(x.ours, ours, "{text:?}");
+    assert_eq!(x.hash, blake3::hash(text.as_bytes()).to_hex().to_string());
+  }
+  assert!(matches!(read_exact(root.path(), "Missing"), Err(Error::NotFound(_))));
+}

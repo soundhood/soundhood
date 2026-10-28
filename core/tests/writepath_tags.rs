@@ -295,7 +295,7 @@ fn undo_refuses_a_file_changed_since() {
   let u = undo::undo_batch(&lib, &rep.batch).unwrap();
   assert!(u.applied.is_empty(), "{}", show(&u));
   assert_eq!(u.skipped.len(), 1);
-  assert_eq!(u.skipped[0].reason, "changed since — not undone");
+  assert_eq!(u.skipped[0].reason, "changed since, not undone");
   assert_eq!(read_bytes(&lib, &r), bytes, "nothing forced");
   assert_eq!(tags::read(&lib.abs(&r)).unwrap().title, "Edited Again");
 }
