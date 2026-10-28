@@ -48,6 +48,27 @@ export function batchLogLines(r: BatchReport): string[] {
   return lines;
 }
 
+/**
+ * What "Copy log" puts on the clipboard: the diagnostics block, the visible log, then the lines kept
+ * only for copying (applied changes), leaving out any of those the visible log already shows.
+ */
+export function copyLogText(head: string[], visible: string, quiet: string): string {
+  const shown = new Set(visible.split("\n").map((l) => l.trim()).filter(Boolean));
+  const extra = quiet.split("\n").filter((l) => l.trim() && !shown.has(l.trim()));
+  const parts = [head.join("\n")];
+  const v = visible.replace(/\s+$/, "");
+  if (v) parts.push(v);
+  if (extra.length) parts.push(extra.join("\n"));
+  return parts.join("\n\n") + "\n";
+}
+
+/** The status line after "Undo": the change's own label, or how much was left as it was. */
+export function undoStatus(report: BatchReport, label: string): string {
+  const left = (report.skipped?.length ?? 0) + (report.failed?.length ?? 0);
+  if (left === 0 && !report.aborted) return `Undone: ${label}`;
+  return `Undo: ${report.applied?.length ?? 0} restored, ${left} left as they are (see the log)`;
+}
+
 /** The diagnostics block, one "field: value" line per field. */
 export function diagnosticsLines(d: Diagnostics): string[] {
   return [

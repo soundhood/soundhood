@@ -22,7 +22,7 @@ export function checkFolderName(raw: string): FolderNameCheck {
   if (!name) return { ok: false, reason: "empty" };
   if (name === "." || name === "..") return { ok: false, reason: "not a folder name" };
   if (name.includes("/") || name.includes("\\")) return { ok: false, reason: "no slashes" };
-  if (WINDOWS_FORBIDDEN.test(name) || hasControlChar(name)) return { ok: false, reason: 'no < > : " | ? * or control characters' };
+  if (WINDOWS_FORBIDDEN.test(name) || hasControlChar(name)) return { ok: false, reason: 'no < > : " | ? * or invisible characters' };
   if (DOS_DEVICE.test(name)) return { ok: false, reason: "reserved by Windows" };
   if (/[. ]$/.test(name)) return { ok: false, reason: "cannot end with a dot or a space" };
   if (RESERVED_APP_FOLDERS.includes(name.toLowerCase())) return { ok: false, reason: "used by the app" };

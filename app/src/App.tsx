@@ -5,9 +5,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, addPluginListener } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { batchLogLines, capLog, diagnosticsLines, libraryKey } from "./coreIpc";
+import { batchLogLines, capLog, copyLogText, diagnosticsLines, libraryKey, undoStatus } from "./coreIpc";
 import type { BatchReport, ChangeSummary, Diagnostics, RefreshReport, SelfTestReport } from "./coreIpc";
+import { CHANNEL_REFUSAL, isChannelLink, queueStopStatus } from "./downloads";
 import { checkFolderName, folderNameRefusal } from "./folderName";
+import { SYNC_OFF_LINE, isTestLibrary, shownFolder } from "./testLibrary";
 
 type Track = {
   path: string;
@@ -58,8 +60,12 @@ const KEY_SHARE_QUEUE = "share_queue";
 const KEY_LAST_SYNC = "last_sync";
 // Hidden developer section: 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop).
 const KEY_DEV_MODE = "dev_mode";
-// The real library while "Use fixture root" points the app at the generated fixture library.
+// The real library while "Use fixture root" points the app at the generated fixture library; never
+// the fixture library itself.
 const KEY_REAL_LIBRARY_DIR = "real_library_dir";
+// Where the host generated the fixture library ("test library"): the switch is on while the shown
+// library is this folder.
+const KEY_FIXTURE_ROOT = "fixture_root";
 type QueuedLink = { url: string; added: number; target?: string; playlists?: string[] };
 /** A pure playlist link (list= without a specific video) downloads every entry. */
 function isPlaylistLink(url: string): boolean {
@@ -423,6 +429,7 @@ export default function App() {
   function queueLink(text: string): boolean {
     const url = firstUrl(String(text || ""));
     if (!url) { setStatus("No link found in that text"); return false; }
+    if (isChannelLink(url)) { refuseChannelLink(); return false; }
     setQueueDraft({ url, target: dlTarget || DEFAULT_DOWNLOAD_TARGET, playlists: dlPlaylistsRef.current });
     return true;
   }
@@ -561,12 +568,40 @@ export default function App() {
     if (lines.length) setDlLogs((prev) => capLog(prev) + lines.join("\n") + "\n");
   }
 
+  // Lines kept only for "Copy log": every applied batch (core:batch) and the developer switch. The
+  // visible log keeps what it showed before the rebuild (downloads, Proton, the network check), so
+  // an edit never opens the log panel on the desktop or adds lines to the phone's settings log.
+  const quietLogRef = useRef<string>("");
+  function appendQuietLog(lines: string[]) {
+    if (lines.length) quietLogRef.current = capLog(quietLogRef.current) + lines.join("\n") + "\n";
+  }
+  /** "Clear log": the visible log and the lines kept for copying. */
+  function clearLog() {
+    setDlLogs("");
+    quietLogRef.current = "";
+  }
+
+  // Output of the download in flight (its tail), for the reason a queued download stopped.
+  const dlOutputRef = useRef<string>("");
+  function noteDlOutput(text: string) {
+    if (text) dlOutputRef.current = (dlOutputRef.current + text).slice(-4000);
+  }
+
+  /** A channel link is refused where it enters (paste, share, queue, download), in one plain line. */
+  function refuseChannelLink() {
+    appendLog([`[error] ${CHANNEL_REFUSAL}`]);
+    setStatus(CHANNEL_REFUSAL);
+  }
+
   // Hidden developer section (brief §5.9 Tools): "Use fixture root", "Run self-test", "Rebuild
   // index". Shown after 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop); remembered.
   const [devMode, setDevMode] = useState<boolean>(false);
   const devModeRef = useRef<boolean>(false);
   devModeRef.current = devMode;
-  const [fixtureOn, setFixtureOn] = useState<boolean>(false);
+  // The fixture root the host returned (remembered); the test library is shown when the current
+  // library is that folder.
+  const [fixtureRoot, setFixtureRoot] = useState<string>("");
+  const fixtureOn = isTestLibrary(folder, fixtureRoot);
   const [devBusy, setDevBusy] = useState<"" | "fixture" | "selftest" | "rebuild">("");
   const statusTapsRef = useRef<{ n: number; at: number }>({ n: 0, at: 0 });
 
@@ -595,38 +630,60 @@ export default function App() {
     }
   }
 
-  // "Use fixture root": on = remember the real library, point the app at the generated fixture
-  // library (created by the host on first use); off = go back to the remembered library.
+  // "Use fixture root": on = remember the real library and point the app at the generated test
+  // library (created by the host on first use); off = go back to the remembered library. The state
+  // itself is never stored: it follows from the shown library being the fixture root.
   async function switchFixtureRoot(enable: boolean) {
     if (devBusy) return;
     setDevBusy("fixture");
     try {
       const store = await storePromise;
       if (enable) {
-        const real = folderRef.current;
+        const current = folderRef.current;
         const r = await invoke<{ root: string }>("dev_fixture_root", { enable: true });
         if (!r?.root) throw new Error("the host returned no fixture folder");
-        await store.set(KEY_REAL_LIBRARY_DIR, real);
+        await store.set(KEY_FIXTURE_ROOT, r.root);
+        // Only a real library is remembered, never the test library itself.
+        if (current && !isTestLibrary(current, r.root)) await store.set(KEY_REAL_LIBRARY_DIR, current);
         await store.save();
-        setFixtureOn(true);
-        appendLog(["[dev] fixture root on"]);
+        setFixtureRoot(r.root);
+        appendQuietLog(["[dev] test library on"]);
         await importFolderPath(r.root);
       } else {
-        const real = await store.get<string>(KEY_REAL_LIBRARY_DIR);
+        const saved = await store.get<string>(KEY_REAL_LIBRARY_DIR);
+        const real = typeof saved === "string" && saved && !isTestLibrary(saved, fixtureRoot) ? saved : "";
         try {
           await invoke("dev_fixture_root", { enable: false });
         } catch { /* nothing to switch off on the host */ }
         await store.set(KEY_REAL_LIBRARY_DIR, "");
         await store.save();
-        setFixtureOn(false);
-        appendLog(["[dev] fixture root off"]);
-        if (typeof real === "string" && real) await importFolderPath(real);
-        else setStatus("Fixture root off: choose the library folder again");
+        appendQuietLog(["[dev] test library off"]);
+        if (real) await importFolderPath(real);
+        else await closeLibrary("Test library off: choose your library folder again");
       }
     } catch (e) {
-      setStatus(`Fixture root: ${String(e).slice(0, 120)}`);
+      setStatus(`Test library: ${String(e).slice(0, 120)}`);
     }
     setDevBusy("");
+  }
+
+  /** No library shown (the test library was switched off and no real one is known). */
+  async function closeLibrary(message: string) {
+    if (currentPathRef.current) stopPlayer();
+    setFolder("");
+    setAllTracks([]);
+    setPlaylistFiles([]);
+    setSelectedPaths(new Set());
+    setPlaylist("(all)");
+    setPlView("");
+    setArtistView("");
+    setLastChange(null);
+    setStatus(message);
+    try {
+      const store = await storePromise;
+      await store.set(KEY_LIBRARY_DIR, "");
+      await store.save();
+    } catch { /* non-fatal: the library is closed for this session */ }
   }
 
   async function runSelfTest() {
@@ -1079,7 +1136,13 @@ export default function App() {
       return false;
     }
     const folderName = check.name;
+    // A queued link may come from the synced queue file, written by another device or an older build.
+    if (isChannelLink(url)) {
+      refuseChannelLink();
+      return false;
+    }
     activeDlRef.current = { target: folderName, playlists, queued };
+    dlOutputRef.current = "";
     setDlBusy(true);
     setDlLogs(queued ? `[soundhood] queued link → ${folderName}${playlists.length ? " + " + playlists.join(", ") : ""}\n` : "");
     const playlist = isPlaylistLink(url);
@@ -1095,6 +1158,7 @@ export default function App() {
           args: { url, outDir, playlist, id },
         });
         setDlLogs((prev) => prev + `\n[done] exit code: ${res.exitCode}\n`);
+        noteDlOutput(res.log || "");
         await finishDownload(res.exitCode, res.files || []);
         return res.exitCode === 0;
       } catch (err) {
@@ -1145,9 +1209,16 @@ export default function App() {
         setStatus(`Downloaded ${filePaths.length} file${filePaths.length === 1 ? "" : "s"}`);
       }
       if (active.queued) {
-        if (exitCode === 0) saveQueue(shareQueueRef.current.filter((q) => q.url !== active.queued!.url));
         activeDlRef.current = { ...active, queued: null };
-        setTimeout(() => nextQueuedRef.current(), 300);
+        if (exitCode === 0) {
+          saveQueue(shareQueueRef.current.filter((q) => q.url !== active.queued!.url));
+          setTimeout(() => nextQueuedRef.current(), 300);
+        } else {
+          // A refusal (bot wall, rate limit) would meet every remaining link too: stop the run here.
+          // The failed link stays queued.
+          queueRunRef.current = [];
+          setStatus(queueStopStatus(dlOutputRef.current, exitCode));
+        }
       }
     } catch (err) {
       setStatus(`Refresh error: ${String(err)}`);
@@ -1181,6 +1252,7 @@ export default function App() {
     let active = true;
     addPluginListener<{ id: string; progress: number; eta?: number; line: string }>("soundhood-ytdl", "progress", (e) => {
       if (typeof e.progress === "number" && e.progress >= 0) setDlProgress(e.progress);
+      if (e.line) noteDlOutput(e.line + "\n");
       if (e.line) setDlLogs((prev) => (prev.length > 20000 ? prev.slice(-12000) : prev) + e.line + "\n");
     }).then((l) => { if (active) un = () => l.unregister(); else l.unregister(); }).catch((e) => setStatus(`Progress events unavailable: ${String(e).slice(0, 100)}`));
     return () => { active = false; if (un) un(); };
@@ -1209,7 +1281,12 @@ export default function App() {
     } catch (e) {
       head = [`diagnostics: unavailable (${String(e).slice(0, 120)})`];
     }
-    const text = `${head.join("\n")}\n\n${dlLogs}`;
+    // Then the visible log, then the change lines kept out of it (core:batch).
+    const text = copyLogText(head, dlLogs, quietLogRef.current);
+    // What to do by hand when the clipboard refuses: the phone selects with a long press.
+    const copyFailed = isMobile
+      ? "Copy failed: long-press the log to select it"
+      : `Copy failed: select the log text and press ${platform === "macos" ? "Cmd" : "Ctrl"}+C`;
     try {
       await navigator.clipboard.writeText(text);
       setStatus("Log copied");
@@ -1224,9 +1301,9 @@ export default function App() {
       ta.select();
       const ok = document.execCommand("copy");
       document.body.removeChild(ta);
-      setStatus(ok ? "Log copied" : "Copy failed — long-press the log to select it");
+      setStatus(ok ? "Log copied" : copyFailed);
     } catch {
-      setStatus("Copy failed — long-press the log to select it");
+      setStatus(copyFailed);
     }
   }
   // ---------- Proton Drive (phone: rclone inside the app; PC: the Proton Drive app mirrors the folder) ----------
@@ -1276,6 +1353,8 @@ export default function App() {
   async function protonSync(direction: "down" | "up" | "both" = "both") {
     const lib = folderRef.current;
     if (!lib) { setStatus("Pick the Music folder first"); return; }
+    // The test library must never meet the real Proton Drive folder (the buttons are off too).
+    if (isTestLibrary(lib, fixtureRoot)) { setStatus(SYNC_OFF_LINE); return; }
     setProtonBusy("sync");
     setStatus("Syncing with Proton Drive…");
     try {
@@ -1589,12 +1668,10 @@ export default function App() {
       const pls = await loadPlaylists(lib);
       if (pls && plView && !pls.some((p) => p.name === plView)) setPlView("");
       await followUndo(report, found, lib);
-      const notDone = (report.skipped?.length ?? 0) + (report.failed?.length ?? 0);
-      setStatus(
-        notDone > 0 || report.aborted
-          ? `Undo: ${report.applied?.length ?? 0} restored, ${notDone} not undone (changed since)`
-          : `Undone: ${change.label}`
-      );
+      // What was left as it was, and why, goes to the visible log ("see the log"); applied lines
+      // stay with the other change lines that only "Copy log" carries.
+      appendLog(batchLogLines({ ...report, applied: [] }));
+      setStatus(undoStatus(report, change.label));
     } catch (err) {
       setStatus(`Undo failed: ${String(err)}`);
     } finally {
@@ -1739,8 +1816,8 @@ export default function App() {
         settingsLoadedRef.current = true;
 
         if ((await store.get<boolean>(KEY_DEV_MODE)) === true) setDevMode(true);
-        const savedReal = await store.get<string>(KEY_REAL_LIBRARY_DIR);
-        setFixtureOn(typeof savedReal === "string" && savedReal !== "");
+        const savedFixtureRoot = await store.get<string>(KEY_FIXTURE_ROOT);
+        if (typeof savedFixtureRoot === "string") setFixtureRoot(savedFixtureRoot);
 
         let saved = await store.get<string>(KEY_LIBRARY_DIR);
         // Android: no folder picker (it returns content URIs, not paths) — start from the standard Music folder.
@@ -1865,11 +1942,13 @@ export default function App() {
       const uOut = await listen<string>("ytdlp:stdout", (e) => {
         // add newline if missing, to keep logs readable
         const chunk = e.payload.endsWith("\n") ? e.payload : e.payload + "\n";
+        noteDlOutput(chunk);
         setDlLogs((prev) => capLog(prev) + chunk);
       });
 
       const uErr = await listen<string>("ytdlp:stderr", (e) => {
         const chunk = e.payload.endsWith("\n") ? e.payload : e.payload + "\n";
+        noteDlOutput(chunk);
         setDlLogs((prev) => capLog(prev) + chunk);
       });
 
@@ -1911,12 +1990,13 @@ export default function App() {
   }, []);
 
   // Every batch the core applies (tag edit, move, delete, playlist change, undo) is reported by
-  // the host as a `core:batch` event: one log line per entry. Same StrictMode-safe pattern.
+  // the host as a `core:batch` event: one line per entry, kept for "Copy log" only, so an edit looks
+  // exactly as it did before the rebuild (no log panel). Same StrictMode-safe pattern.
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
     listen<BatchReport>("core:batch", (e) => {
-      if (e.payload) appendLog(batchLogLines(e.payload));
+      if (e.payload) appendQuietLog(batchLogLines(e.payload));
     })
       .then((u) => {
         if (active) unlisten = u;
@@ -2027,10 +2107,12 @@ export default function App() {
 
         .downloadBar{
           display:flex;
+          flex-wrap: wrap;  /* narrow windows: the buttons go to a second row, never off the side */
           align-items:center;
           gap: 10px;
           padding: 0 16px 12px 16px;
         }
+        .brand .testLibraryNote{ margin-top: 0; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
         .devBar{ display:flex; flex-wrap: wrap; align-items:center; gap: 8px; padding: 0 16px 12px 16px; }
         .downloadInput{
           flex: 1;
@@ -2528,6 +2610,14 @@ export default function App() {
               {undoBusy ? "Undoing…" : "Undo"}
             </button>
           ) : null}
+          {fixtureOn ? (
+            <span
+              className="modalHint testLibraryNote"
+              title="The app shows the generated test library, not your music. Switch it off under Developer."
+            >
+              Test library
+            </span>
+          ) : null}
         </div>
         <div className="status" onClick={onStatusTap}>{isMobile ? status : `Status: ${status}`}</div>
       </div>
@@ -2536,7 +2626,7 @@ export default function App() {
 
       {isMobile && mSettings ? (
         <div className="mSettings">
-          <div className="mFolder">{folder ? `Library: ${folder}` : "Type the folder that holds your music, then tap Use."}</div>
+          <div className="mFolder">{folder ? `Library: ${shownFolder(folder, fixtureRoot)}` : "Type the folder that holds your music, then tap Use."}</div>
           <input
             className="downloadInput"
             placeholder="/storage/emulated/0/Music"
@@ -2557,7 +2647,7 @@ export default function App() {
                 {undoBusy ? "Undoing…" : "Undo last change"}
               </button>
               <span className="modalHint" style={{ marginTop: 0 }}>
-                {lastChange ? lastChange.label : "nothing to undo"}
+                {lastChange ? lastChange.label : "Nothing to undo"}
               </span>
             </div>
           ) : null}
@@ -2584,11 +2674,12 @@ export default function App() {
               <div className="modalHint">This build has no sync engine (rclone not bundled).</div>
             ) : proton.connected ? (
               <div className="queueAdd" style={{ marginTop: 0 }}>
-                <button className="btn primaryBtn" onClick={() => protonSync("both")} disabled={protonBusy !== "" || dlBusy}>{protonBusy === "sync" ? "Syncing…" : "Sync now"}</button>
-                <button className="btn" onClick={() => protonSync("down")} disabled={protonBusy !== "" || dlBusy} title="Only fetch what the PC added">Get new</button>
-                <button className="btn" onClick={() => protonSync("up")} disabled={protonBusy !== "" || dlBusy} title="Only send what the phone added">Send new</button>
+                <button className="btn primaryBtn" onClick={() => protonSync("both")} disabled={protonBusy !== "" || dlBusy || fixtureOn}>{protonBusy === "sync" ? "Syncing…" : "Sync now"}</button>
+                <button className="btn" onClick={() => protonSync("down")} disabled={protonBusy !== "" || dlBusy || fixtureOn} title="Only fetch what the PC added">Get new</button>
+                <button className="btn" onClick={() => protonSync("up")} disabled={protonBusy !== "" || dlBusy || fixtureOn} title="Only send what the phone added">Send new</button>
                 <span className="modalHint" style={{ marginTop: 0 }}>{lastSync ? `last: ${new Date(lastSync).toLocaleString()}` : "never synced"}</span>
                 <button className="linkBtn" onClick={protonLogout} disabled={protonBusy !== ""}>disconnect</button>
+                {fixtureOn ? <div className="modalHint syncOffLine" style={{ flex: "1 1 100%", marginTop: 0 }}>{SYNC_OFF_LINE}</div> : null}
               </div>
             ) : (
               <div className="queueAdd" style={{ marginTop: 0 }}>
@@ -2625,7 +2716,7 @@ export default function App() {
               <button className="btn primaryBtn" onClick={runQueue} disabled={dlBusy}>Download queue ({shareQueue.length})</button>
             ) : null}
             {dlLogs ? <button className="btn" onClick={copyLog} title="Copy the whole log to the clipboard">Copy log</button> : null}
-            {dlLogs ? <button className="btn" onClick={() => setDlLogs("")}>Clear log</button> : null}
+            {dlLogs ? <button className="btn" onClick={clearLog}>Clear log</button> : null}
           </div>
           {shareQueue.length ? (
             <div className="queueBox">
@@ -2650,7 +2741,7 @@ export default function App() {
       ) : null}
 
       <div className="pathLine">
-        {folder ? `Folder: ${folder}` : "Pick a folder to begin."}
+        {folder ? `Folder: ${shownFolder(folder, fixtureRoot)}` : "Pick a folder to begin."}
       </div>
 
       {!isMobile ? (
@@ -2710,7 +2801,7 @@ export default function App() {
             Copy log
           </button>
         ) : null}
-        <button className="btn" onClick={() => setDlLogs("")} disabled={!dlLogs}>
+        <button className="btn" onClick={clearLog} disabled={!dlLogs}>
           Clear logs
         </button>
         {shareQueue.length ? (
