@@ -342,6 +342,33 @@ fn a_move_made_by_hand_after_the_first_start_is_never_taken_for_the_apps() {
   assert_eq!(playlists(&lib), lists, "no playlist is rewritten for it");
 }
 
+/// A recovery that was itself interrupted after it created the temp for a playlist rewrite leaves
+/// that temp behind under the same job name the next start uses: it goes first, so the playlist
+/// is still rewritten and lists the track where it is.
+#[test]
+fn a_temp_left_by_an_interrupted_recovery_does_not_stop_the_next_one() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let (r, folder) = favourite(&lib);
+  let to = rel(&format!("{folder}/{}", r.file_name()));
+  crash(&lib, "move", &r, &folder, "after_replace");
+  let e = entries(&lib).into_iter().find(|e| e.kind == Kind::Move).unwrap();
+  assert!(!e.playlists_touched.is_empty());
+  for i in 0..e.playlists_touched.len() {
+    let stale = lib
+      .root
+      .join("_Playlists")
+      .join(format!(".soundhood-tmp-{}-c{i}.m3u8", e.id));
+    std::fs::write(&stale, "#EXTM3U\nhalf written").unwrap();
+  }
+  let e = after_restart(&lib, Kind::Move, "after_replace");
+  let fav = playlist::read(&lib.root, "Favourites").unwrap().entries;
+  assert!(
+    fav.contains(&to.to_string()) && !fav.contains(&r.to_string()),
+    "{fav:?}"
+  );
+  assert!(e.playlists_touched.iter().all(|pc| pc.after_hash.is_some()), "{e:?}");
+}
+
 /// Two names left on one file: on unix the no-replace rename links the new name and then unlinks
 /// the old one, and a crash in between leaves both (here made exactly by the `after_link` point).
 /// Recovery takes that as the move having happened: the old name goes (the bytes are the same

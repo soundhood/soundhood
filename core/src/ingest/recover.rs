@@ -276,6 +276,9 @@ fn finish_playlist(lib: &Library, job: &str, pc: &mut PlaylistChange) {
   if pc.before_hash.as_deref() != Some(now.hash.as_str()) {
     return;
   }
+  // The job name is the same at every start: a temp an earlier recovery left when it was
+  // interrupted in turn is this job's own, and goes first (only a core-made name is ever removed).
+  let _ = fs::remove_file(&playlist::temp_path(&lib.root, job));
   if playlist::write_expecting(&lib.root, &pc.name, &after, job, Some(Expect::Hash(&now.hash))).is_ok() {
     pc.after_hash = Some(want);
   }
