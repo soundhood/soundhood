@@ -8,9 +8,10 @@
 //! and it is decided once:
 //! - The disk shows exactly what the change would have left (for a tag edit, the bytes of the
 //!   checked copy whose hash the write path journaled right before the rename; for a move or
-//!   rename, the same bytes under the new name only; for a delete, the same bytes in the bin): the
-//!   playlists it was about to rewrite get their journaled lines (only where they are still as the
-//!   entry found them) and the commit line is written, source `"recovery"` (an undo keeps its
+//!   rename, the same bytes under the new name only, or on both names of one file after a crash
+//!   inside the unix no-replace rename; for a delete, the same bytes in the bin): the playlists it
+//!   was about to rewrite get their journaled lines (only where they are still as the entry found
+//!   them) and the commit line is written, source `"recovery"` (an undo keeps its
 //!   `"undo:<batch>"`, which the undo bookkeeping keys on), note [`RECOVERED`].
 //! - The disk does not: one more open line closes the entry, note [`INTERRUPTED`] when the disk
 //!   still shows the state from before the change, [`NOT_ON_DISK`] otherwise. Either way no later
@@ -19,7 +20,10 @@
 //! - Something cannot be read now (a locked file, a bin that cannot be listed): nothing is
 //!   written, and the next start decides.
 //!
-//! Recovery is best effort and never fails the start.
+//! What is left: a move, rename or delete made some other way between the crash and that first
+//! start, to the same place with the same bytes, cannot be told from the app's own and is finished
+//! as the app's (a tag edit can: the checked copy's hash is only on record once the rename is
+//! next). Recovery is best effort and never fails the start.
 
 use super::tagwrite::{content_hash, now_ms, NOT_APPLIED};
 use super::{journal, JournalEntry, Kind, PlaylistChange};
