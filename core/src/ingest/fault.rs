@@ -3,7 +3,8 @@
 //! Points, in write order: `after_preimage` (journal pre-image written, file untouched),
 //! `after_tmp_write` (tags written on the hidden temp), `after_verify` (temp verified, not yet
 //! renamed), `after_ready` (a tag edit's checked-copy hash journaled, not yet renamed),
-//! `after_stage_copy` (a landing file copied next to its destination), `after_replace` (the file
+//! `after_stage_copy` (a landing file copied next to its destination), `after_link` (unix: the
+//! no-replace rename linked the new name, the old one not yet unlinked), `after_replace` (the file
 //! op happened, the journal commit line not yet written). Without the feature every point is a
 //! no-op the compiler removes.
 //!

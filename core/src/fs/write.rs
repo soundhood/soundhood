@@ -193,10 +193,15 @@ pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
       return std::fs::rename(from, to);
     }
     match std::fs::hard_link(from, to) {
-      Ok(()) => std::fs::remove_file(from).inspect_err(|_| {
-        // Leave one name, the old one, rather than two.
-        let _ = std::fs::remove_file(to);
-      }),
+      // A crash between the link and the unlink leaves both names on the one file: startup
+      // recovery finishes that move (`ingest::recover`).
+      Ok(()) => {
+        crate::ingest::fault::point("after_link");
+        std::fs::remove_file(from).inspect_err(|_| {
+          // Leave one name, the old one, rather than two.
+          let _ = std::fs::remove_file(to);
+        })
+      }
       Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
       Err(_) => {
         if to.symlink_metadata().is_ok() {

@@ -103,6 +103,11 @@ fn finished(lib: &Library, mut e: JournalEntry) -> Option<Found> {
             return not(NOT_ON_DISK);
           }
         }
+        // The no-replace rename links the new name, then unlinks the old one (unix): a crash in
+        // between leaves both names on the one file. The move happened; the old name goes.
+        (true, true) if two_names_of_one_file(lib, &from, &to, &before)? => {
+          std::fs::remove_file(lib.abs(&from)).ok()?;
+        }
         (true, _) => return not(INTERRUPTED),
         (false, false) => return not(NOT_ON_DISK),
       }
@@ -210,6 +215,28 @@ fn hash_at(lib: &Library, rel: &RelPath) -> Option<Option<String>> {
     Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Some(None),
     Err(_) => None,
   }
+}
+
+/// `from` and `to` are two names of one file holding `hash`: the same inode, and both read as
+/// `hash`. Only the unix no-replace rename (link, then unlink) can leave that state; anywhere else
+/// two names are two files, and nothing is removed.
+#[cfg(unix)]
+fn two_names_of_one_file(lib: &Library, from: &RelPath, to: &RelPath, hash: &str) -> Option<bool> {
+  use std::os::unix::fs::MetadataExt;
+  let (a, b) = (
+    std::fs::metadata(lib.abs(from)).ok()?,
+    std::fs::metadata(lib.abs(to)).ok()?,
+  );
+  if (a.dev(), a.ino()) != (b.dev(), b.ino()) {
+    return Some(false);
+  }
+  let same = |rel: &RelPath| fs::file_hash(&lib.abs(rel)).ok().map(|h| h == hash);
+  Some(same(from)? && same(to)?)
+}
+
+#[cfg(not(unix))]
+fn two_names_of_one_file(_lib: &Library, _from: &RelPath, _to: &RelPath, _hash: &str) -> Option<bool> {
+  Some(false)
 }
 
 /// Where an interrupted delete put the bytes `hash` that were at `rel`: the app bin on Android, the

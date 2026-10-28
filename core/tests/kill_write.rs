@@ -342,6 +342,62 @@ fn a_move_made_by_hand_after_the_first_start_is_never_taken_for_the_apps() {
   assert_eq!(playlists(&lib), lists, "no playlist is rewritten for it");
 }
 
+/// Two names left on one file: on unix the no-replace rename links the new name and then unlinks
+/// the old one, and a crash in between leaves both (here made exactly by the `after_link` point).
+/// Recovery takes that as the move having happened: the old name goes (the bytes are the same
+/// file), the playlists follow, and Undo puts everything back.
+#[cfg(unix)]
+#[test]
+fn kill_move_after_link() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let (r, folder) = favourite(&lib);
+  let to = rel(&format!("{folder}/{}", r.file_name()));
+  let audio = read_bytes(&lib, &r);
+  let lists = playlists(&lib);
+  crash(&lib, "move", &r, &folder, "after_link");
+  assert_eq!(read_bytes(&lib, &r), audio, "both names are there");
+  assert_eq!(read_bytes(&lib, &to), audio);
+  let e = after_restart(&lib, Kind::Move, "after_replace");
+  assert!(!lib.abs(&r).exists(), "the old name is gone");
+  assert_eq!(read_bytes(&lib, &to), audio);
+  let fav = playlist::read(&lib.root, "Favourites").unwrap().entries;
+  assert!(
+    fav.contains(&to.to_string()) && !fav.contains(&r.to_string()),
+    "{fav:?}"
+  );
+  undo_recovered(&lib, &e);
+  assert_eq!(read_bytes(&lib, &r), audio);
+  assert!(!lib.abs(&to).exists());
+  assert_eq!(playlists(&lib), lists);
+}
+
+/// The same two-name state built by hand after a crash before the move: on unix a hard link (one
+/// file, two names) is finished as the move; anywhere else two names are two files, so nothing is
+/// removed and the entry is closed as interrupted.
+#[test]
+fn two_names_after_a_crash_count_as_the_move_only_when_they_are_one_file() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let (r, folder) = favourite(&lib);
+  let to = rel(&format!("{folder}/{}", r.file_name()));
+  let audio = read_bytes(&lib, &r);
+  crash(&lib, "move", &r, &folder, "after_preimage");
+  #[cfg(unix)]
+  std::fs::hard_link(lib.abs(&r), lib.abs(&to)).unwrap();
+  #[cfg(not(unix))]
+  std::fs::copy(lib.abs(&r), lib.abs(&to)).unwrap();
+  cleanup_orphans(&lib).unwrap();
+  let e = entries(&lib).into_iter().find(|e| e.kind == Kind::Move).unwrap();
+  if cfg!(unix) {
+    assert!(e.committed && e.source == "recovery", "{e:?}");
+    assert!(!lib.abs(&r).exists());
+  } else {
+    assert!(!e.committed, "{e:?}");
+    assert_eq!(e.note.as_deref(), Some(INTERRUPTED));
+    assert_eq!(read_bytes(&lib, &r), audio, "nothing is removed");
+  }
+  assert_eq!(read_bytes(&lib, &to), audio);
+}
+
 /// A Favourites track in a folder, a folder to move it to, and a lyrics file beside it.
 fn favourite(lib: &Library) -> (RelPath, String) {
   let fav = playlist::read(&lib.root, "Favourites").unwrap();
