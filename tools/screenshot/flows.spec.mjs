@@ -108,12 +108,12 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     const fixtureRoot = await page.evaluate(() => window.__soundhoodMock.fixtureRoot);
     await page.keyboard.press("Control+Alt+Shift+KeyD");
     const sw = page.getByRole("switch");
-    await expect(sw).toHaveText("Use fixture root: off");
+    await expect(sw).toHaveText("Test library: off");
     await expect(page.locator(".pathLine")).toHaveText(`Folder: ${app.data.root}`);
     await expect(page.locator(".testLibraryNote")).toHaveCount(0);
 
     await sw.click();
-    await expect(sw).toHaveText("Use fixture root: on");
+    await expect(sw).toHaveText("Test library: on");
     await expect(sw).toHaveAttribute("aria-checked", "true");
     await expect(page.locator(".pathLine")).toHaveText("Folder: test library");
     await expect(page.locator(".testLibraryNote")).toHaveText("Test library");
@@ -129,7 +129,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await page.keyboard.press("Control+Alt+Shift+KeyD");
 
     await sw.click();
-    await expect(sw).toHaveText("Use fixture root: off");
+    await expect(sw).toHaveText("Test library: off");
     await expect(page.locator(".pathLine")).toHaveText(`Folder: ${app.data.root}`);
     await expect(page.locator(".testLibraryNote")).toHaveCount(0);
     s = await storeOf(page);
@@ -147,10 +147,10 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await app.open();
     await expect(page.locator(".pathLine")).toHaveText("Folder: test library");
     await expect(page.locator(".testLibraryNote")).toBeVisible();
-    await expect(page.getByRole("switch")).toHaveText("Use fixture root: on");
+    await expect(page.getByRole("switch")).toHaveText("Test library: on");
     await page.getByRole("switch").click();
     await expect(page.locator(".pathLine")).toHaveText("Folder: C:/Music");
-    await expect(page.getByRole("switch")).toHaveText("Use fixture root: off");
+    await expect(page.getByRole("switch")).toHaveText("Test library: off");
   });
 
   test("no real library known: on then off closes the library instead of keeping the test one", async ({ app, page }) => {
@@ -167,7 +167,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect((await storeOf(page)).real_library_dir).toBeUndefined();
 
     await sw.click();
-    await expect(sw).toHaveText("Use fixture root: off");
+    await expect(sw).toHaveText("Test library: off");
     await expect(page.locator(".pathLine")).toHaveText("Pick a folder to begin.");
     await expect(status(page)).toHaveText("Status: Test library off: choose your library folder again");
     await expect(page.locator(".testLibraryNote")).toHaveCount(0);
@@ -236,6 +236,13 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(page.locator(".downloadLogs")).toContainText(`[error] ${CHANNEL_REFUSAL}`);
     expect(await ipcCount(page, "downloads")).toBe(1);
     await expect(page.getByRole("button", { name: "Download", exact: true })).toBeEnabled();
+  });
+
+  test("the self-test result reads in sentence case", async ({ app, page }) => {
+    await beforeLoad(page, () => window.__soundhoodMock.store.set("dev_mode", true));
+    await app.open();
+    await page.getByRole("button", { name: "Run self-test" }).click();
+    await expect(status(page)).toHaveText("Status: Self-test: 2 passed, 0 failed");
   });
 });
 

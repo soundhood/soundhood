@@ -60,7 +60,7 @@ const KEY_SHARE_QUEUE = "share_queue";
 const KEY_LAST_SYNC = "last_sync";
 // Hidden developer section: 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop).
 const KEY_DEV_MODE = "dev_mode";
-// The real library while "Use fixture root" points the app at the generated fixture library; never
+// The real library while the "Test library" switch points the app at the generated fixture library; never
 // the fixture library itself.
 const KEY_REAL_LIBRARY_DIR = "real_library_dir";
 // Where the host generated the fixture library ("test library"): the switch is on while the shown
@@ -593,7 +593,7 @@ export default function App() {
     setStatus(CHANNEL_REFUSAL);
   }
 
-  // Hidden developer section (brief §5.9 Tools): "Use fixture root", "Run self-test", "Rebuild
+  // Hidden developer section (brief §5.9 Tools): "Test library", "Run self-test", "Rebuild
   // index". Shown after 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop); remembered.
   const [devMode, setDevMode] = useState<boolean>(false);
   const devModeRef = useRef<boolean>(false);
@@ -630,7 +630,7 @@ export default function App() {
     }
   }
 
-  // "Use fixture root": on = remember the real library and point the app at the generated test
+  // "Test library": on = remember the real library and point the app at the generated test
   // library (created by the host on first use); off = go back to the remembered library. The state
   // itself is never stored: it follows from the shown library being the fixture root.
   async function switchFixtureRoot(enable: boolean) {
@@ -692,7 +692,7 @@ export default function App() {
     setStatus("Running the self-test…");
     try {
       const r = await invoke<SelfTestReport>("self_test");
-      const summary = `self-test: ${r.passed} passed, ${r.failed} failed`;
+      const summary = `Self-test: ${r.passed} passed, ${r.failed} failed`;
       appendLog([...(r.lines ?? []), summary]);
       setStatus(summary);
     } catch (e) {
@@ -2038,9 +2038,9 @@ export default function App() {
         aria-checked={fixtureOn}
         onClick={() => switchFixtureRoot(!fixtureOn)}
         disabled={devBusy !== "" || dlBusy || protonBusy !== "" || undoBusy}
-        title="Point the app at the generated fixture library (screenshots, tests); off goes back to your library"
+        title="Point the app at the generated test library (screenshots, tests); off goes back to your library"
       >
-        {devBusy === "fixture" ? "Switching…" : `Use fixture root: ${fixtureOn ? "on" : "off"}`}
+        {devBusy === "fixture" ? "Switching…" : `Test library: ${fixtureOn ? "on" : "off"}`}
       </button>
       <button className="btn" onClick={runSelfTest} disabled={devBusy !== ""} title="Run the bundled checks through this build; the result goes to the log">
         {devBusy === "selftest" ? "Testing…" : "Run self-test"}

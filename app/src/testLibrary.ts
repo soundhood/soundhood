@@ -1,4 +1,4 @@
-// The developer switch "Use fixture root" points the app at the generated test library (screenshots,
+// The developer switch "Test library" points the app at the generated test library (screenshots,
 // gate runs). Whether the test library is shown is derived from the current library folder and the
 // fixture root the host returned, never stored as a flag, so the switch, the folder line, the note in
 // the top bar and the sync buttons cannot disagree with what is on screen.

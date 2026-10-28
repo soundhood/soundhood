@@ -98,7 +98,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await page.keyboard.press("Control+Alt+Shift+KeyD");
     await expect(page.locator(".devBar")).toBeVisible();
     await expect(status(page)).toHaveText("Status: Developer tools on");
-    await expect(page.getByRole("switch")).toHaveText("Use fixture root: off");
+    await expect(page.getByRole("switch")).toHaveText("Test library: off");
     await rest(app, page);
 
     await expect(page).toHaveScreenshot(app.shot("developer"));
@@ -150,7 +150,7 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     // Seven taps on the status pill, each within 1.5 s of the last.
     for (let i = 0; i < 7; i++) await status(page).tap();
     await expect(status(page)).toHaveText("Developer tools on");
-    await expect(page.getByRole("switch")).toHaveText("Use fixture root: off");
+    await expect(page.getByRole("switch")).toHaveText("Test library: off");
     await app.settled();
 
     await expect(page).toHaveScreenshot(app.shot("settings-developer"));
