@@ -1,0 +1,282 @@
+# Every gate a merge to main must pass. docs/DEV.md lists the same gates with the local command for
+# each; the build-gate agent runs that list locally before any merge.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a PR replaces its running checks; every commit on main keeps its own result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  NODE_VERSION: "24"
+  # Android NDK for the core check and the debug APK (r27 or newer; docs/DEV.md).
+  NDK_VERSION: r27c
+
+jobs:
+  core-test:
+    name: core tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust
+        with:
+          cache-key: core-test
+      - name: cargo test -p soundhood-core
+        run: cargo test -p soundhood-core --locked
+      # All features: the fault-injection kill tests, the sidecar manager (against local fixtures,
+      # no network) and the soundhood-tools CLI.
+      - name: cargo test -p soundhood-core --all-features
+        run: cargo test -p soundhood-core --all-features --locked
+
+  clippy:
+    name: clippy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        uses: ./.github/actions/linux-deps
+      - uses: ./.github/actions/rust
+        with:
+          components: clippy rustfmt
+          cache-key: clippy
+      - name: rustfmt (core)
+        if: runner.os == 'Linux'
+        run: cargo fmt -p soundhood-core -- --check
+      # The desktop host embeds app/dist at compile time and refuses to build without its sidecars;
+      # clippy and the host tests need neither the real UI nor real binaries.
+      - name: Placeholder frontend and sidecars
+        shell: bash
+        run: |
+          if [ ! -f app/dist/index.html ]; then
+            mkdir -p app/dist
+            echo '<!doctype html><title>clippy</title>' > app/dist/index.html
+          fi
+          node .github/scripts/sidecars.mjs stub
+      # --all-targets: tests, examples and benches are linted too, not only the libraries.
+      - name: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo test (host and ytdl plugin)
+        run: cargo test -p soundhood -p tauri-plugin-soundhood-ytdl --locked
+
+  android-core:
+    name: core check and host clippy (aarch64-linux-android)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Android NDK ${{ env.NDK_VERSION }}
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: false
+          local-cache: true
+      - uses: ./.github/actions/rust
+        with:
+          components: clippy
+          targets: aarch64-linux-android
+          cache-key: android-core
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version 4.1.2 --locked
+      # A bare `cargo check --target aarch64-linux-android` fails: rusqlite's bundled SQLite build
+      # script needs the NDK's clang, which cargo-ndk puts in place.
+      - name: cargo ndk -t arm64-v8a check -p soundhood-core
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: cargo ndk -t arm64-v8a check -p soundhood-core --locked
+      # Same placeholders as the clippy job: the host embeds app/dist and tauri-build looks for the
+      # sidecars named in tauri.conf.json.
+      - name: Placeholder frontend and sidecars
+        shell: bash
+        run: |
+          if [ ! -f app/dist/index.html ]; then
+            mkdir -p app/dist
+            echo '<!doctype html><title>clippy</title>' > app/dist/index.html
+          fi
+          node .github/scripts/sidecars.mjs stub
+      # The phone-only Rust (cfg(mobile): the plugin's mobile.rs, the host's Android paths) is
+      # compiled only for an Android target, so the desktop clippy job never sees it.
+      - name: cargo ndk -t arm64-v8a clippy (host and ytdl plugin)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: cargo ndk -t arm64-v8a clippy -p soundhood -p tauri-plugin-soundhood-ytdl --locked -- -D warnings
+
+  web:
+    name: web gates and lints
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            tools/package-lock.json
+      # app/ first: `npm run typecheck` in tools/ type-checks ../app and needs its node_modules
+      # (react, @types/react, @tauri-apps/api).
+      - name: app - npm ci
+        working-directory: app
+        run: npm ci
+      - name: tools - npm ci
+        working-directory: tools
+        run: npm ci
+      - name: tools - typecheck
+        working-directory: tools
+        run: npm run typecheck
+      - name: tools - lint
+        working-directory: tools
+        run: npm run lint
+      - name: tools - test (Vitest)
+        working-directory: tools
+        run: npm run test
+      - name: app - build
+        working-directory: app
+        run: npm run build
+      - name: Token lint
+        run: node tools/token-lint.mjs
+      - name: Markdown links resolve
+        run: node .github/scripts/md-links.mjs
+      # Owner-specific deny terms live outside the repository (a CI secret); empty on forks.
+      - name: Repository hygiene lint
+        env:
+          HYGIENE_DENY: ${{ secrets.HYGIENE_DENY }}
+        run: node tools/hygiene-lint.mjs
+
+  # Windows, like the committed baselines (Playwright suffixes snapshots with the platform).
+  visual:
+    name: visual suite
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            tools/package-lock.json
+      - name: app - npm ci
+        working-directory: app
+        run: npm ci
+      - name: tools - npm ci
+        working-directory: tools
+        run: npm ci
+      - name: Playwright browser
+        working-directory: tools
+        run: npx playwright install chromium
+      - name: Visual suite
+        id: visual
+        working-directory: tools
+        run: npm run test:visual
+      # Scans the suite's screenshots of the fixture library (controlled covers), so it runs after
+      # it, also when the suite reported pixel diffs.
+      - name: Blue scan
+        if: ${{ !cancelled() && (steps.visual.outcome == 'success' || steps.visual.outcome == 'failure') }}
+        run: node tools/blue-scan.mjs
+      # The reporter is a plain list; the expected, actual and diff images of every failing
+      # screenshot land in the config's outputDir, tools/screenshot/test-results/.
+      - name: Upload the diff report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diff-report
+          path: tools/screenshot/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  desktop-build:
+    name: tauri build (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust
+        with:
+          cache-key: desktop-build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: app - npm ci
+        working-directory: app
+        run: npm ci
+      # The installer is not uploaded: while externalBin lists yt-dlp/deno it carries placeholders.
+      # Installable artefacts come from release.yml or the build-gate run.
+      - name: Placeholder sidecars (build-health only)
+        run: node .github/scripts/sidecars.mjs stub
+      - name: npm run tauri build
+        working-directory: app
+        run: npm run tauri build
+
+  # Build health only. This debug APK is signed with the runner's throwaway debug key and is never
+  # installed on the phone (one key for every APK on the phone: docs/DEV.md, "Signing").
+  android-build:
+    name: tauri android build (debug)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            app/src-tauri/gen/android/**/*.gradle*
+            app/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK platform
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Android NDK ${{ env.NDK_VERSION }}
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: false
+          local-cache: true
+      - uses: ./.github/actions/rust
+        with:
+          targets: aarch64-linux-android
+          cache-key: android-build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: app - npm ci
+        working-directory: app
+        run: npm ci
+      # gradlew is committed executable (mode 100755); this keeps the job working if a commit from
+      # Windows ever drops the bit.
+      - name: Make gradlew executable
+        run: chmod +x app/src-tauri/gen/android/gradlew
+      - name: tauri android build --debug --apk --target aarch64
+        working-directory: app
+        env:
+          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: npm run tauri -- android build --debug --apk --target aarch64

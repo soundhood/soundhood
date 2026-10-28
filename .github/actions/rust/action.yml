@@ -1,0 +1,33 @@
+name: Rust toolchain
+description: >
+  Installs the pinned Rust toolchain with rustup (preinstalled on GitHub-hosted runners) and
+  restores the cargo registry and the workspace target dir (<repo>/target).
+inputs:
+  toolchain:
+    description: Rust version. The one place CI pins it; keep it equal to the version in docs/DEV.md.
+    default: "1.92.0"
+  components:
+    description: Space-separated rustup components (e.g. "clippy rustfmt").
+    default: ""
+  targets:
+    description: Space-separated extra compilation targets (e.g. "aarch64-linux-android").
+    default: ""
+  cache-key:
+    description: Extra cache key so jobs with different targets or features do not evict each other.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install Rust ${{ inputs.toolchain }}
+      shell: bash
+      run: |
+        args=(--profile minimal)
+        for c in ${{ inputs.components }}; do args+=(--component "$c"); done
+        for t in ${{ inputs.targets }}; do args+=(--target "$t"); done
+        rustup toolchain install "${{ inputs.toolchain }}" "${args[@]}"
+        rustup default "${{ inputs.toolchain }}"
+        rustc --version
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ inputs.cache-key }}

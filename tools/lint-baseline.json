@@ -1,0 +1,9 @@
+{
+  "_about": "Grandfathered lint violations: tool -> file -> rule -> count. Written by `--write-baseline`; never raise a count by hand. Lower it (re-run --write-baseline) whenever code gets cleaner.",
+  "token-lint": {
+    "app/src/App.tsx": {
+      "emoji-glyph": 8,
+      "raw-hex": 15
+    }
+  }
+}

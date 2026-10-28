@@ -30,7 +30,9 @@ impl<R: Runtime> Ytdl<R> {
   pub fn download(&self, args: DownloadArgs) -> crate::Result<DownloadResult> {
     self.0.run_mobile_plugin("download", args).map_err(Into::into)
   }
-  pub fn cancel(&self, args: CancelArgs) -> crate::Result<()> {
+  /// Kotlin resolves `{cancelled}`; deserialising that into `()` failed and made every cancel
+  /// look like an error in the UI although the process had been stopped.
+  pub fn cancel(&self, args: CancelArgs) -> crate::Result<CancelResult> {
     self.0.run_mobile_plugin("cancel", args).map_err(Into::into)
   }
   pub fn version(&self) -> crate::Result<VersionResult> {

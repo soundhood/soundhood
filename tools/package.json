@@ -1,0 +1,31 @@
+{
+  "name": "soundhood-tools",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Soundhood CI checks: app typecheck and lint, lint-helper unit tests, the Playwright screenshot harness, token, blue-pixel and hygiene lints.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ../app",
+    "lint": "cd .. && eslint --config tools/eslint.config.js app/src",
+    "test": "vitest run",
+    "test:visual": "playwright test --config screenshot/playwright.config.mjs",
+    "test:visual:update": "playwright test --config screenshot/playwright.config.mjs --update-snapshots=all",
+    "evidence:after": "node screenshot/copy-evidence.mjs",
+    "lint:tokens": "node token-lint.mjs",
+    "lint:blue": "node blue-scan.mjs",
+    "lint:hygiene": "node hygiene-lint.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "esbuild": "0.28.2",
+    "eslint": "10.12.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "pngjs": "7.0.0",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.71.1",
+    "vitest": "5.0.3"
+  }
+}

@@ -1,0 +1,15 @@
+name: Linux build dependencies
+description: >
+  System packages the Tauri desktop host needs on ubuntu-24.04 (WebKitGTK 4.1, appindicator,
+  librsvg, xdo for the global hotkey, patchelf for the AppImage).
+runs:
+  using: composite
+  steps:
+    - name: Install apt packages
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential curl wget file pkg-config \
+          libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+          libxdo-dev libssl-dev patchelf

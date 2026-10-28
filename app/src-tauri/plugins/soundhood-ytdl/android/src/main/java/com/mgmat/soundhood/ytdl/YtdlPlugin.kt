@@ -52,6 +52,9 @@ class CancelArgs {
  */
 private const val TAG = "SoundhoodYtdl"
 
+/** The file that marks a generated fixture library (soundhood_core::fixtures::MARKER). */
+private const val FIXTURE_MARKER = ".soundhood-fixture"
+
 @TauriPlugin
 class YtdlPlugin(private val activity: Activity) : Plugin(activity) {
   @Volatile private var ready = false
@@ -94,6 +97,21 @@ class YtdlPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun download(invoke: Invoke) {
     val args = invoke.parseArgs(DownloadArgs::class.java)
+    // Only a web link reaches yt-dlp: never an option such as --exec, a local file or another
+    // scheme (the link may come from a share or the synced queue file). And never an output folder
+    // with a ".." segment, which would land files outside the library.
+    // Whole channels are refused in Rust before this runs (src/commands.rs check_download, with the
+    // core's is_channel_link, the rule the desktop applies): the plugin's `download` command is
+    // registered in Rust, so Tauri never routes it here directly. No second, narrower copy here.
+    val scheme = args.url.take(8).lowercase()
+    if (!(scheme.startsWith("http://") || scheme.startsWith("https://"))) {
+      invoke.reject("Not a web link: ${args.url}")
+      return
+    }
+    if (args.outDir.split('/', '\\').any { it == ".." }) {
+      invoke.reject("Refusing a download folder with '..': ${args.outDir}")
+      return
+    }
     Log.i(TAG, "download: ${args.url} -> ${args.outDir} (playlist=${args.playlist})")
     thread(name = "ytdl-download") {
       val err = ensureInit()
@@ -323,6 +341,12 @@ step("https youtube robots", lambda: urllib.request.urlopen("https://www.youtube
   @Command
   fun protonSync(invoke: Invoke) {
     val args = invoke.parseArgs(ProtonSyncArgs::class.java)
+    // The fixture library ("Use fixture root") must never meet the real Proton Drive library: an
+    // upload would put test tracks and playlists into it, a download would pull the whole library in.
+    if (File(args.libraryDir, FIXTURE_MARKER).isFile) {
+      invoke.reject("Sync is off while the test library is shown")
+      return
+    }
     thread(name = "proton-sync") {
       val ctx = activity.applicationContext
       try {
@@ -336,8 +360,14 @@ step("https youtube robots", lambda: urllib.request.urlopen("https://www.youtube
           // Proton throttles bursts (429): keep well under its rate and let rclone retry patiently.
           "--tpslimit", "4", "--tpslimit-burst", "8", "--retries", "5", "--low-level-retries", "20",
           "--stats", "2s", "--stats-one-line", "--stats-log-level", "NOTICE", "-v",
-          "--exclude", "**/.thumbnails/**", "--exclude", ".nomedia", "--exclude", "**/*.tmp", "--exclude", "**/*.part",
-          "--exclude", ".stfolder/**", "--exclude", ".stignore", "--exclude", "**/desktop.ini", "--exclude", "**/Thumbs.db"
+          // A pattern without a "/" matches its name in every folder, the library root included. A
+          // leading "**/" would need a folder in front, so root-level files would slip through.
+          "--exclude", ".thumbnails/**", "--exclude", ".nomedia", "--exclude", "*.tmp", "--exclude", "*.part",
+          "--exclude", ".stfolder/**", "--exclude", ".stignore", "--exclude", "desktop.ini", "--exclude", "Thumbs.db",
+          // Soundhood's own per-device files that must never travel: the phone's bin (deleted
+          // tracks), conflict copies and snapshots, and the hidden temp files of an in-progress write.
+          "--exclude", "_Soundhood/.bin/**", "--exclude", "_Soundhood/conflicts/**",
+          "--exclude", "_Soundhood/snapshots/**", "--exclude", ".soundhood-tmp-*"
         )
         val steps = ArrayList<Pair<String, List<String>>>()
         if (args.direction == "down" || args.direction == "both") steps.add("down" to (listOf("copy", remote, local) + common))

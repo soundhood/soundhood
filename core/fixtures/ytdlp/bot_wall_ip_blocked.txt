@@ -1,0 +1,6 @@
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Jd3sK8wQv1M
+[youtube] Jd3sK8wQv1M: Downloading webpage
+[youtube] Jd3sK8wQv1M: Downloading tv_samsung player API JSON
+[youtube] Jd3sK8wQv1M: Downloading visionos player API JSON
+WARNING: [youtube] Jd3sK8wQv1M: Unable to download API page: HTTP Error 403: Forbidden
+ERROR: [youtube] Jd3sK8wQv1M: All player responses are invalid. Your IP is likely being blocked by Youtube
