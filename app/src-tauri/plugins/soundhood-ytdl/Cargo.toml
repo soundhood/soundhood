@@ -16,3 +16,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "~2.12.5" }
 thiserror = "2"
+# The channel rule (`ytdlp::args::is_channel_link`), so the phone refuses exactly what the desktop
+# refuses. Default features only (no HTTP client); the host already builds the core for Android.
+soundhood-core = { path = "../../../../core" }

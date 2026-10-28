@@ -6,9 +6,11 @@ use crate::YtdlExt;
 use crate::{models::*, Result};
 
 /// Refuses what must never reach yt-dlp: anything but an http(s) link (an option such as
-/// `--exec`, a local file, another scheme), a whole channel (a playlist link is the ceiling), and
-/// an output folder with a `..` segment (the UI builds it from a validated folder name; a `..`
-/// would land files outside the library).
+/// `--exec`, a local file, another scheme), a whole channel (the core's rule, the one the desktop
+/// host applies: `/@name`, `/channel/`, `/c/`, `/user/`, legacy names, uploads lists, YouTube
+/// Music artist pages, YouTube Kids), and an output folder with a `..` segment (the UI builds it
+/// from a validated folder name; a `..` would land files outside the library). Every phone download
+/// passes here before Kotlin is called.
 fn check_download(args: &DownloadArgs) -> Result<()> {
   let scheme = args.url.get(..8).unwrap_or(&args.url).to_ascii_lowercase();
   if !(scheme.starts_with("http://") || scheme.starts_with("https://")) {
@@ -208,9 +210,25 @@ mod tests {
 
   #[test]
   fn a_channel_link_is_refused_in_plain_words() {
-    let err = check_download(&args("https://www.youtube.com/@artist/videos", "/m/Chill")).unwrap_err();
-    assert_eq!(err.to_string(), CHANNEL_REFUSED);
+    // The shapes the round-2 review found the phone letting through, plus the common ones.
+    for url in [
+      "https://www.youtube.com/@artist/videos",
+      "https://www.youtube.com/SomeLegacyName",
+      "https://www.youtube.com/SomeLegacyName/videos",
+      "https://www.youtube.com/playlist?list=UUabcdefghijklmnopqrstuv",
+      "https://www.youtube.com/playlist?list=UULFabcdefghijklmnopqrstuv&si=x",
+      "https://www.youtube.com/watch?v=AbCdEfGhIjK&list=UUabcdefghijklmnopqrstuv",
+      "https://www.youtube.com/playlist?list=%55Uabcdefghijklmnopqrstuv",
+      "https://music.youtube.com/browse/UCabcdefghijklmnopqrstuv",
+      "https://www.youtubekids.com/channel/UCabcdefghijklmnopqrstuv",
+      "https://www.youtube.com./@artist",
+      "https://www.youtube.com/%40artist",
+    ] {
+      let err = check_download(&args(url, "/m/Chill")).unwrap_err();
+      assert_eq!(err.to_string(), CHANNEL_REFUSED, "{url}");
+    }
     assert!(check_download(&args("https://www.youtube.com/playlist?list=PL1", "/m/Chill")).is_ok());
+    assert!(check_download(&args("https://www.youtube.com/watch?v=AbCdEfGhIjK", "/m/Chill")).is_ok());
   }
 
   #[test]

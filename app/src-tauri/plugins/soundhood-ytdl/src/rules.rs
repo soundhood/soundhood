@@ -1,43 +1,25 @@
-//! What the phone refuses before Kotlin is asked to do anything. The Kotlin plugin checks the same
-//! rules again (`YtdlPlugin.isChannelLink`, the fixture marker in `protonSync`), so a call that
-//! reaches it some other way is refused too.
+//! What the phone refuses before Kotlin is asked to do anything. The channel rule is the core's
+//! (`soundhood_core::ytdlp::args::is_channel_link`), the same function the desktop host calls, so
+//! the phone and the PC refuse the same links. Kotlin is reached only through these commands
+//! (`run_kotlin` after the checks); it keeps its own web-link, `..` and fixture-marker checks.
 
 use std::path::Path;
+
+pub use soundhood_core::ytdlp::args::is_channel_link;
 
 /// The file that marks a generated fixture library; the same name as
 /// `soundhood_core::fixtures::MARKER` (the host's tests check that the two stay equal).
 pub const FIXTURE_MARKER: &str = ".soundhood-fixture";
 
-/// What the UI shows when a channel link is refused.
-pub const CHANNEL_REFUSED: &str = "Channel links are not downloaded: paste a video or a playlist link";
+/// What the UI shows when a channel link is refused, on the phone and on the PC. The same sentence
+/// as the UI's `CHANNEL_REFUSAL`; both are checked against `tools/screenshot/channel-links.json`.
+//
+// TODO(after the Phase 0 round-2 merge): use `soundhood_core::ytdlp::args::CHANNEL_REFUSED` here
+// once the core carries this sentence, and drop the literal.
+pub const CHANNEL_REFUSED: &str = "Whole channels are not downloaded. Use a single video or a playlist link.";
 
 /// What the UI shows when sync is asked for while the fixture library is the library.
 pub const SYNC_OFF_FOR_FIXTURE: &str = "Sync is off while the test library is shown";
-
-/// True for a link to a whole YouTube channel or one of its tabs: `/@name`, `/channel/<id>`,
-/// `/c/<name>`, `/user/<name>`, with or without `/videos`, `/streams`, `/shorts`, `/releases`,
-/// `/playlists`. Soundhood never downloads a whole channel; a playlist link is the ceiling. A single
-/// video (`/watch`, `/shorts/<id>`, `youtu.be`) and a playlist (`/playlist?list=`) pass.
-//
-// TODO: call soundhood_core::ytdlp::args::is_channel_link (being added to the core) once this plugin
-// depends on the core, and drop this copy; until then keep the two and the Kotlin twin on one rule.
-pub fn is_channel_link(url: &str) -> bool {
-  let lower = url.trim().to_ascii_lowercase();
-  let Some(rest) = lower.strip_prefix("https://").or_else(|| lower.strip_prefix("http://")) else {
-    return false;
-  };
-  let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-  let (authority, tail) = rest.split_at(end);
-  // Drop user info and port (`<userinfo>@host:443`).
-  let host = authority.rsplit('@').next().unwrap_or(authority);
-  let host = host.split(':').next().unwrap_or(host);
-  if host != "youtube.com" && !host.ends_with(".youtube.com") {
-    return false;
-  }
-  let path = tail.split(['?', '#']).next().unwrap_or("");
-  let first = path.trim_start_matches('/').split('/').next().unwrap_or("");
-  first.starts_with('@') || matches!(first, "channel" | "c" | "user")
-}
 
 /// True when `library_dir` is a generated fixture library (it holds the marker file). Syncing it
 /// would upload test tracks and playlists into the real Proton Drive library.
@@ -49,43 +31,40 @@ pub fn is_fixture_library(library_dir: &Path) -> bool {
 mod tests {
   use super::*;
 
+  /// The shared test vectors: the UI's vitest suite reads the same file.
+  const VECTORS: &str = include_str!("../../../../../tools/screenshot/channel-links.json");
+
+  fn vectors() -> serde_json::Value {
+    serde_json::from_str(VECTORS).expect("channel-links.json parses")
+  }
+
+  fn list(v: &serde_json::Value, key: &str) -> Vec<String> {
+    v[key]
+      .as_array()
+      .unwrap_or_else(|| panic!("{key} is a list"))
+      .iter()
+      .map(|u| u.as_str().expect("a string").to_string())
+      .collect()
+  }
+
   #[test]
-  fn channel_links_and_their_tabs_are_refused() {
-    for url in [
-      "https://www.youtube.com/@artist",
-      "https://www.youtube.com/@artist/videos",
-      "https://youtube.com/@artist/streams?view=0",
-      "https://m.youtube.com/@artist/shorts",
-      "https://music.youtube.com/channel/UCabcdefghijklmnopqrstuv",
-      "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/releases",
-      "https://www.youtube.com/c/SomeName/videos",
-      "https://www.youtube.com/user/SomeName",
-      "HTTPS://WWW.YOUTUBE.COM/@Artist/playlists",
-      "http://www.youtube.com:443/@artist",
-      "  https://www.youtube.com/@artist  ",
-    ] {
-      assert!(is_channel_link(url), "{url}");
+  fn the_shared_channel_vectors_hold_for_the_core_rule() {
+    let v = vectors();
+    let channels = list(&v, "channel");
+    let others = list(&v, "notChannel");
+    assert!(channels.len() >= 40 && others.len() >= 30, "the vector file lost entries");
+    for url in &channels {
+      assert!(is_channel_link(url), "{url:?} is a channel link");
+    }
+    for url in &others {
+      assert!(!is_channel_link(url), "{url:?} is not a channel link");
     }
   }
 
   #[test]
-  fn videos_playlists_and_other_sites_pass() {
-    for url in [
-      "https://www.youtube.com/watch?v=AbCdEfGhIjK",
-      "https://www.youtube.com/watch?v=AbCdEfGhIjK&list=PL123",
-      "https://www.youtube.com/playlist?list=PL123",
-      "https://music.youtube.com/watch?v=AbCdEfGhIjK",
-      "https://www.youtube.com/shorts/AbCdEfGhIjK",
-      "https://youtu.be/AbCdEfGhIjK",
-      "https://www.youtube.com/watch?v=x#@artist",
-      "https://example.com/@artist",
-      "https://youtube.com.example.org/@artist",
-      "https://soundcloud.com/user/track",
-      "not a link",
-      "",
-    ] {
-      assert!(!is_channel_link(url), "{url}");
-    }
+  fn the_refusal_reads_the_same_everywhere() {
+    assert_eq!(vectors()["refusal"].as_str(), Some(CHANNEL_REFUSED));
+    assert!(!CHANNEL_REFUSED.contains(['\u{2013}', '\u{2014}']));
   }
 
   #[test]

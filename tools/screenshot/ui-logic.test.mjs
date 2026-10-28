@@ -1,6 +1,7 @@
 // Unit tests for the UI's pure helpers in app/src (links, download output, the test library, the
 // log the "Copy log" button builds, undo wording, folder names). They sit next to the screenshot
 // harness because both test the UI; vitest compiles the TypeScript sources directly.
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { batchLogLines, copyLogText, undoStatus } from "../../app/src/coreIpc.ts";
 import { CHANNEL_REFUSAL, isChannelLink, lastErrorLine, queueStopStatus } from "../../app/src/downloads.ts";
@@ -10,54 +11,26 @@ import { SYNC_OFF_LINE, TEST_LIBRARY_LABEL, isTestLibrary, sameFolder, shownFold
 // Every string the UI shows must be plain: no en or em dash.
 const DASHES = /[\u2013\u2014]/;
 
+// The shared channel-link vectors: the phone plugin's Rust tests run the core rule over the same file.
+const VECTORS = JSON.parse(readFileSync(new URL("./channel-links.json", import.meta.url), "utf8"));
+
 describe("isChannelLink", () => {
-  test.each([
-    "https://www.youtube.com/@artist",
-    "https://www.youtube.com/@artist/videos",
-    "https://www.youtube.com/@artist/streams",
-    "https://www.youtube.com/@artist/shorts",
-    "https://www.youtube.com/@artist/releases",
-    "https://www.youtube.com/@artist/playlists",
-    "https://m.youtube.com/@artist/featured?app=desktop",
-    "https://music.youtube.com/channel/UC0123456789abcdefghijkl",
-    "https://www.youtube.com/channel/UC0123456789abcdefghijkl/videos",
-    "https://www.youtube.com/c/SomeArtist",
-    "https://www.youtube.com/c/SomeArtist/videos",
-    "https://www.youtube.com/user/someartist",
-    "https://youtube.com/user/someartist/videos",
-    "http://www.youtube.com/@artist",
-    "https://www.youtube.com/%40artist/videos",
-    "https://WWW.YOUTUBE.COM/Channel/UC0123/videos",
-    "  https://www.youtube.com/@artist  ",
-  ])("refuses %s", (url) => {
+  test("the vector file holds both kinds", () => {
+    expect(VECTORS.channel.length).toBeGreaterThanOrEqual(40);
+    expect(VECTORS.notChannel.length).toBeGreaterThanOrEqual(30);
+  });
+
+  test.each(VECTORS.channel)("refuses %s", (url) => {
     expect(isChannelLink(url)).toBe(true);
   });
 
-  test.each([
-    "https://www.youtube.com/watch?v=abcdefghijk",
-    "https://www.youtube.com/watch?v=abcdefghijk&list=PL0123&ab_channel=Artist",
-    "https://youtu.be/abcdefghijk",
-    "https://www.youtube.com/playlist?list=PL0123456789",
-    "https://music.youtube.com/watch?v=abcdefghijk",
-    "https://www.youtube.com/shorts/abcdefghijk",
-    "https://www.youtube.com/",
-    "https://www.youtube.com/@",
-    "https://www.youtube.com/channel",
-    "https://www.youtube.com/c",
-    "https://www.youtube.com/user",
-    // Not YouTube: there "/@name/..." is one post or one video, not a channel.
-    "https://www.tiktok.com/@someone/video/7234567890123456789",
-    "https://example.com/@artist/videos",
-    "https://notyoutube.com/@artist",
-    "ftp://www.youtube.com/@artist",
-    "not a link",
-    "",
-  ])("lets %s through", (url) => {
+  test.each(VECTORS.notChannel)("lets %s through", (url) => {
     expect(isChannelLink(url)).toBe(false);
   });
 
-  test("the refusal is one plain line", () => {
-    expect(CHANNEL_REFUSAL).toBe("Whole channels are not downloaded. Share a single video or a playlist link.");
+  test("the refusal is one plain line, the same sentence as the plugin and the host", () => {
+    expect(CHANNEL_REFUSAL).toBe(VECTORS.refusal);
+    expect(CHANNEL_REFUSAL).toBe("Whole channels are not downloaded. Use a single video or a playlist link.");
     expect(CHANNEL_REFUSAL).not.toMatch(DASHES);
   });
 });

@@ -55,27 +55,6 @@ private const val TAG = "SoundhoodYtdl"
 /** The file that marks a generated fixture library (soundhood_core::fixtures::MARKER). */
 private const val FIXTURE_MARKER = ".soundhood-fixture"
 
-/**
- * True for a link to a whole YouTube channel or one of its tabs (/@name, /channel/<id>, /c/<name>,
- * /user/<name>, with or without /videos, /streams, /shorts, /releases). Soundhood never downloads a
- * whole channel: a playlist link is the ceiling. The same rule as the Rust check in the plugin
- * (src/rules.rs `is_channel_link`) and soundhood_core::ytdlp::args::is_channel_link.
- */
-internal fun isChannelLink(url: String): Boolean {
-  val lower = url.trim().lowercase()
-  val rest = when {
-    lower.startsWith("https://") -> lower.removePrefix("https://")
-    lower.startsWith("http://") -> lower.removePrefix("http://")
-    else -> return false
-  }
-  val end = rest.indexOfFirst { it == '/' || it == '?' || it == '#' }.let { if (it < 0) rest.length else it }
-  // Drop user info and port ("<userinfo>@host:443")
-  val host = rest.substring(0, end).substringAfterLast('@').substringBefore(':')
-  if (host != "youtube.com" && !host.endsWith(".youtube.com")) return false
-  val first = rest.substring(end).substringBefore('?').substringBefore('#').trimStart('/').substringBefore('/')
-  return first.startsWith("@") || first == "channel" || first == "c" || first == "user"
-}
-
 @TauriPlugin
 class YtdlPlugin(private val activity: Activity) : Plugin(activity) {
   @Volatile private var ready = false
@@ -121,13 +100,12 @@ class YtdlPlugin(private val activity: Activity) : Plugin(activity) {
     // Only a web link reaches yt-dlp: never an option such as --exec, a local file or another
     // scheme (the link may come from a share or the synced queue file). And never an output folder
     // with a ".." segment, which would land files outside the library.
+    // Whole channels are refused in Rust before this runs (src/commands.rs check_download, with the
+    // core's is_channel_link, the rule the desktop applies): the plugin's `download` command is
+    // registered in Rust, so Tauri never routes it here directly. No second, narrower copy here.
     val scheme = args.url.take(8).lowercase()
     if (!(scheme.startsWith("http://") || scheme.startsWith("https://"))) {
       invoke.reject("Not a web link: ${args.url}")
-      return
-    }
-    if (isChannelLink(args.url)) {
-      invoke.reject("Channel links are not downloaded: paste a video or a playlist link")
       return
     }
     if (args.outDir.split('/', '\\').any { it == ".." }) {
