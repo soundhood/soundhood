@@ -19,7 +19,7 @@
     "HTTPS://WWW.YOUTUBE.COM/@SomeArtist/VIDEOS",
     "https://www.youtube.com:443/@SomeArtist",
     "https://www.youtube.com./@SomeArtist",
-    "https://user@www.youtube.com/@SomeArtist",
+    "https://u:@www.youtube.com/@SomeArtist",
     "https://www.youtube.com\\@SomeArtist",
     "http://youtube.com/@SomeArtist",
     "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv",
