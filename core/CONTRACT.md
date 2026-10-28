@@ -175,8 +175,10 @@ pub mod tagwrite {
   /// Read-only and in-use files are skipped, not failed, and never abort the batch.
   pub fn apply(lib: &Library, ops: Vec<Op>, opts: &ApplyOptions) -> BatchReport;
   pub struct ApplyOptions { pub source: String, pub protected: Vec<RelPath> /*playing now: skipped*/ }
-  /// Startup: remove orphaned .soundhood-tmp-* files whose journal entry never committed (or that no
-  /// entry names), journaling each removal as Kind::Cleanup. Returns what was removed.
+  /// Startup: first decides this device's last open journal entry once (finished on record with source
+  /// "recovery" when the disk shows exactly the app's result, see LIBRARY_FORMAT "Fold rule"; else closed
+  /// "not applied: interrupted …"), then removes orphaned core-minted .soundhood-tmp-* files, journaling
+  /// each removal as Kind::Cleanup. Returns what was removed.
   pub fn cleanup_orphans(lib: &Library) -> Result<Vec<RelPath>>;
 }
 

@@ -149,11 +149,17 @@ with a `note` that starts with `not applied: `.
 
 **Fold rule.** Readers group lines by `id`; the last line for an id wins. An entry whose last line is
 a commit line happened; any other entry did not (a closing line says so explicitly; a bare pre-image
-is a write a crash interrupted). On the next start the app looks at this device's last entry only:
-when it is still a bare pre-image and the disk shows the change did happen (the crash came after the
-rename but before the commit line), it writes the commit line then, with `source: "recovery"` (an
-undo keeps its `undo:<batch>`) and the note `finished after an interrupted run`, so "Undo last
-change" can reach it. It also removes any temp file the crash left behind ([temp files](#temp-files)).
+is a write a crash interrupted). At the next start the app decides this device's last entry once, if it
+is still open (a pre-image, or a tag edit's `ready` line). It is finished only when the disk shows
+exactly what the app's change would have left: for a tag edit, the file's BLAKE3 equals the `ready`
+line's `file_hash_after`; for a move or rename, the same bytes are under the new name only (or, on
+unix, both names are one file after a crash inside the no-replace rename); for a delete, the same
+bytes are in the bin. Then the app writes the journaled playlist lines where those playlists are
+unchanged and appends a commit line with `source: "recovery"` (an undo keeps its `undo:<batch>`) and
+the note `finished after an interrupted run`, so "Undo last change" can reach it. Otherwise it appends
+a closing line (`not applied: interrupted before the change` or `... and the change is not on disk`),
+and the entry is never looked at again. It also removes any temp file the crash left behind
+([temp files](#temp-files)).
 
 Illustrative pair (hashes and ids shortened):
 

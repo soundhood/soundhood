@@ -79,12 +79,46 @@ at any depth; the error classifier matched song titles.
 |---|---|
 | All 7 blocking items | fixed in the fix wave; re-checked in round 2 |
 | Re-check before rename (audio, m3u8), crash recovery, foreign playlists, multi-value tags | fixed |
-| Recycle-bin undo speed, test-library path, error strings, cleanup scope, refusal messages, no-replace rename | fixed |
+| Test-library path, error strings, cleanup scope, refusal messages, no-replace rename | fixed |
+| Recycle-bin undo speed | improved (72 s to 17 s cold, 23 s to 5 s warm on a 10k-item bin); the remainder is the trash crate's listing, tracked in OPEN |
 | Release workflow, DEV.md, fresh clone, LEGAL/CHANGELOG, evidence, Copy log docs, hygiene deny list | fixed |
 | WebView2 traffic | browser flags added; anything that remains is listed in DECISIONS and LEGAL |
 | Bundled yt-dlp below floor, queue after refusal, channel links, sidecar hardening, classifier | fixed |
 | Phone relay auth token | **accepted for Phase 0**: it changes the proven relay and cannot be tested without the phone; Phase 2, tracked in OPEN |
 | Tag undo restores values, not bytes | **accepted for Phase 0** (DoD: "undoes cleanly"); Phase 2 decides on a byte pre-image store; tracked in OPEN |
-| MP3 refusals (7 of 8 real yt-dlp MP3s), lofty m4a panic (1 of 32) | **accepted**: refused, never damaged; Phase 2 own ID3v2 serialiser; tracked in OPEN |
+| MP3 refusals (7 of 8 real yt-dlp MP3s in round 1, 4 of 5 in round 3) | **accepted**: refused, never damaged; Phase 2 own ID3v2 serialiser; tracked in OPEN |
+| lofty m4a panic | found deterministic in round 2 (any MP4 tag that shrinks by exactly 8 bytes, incl. Undo); **fixed** by a one-line patch of the vendored lofty (`third_party/lofty`), test 7/8/9/16 bytes; OPEN until upstream ships it |
 | Multi-select = N batches | **accepted**; Phase 1/2 batch IPC; tracked in OPEN |
 | Phone checks, device evidence, Rebuild index < 2 min on the phone | owner-verified; tracked in OPEN |
+
+## Round 2 (`8f80a7d`, version 0.2.0)
+
+Every round-1 condition was re-checked by running it.
+
+| Reviewer | Result |
+|---|---|
+| Build gate | **signed**. Clean-clone builds: NSIS `Soundhood_0.2.0_x64-setup.exe`, APK versionName 0.2.0 / versionCode 2000, signer `73abd93e…c48de47f45`; installer payload carries yt-dlp `f5389d36…` (2026.10.26) and deno 2.9.8 (exe `92439780…`). The four "nothing to change" calls return Ok; an edit right after creating the test library applies; refusals are plain text without paths; self-test 28/0. Real library, read-only session: manifest **Identical**, 3,500-entry listing unchanged |
+| Break the build | **signed**. Fresh-tree CI order passes (the old order gave 692 TS errors); the owner's snapshot blocks print "Identical" under Windows PowerShell 5.1; release order with a real verified fetch passes. New: one race test flaky (1–3 % under load) |
+| Break the design | **signed**. In the real WebView2 build no edit opens the log panel (content top 150.8 px throughout); test-library sync is off in the UI and refused by the plugin; 0 px horizontal scroll at 760 px. New: committed gate screenshots predated the fixes |
+| Break the network | **signed**. 5 launches x 150 s (release and debug): **0 remote connections**, net logs hold only `tauri.localhost`, `ipc.localhost`, `asset.localhost` (round 1: Edge config service, component updater, WPAD, Microsoft-account endpoints). New: the phone's channel rule was narrower than the PC's (11 of 49 URL shapes) |
+| Break the library | **not signed**: the accepted m4a panic was deterministic (exact 8-byte shrink; Undo failed on 30 of 37 real copies); startup recovery could adopt a change made by other means |
+
+Round-2 fixes: lofty patched (vendored), recovery decides an open entry once and finishes a tag edit only
+on the exact hash journaled right before its rename, the race test made deterministic (the probabilistic
+version is kept as an ignored probe), one channel rule (the core's) on PC, phone and UI with one
+sentence and 92 shared test URLs, gate screenshots re-captured from the fixed build, build script order
+(tools built before the fetch), deno held to its executable hash, docs and OPEN rows.
+
+## Round 3 (`2fada48`)
+
+| Reviewer | Result |
+|---|---|
+| Break the library | **signed**. 303 core tests; recovery probes: 55 crash-before-rename cases never adopted a different change, a second start wrote nothing; crash after the rename recovered and undone in 5/5 formats. Real world: 40 copies, title +8 bytes: 36 applied (lossless: audio, every other atom and frame identical), 4 MP3s refused, 0 failed; Undo 36/36 (values and audio restored); 28 of 35 m4a took the formerly panicking path. Sources unchanged 40/40 |
+| Regression sweep (late changes in the build, design and network areas) | **signed**. Channel parity: 202 URLs through core, `build()`, the plugin's `check_download` and the UI: 0 disagreements; fresh-tree `build-windows.ps1` builds the tools first, fetches once, verifies; `sidecars.mjs check` fails on a deno with one byte appended; gate screenshots blue-clean |
+
+Remaining minors were fixed in the merge commit (docs, the decisions table, the hygiene lint scope on
+vendored code) or recorded in [OPEN](../OPEN.md) (unix recovery unlink window; the recycle-bin test runs
+only by hand).
+
+Signed: build gate, break the build, break the design, break the network (round 2, `8f80a7d`);
+break the library, regression sweep (round 3, `2fada48`). Phase 0 merges as 0.2.0.
