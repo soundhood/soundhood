@@ -1,23 +1,29 @@
 #!/usr/bin/env node
-// Hygiene lint over every tracked file (`git ls-files`). In the text of each file: the owner's
-// first name (matched by SHA-256 of each word, so this lint never contains it), his library path,
-// private LAN addresses, e-mail addresses other than GitHub noreply / the commit trailer / example
-// domains, Windows user-profile paths, device serials and IMEIs next to the word that names them,
-// and the owner-specific terms of the HYGIENE_DENY environment variable (a CI secret: comma- or
+// Hygiene lint over every tracked file (`git ls-files`). In the text of each file: paths inside a
+// Proton Drive folder, private LAN addresses, e-mail addresses other than GitHub noreply / the
+// commit trailer / example domains, Windows user-profile paths, device serials and IMEIs next to
+// the word that names them, and the owner-specific words and terms of the deny list (comma- or
 // newline-separated words, terms or 64-hex SHA-256 hashes; see lint/hygiene.mjs parseDenyList).
+// The deny list is never in the repository: it is the HYGIENE_DENY environment variable (a CI
+// secret) plus, when it exists, the deny file %USERPROFILE%\.soundhood\hygiene-deny.txt (or the
+// path in HYGIENE_DENY_FILE), kept outside the repo like keystore.properties.
 // In every tracked path, binaries included: the same rules, and file names that hold keys or
 // secrets (*.jks, keystore.properties, cookies.txt, .env, ...). Binary contents are skipped.
 // Exit 1 on any finding; there is no baseline, a leak is always fixed at the source. Deny-list
 // terms, forbidden words and device ids are never printed.
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { REPO_ROOT, formatFinding } from "./lint/common.mjs";
 import { FORBIDDEN_WORD_HASHES, MIN_DENY_LENGTH, parseDenyList, scanPath, scanText } from "./lint/hygiene.mjs";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
-const deny = parseDenyList(process.env.HYGIENE_DENY);
+// The local deny file: same format as HYGIENE_DENY, never committed.
+const denyFile = process.env.HYGIENE_DENY_FILE || path.join(os.homedir(), ".soundhood", "hygiene-deny.txt");
+const fileDeny = existsSync(denyFile) ? readFileSync(denyFile, "utf8") : "";
+const deny = parseDenyList([process.env.HYGIENE_DENY ?? "", fileDeny].join("\n"));
 const hashes = new Set([...FORBIDDEN_WORD_HASHES, ...deny.hashes]);
 const denyCount = deny.hashes.size + deny.terms.length;
 if (deny.ignored) {
@@ -63,7 +69,8 @@ for (const f of findings) byRule[f.rule] = (byRule[f.rule] ?? 0) + 1;
 const summary = Object.entries(byRule)
   .map(([rule, n]) => `${rule} ${n}`)
   .join(", ");
-const denyNote = denyCount ? `, ${denyCount} HYGIENE_DENY entries` : ", HYGIENE_DENY not set";
+const fileNote = fileDeny ? " (with the local deny file)" : "";
+const denyNote = denyCount ? `, ${denyCount} HYGIENE_DENY entries${fileNote}` : ", HYGIENE_DENY not set, no local deny file";
 console.log(
   `hygiene-lint: ${scanned} text files of ${tracked.length} tracked${denyNote}, ${findings.length} findings${summary ? ` (${summary})` : ""}`,
 );

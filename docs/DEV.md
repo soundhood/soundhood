@@ -322,5 +322,6 @@ use temporary folders and synthetic paths, never a real library. Committed scree
 fixture library ([TESTING](TESTING.md#evidence-rules)); the lint cannot see inside an image, so check
 every screenshot by eye for a real path or name before committing it. `node tools/hygiene-lint.mjs`
 enforces the rest in CI; exactly what it checks is in [TESTING](TESTING.md#lints). Terms specific to
-the owner are supplied outside the repository, in the `HYGIENE_DENY` CI secret (comma- or
-newline-separated words, terms or SHA-256 hashes); the lint reads it and never prints its entries.
+the owner are supplied outside the repository, in the `HYGIENE_DENY` CI secret and locally in
+`%USERPROFILE%\.soundhood\hygiene-deny.txt` (comma- or newline-separated words, terms or SHA-256
+hashes); the lint reads both and never prints their entries ([TESTING](TESTING.md#lints)).

@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { REPO_ROOT } from "./common.mjs";
@@ -31,8 +33,8 @@ const rulesOf = (text, hashes, terms) => scanText(text, hashes, terms).map((f) =
 describe("forbidden words", () => {
   const hashes = new Set([tokenHash("Zorblax")]);
 
-  it("stores only 64-hex SHA-256 digests", () => {
-    for (const h of FORBIDDEN_WORD_HASHES) expect(h).toMatch(/^[0-9a-f]{64}$/);
+  it("keeps no built-in word (a published hash of a name is reversible) and hashes case-blind", () => {
+    expect(FORBIDDEN_WORD_HASHES.size).toBe(0);
     expect(tokenHash("ABC")).toBe(tokenHash("abc"));
   });
 
@@ -58,17 +60,20 @@ describe("forbidden words", () => {
 });
 
 describe("library path", () => {
+  // A made-up layout: the rule matches any path inside a Proton Drive folder.
   const parts = ["Proton Drive", "Shared", "Albums"];
 
   it("catches every slash style, escaped backslashes and URL encoding", () => {
     for (const sep of ["/", "\\", "\\\\"]) {
-      expect(rulesOf(j("X:", sep, parts.join(sep), sep, "Rock"))).toEqual([RULE_LIBRARY]);
+      expect(rulesOf(j("X:", sep, parts.join(sep), sep, "Jazz"))).toEqual([RULE_LIBRARY]);
     }
+    expect(rulesOf(j("/home/someone/", parts.join("/")))).toEqual([RULE_LIBRARY]);
     expect(rulesOf(parts.join("/").replace(/ /g, "%20"))).toEqual([RULE_LIBRARY]);
   });
 
-  it("leaves other folders alone", () => {
-    expect(rulesOf(j("Proton Drive", "/Shared/Documents"))).toEqual([]);
+  it("leaves the name in prose alone", () => {
+    expect(rulesOf("Proton Drive is the only sync. Sign in to Proton Drive/Proton Mail (once).")).toEqual([]);
+    expect(rulesOf(j("(", "Proton Drive", "/)"))).toEqual([]);
   });
 });
 
@@ -255,13 +260,28 @@ const inGitTree = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd
 
 describe.skipIf(!inGitTree)("the command line", () => {
   // This file itself holds the test word, so the real lint over the real tree must find it here.
-  const run = (deny) =>
+  const run = (deny, extraEnv = {}) =>
     spawnSync(process.execPath, [path.join(REPO_ROOT, "tools", "hygiene-lint.mjs")], {
       cwd: REPO_ROOT,
       encoding: "utf8",
-      env: { ...process.env, HYGIENE_DENY: deny },
+      env: { ...process.env, HYGIENE_DENY: deny, ...extraEnv },
       timeout: 60_000,
     });
+
+  it("reads the local deny file named by HYGIENE_DENY_FILE and never prints its words", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "hygiene-deny-"));
+    try {
+      const file = path.join(dir, "hygiene-deny.txt");
+      writeFileSync(file, "zorblax\n");
+      const r = run("", { HYGIENE_DENY_FILE: file });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain("tools/lint/hygiene.test.mjs:");
+      expect(r.stdout).toContain("(with the local deny file)");
+      expect(r.stdout.toLowerCase()).not.toContain("zorblax");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it.each([
     ["a plain word", "zorblax"],

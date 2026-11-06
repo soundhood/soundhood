@@ -1,6 +1,7 @@
-// Rules behind tools/hygiene-lint.mjs: nothing private reaches the public repo. Forbidden words
-// are stored only as SHA-256 hashes, so the lint itself never publishes what it guards; further
-// owner-specific terms come from the HYGIENE_DENY secret at run time and are never printed.
+// Rules behind tools/hygiene-lint.mjs: nothing private reaches the public repo. The lint stores no
+// owner word, not even as a hash (a hash of a first name is reversed by any list of names): the
+// owner-specific words and terms come at run time from the HYGIENE_DENY secret or the deny file
+// outside the repository, and are never printed.
 import { createHash } from "node:crypto";
 import { lineLocator } from "./common.mjs";
 
@@ -13,13 +14,16 @@ export const RULE_PROFILE = "user-profile-path";
 export const RULE_DEVICE = "device-id";
 export const RULE_SECRET_FILE = "secret-file";
 
-/** SHA-256 hex of the lower-cased token, the only form a forbidden word is kept in. */
+/** SHA-256 hex of the lower-cased token, the form deny-list words are compared in. */
 export function tokenHash(token) {
   return createHash("sha256").update(token.toLowerCase()).digest("hex");
 }
 
-/** Hashes of words that must never appear in the repo: the owner's first name. */
-export const FORBIDDEN_WORD_HASHES = new Set(["4097889236a2af26c293033feb964c4cf118c0224e0d063fec0a89e9d0569ef2"]);
+/**
+ * Built-in forbidden words: none, on purpose. A hash of a name published in the lint is reversed by
+ * a list of names, so every private word comes from the deny list (see parseDenyList).
+ */
+export const FORBIDDEN_WORD_HASHES = new Set();
 
 /** Entries shorter than this are ignored: they would match all over the tree. */
 export const MIN_DENY_LENGTH = 3;
@@ -73,9 +77,13 @@ export function wordTokens(text) {
   return out;
 }
 
-// The owner's library root on the PC (a folder inside the Proton Drive sync folder), in
-// any slash style. The pattern is spelled with classes so this file never contains the path.
-const LIBRARY_RE = /Proton(?:\s|%20)Drive[\\/]+Shared[\\/]+Albums/gi;
+// A path inside a Proton Drive sync folder, in any slash style or with URL-encoded spaces: the folder
+// as a path component (a slash or backslash before it) with something below it, or a relative path
+// at least two folders deep. No public file needs one, and a real library lives in one; the rule
+// names no folder below Proton Drive, so it says nothing about where any library is. The name in
+// prose, even followed by one slash and a word, is not a path (see the tests).
+const LIBRARY_RE =
+  /(?:(?<=[\\/])Proton(?:\s|%20)Drive[\\/]+(?=[^\\/\s"'`<>|)\]])|Proton(?:\s|%20)Drive[\\/]+[^\\/\r\n"'`<>|]+[\\/])/gi;
 
 // Dotted quads not embedded in a longer dotted number (1.10.0.0.1) or a word (v10.0.0.1).
 const IPV4_RE = /(?<![\w.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?!\.?\d)/g;
@@ -191,7 +199,7 @@ export function scanText(text, forbiddenHashes = FORBIDDEN_WORD_HASHES, denyTerm
     found.push({ index: m.index, rule: RULE_DEVICE, message: "IMEI (15 digits, redacted)" });
   }
   for (const m of text.matchAll(LIBRARY_RE)) {
-    found.push({ index: m.index, rule: RULE_LIBRARY, message: "the owner's library path: say \"the library root\"" });
+    found.push({ index: m.index, rule: RULE_LIBRARY, message: "a path inside a Proton Drive folder: say \"the library root\"" });
   }
   for (const m of text.matchAll(IPV4_RE)) {
     const octets = m.slice(1, 5).map(Number);
