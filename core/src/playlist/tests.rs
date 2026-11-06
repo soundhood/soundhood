@@ -337,3 +337,91 @@ fn a_create_never_replaces_a_playlist_that_lands_right_before_its_rename() {
     assert_eq!(attrs & 0x2, 0, "a created playlist is not hidden");
   }
 }
+
+/// Whatever the disk (case-sensitive or not, normalising or not), another spelling of an existing
+/// playlist gives the file's own spelling back, and that name opens the file.
+#[test]
+fn on_disk_name_finds_the_playlist_in_any_case_or_normalisation() {
+  let root = tmp_root();
+  let dir = root.path().join(PLAYLISTS_DIR);
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(dir.join("Road Trip.m3u8"), b"#EXTM3U\na.mp3\n").unwrap();
+  std::fs::write(dir.join("Beyonce\u{301} Mix.m3u8"), b"#EXTM3U\nb.mp3\n").unwrap();
+  for (asked, stem, entry) in [
+    ("Road Trip", "Road Trip", "a.mp3"),
+    ("road trip", "Road Trip", "a.mp3"),
+    ("ROAD TRIP", "Road Trip", "a.mp3"),
+    ("Beyonc\u{e9} Mix", "Beyonce\u{301} Mix", "b.mp3"),
+    ("beyonce\u{301} mix", "Beyonce\u{301} Mix", "b.mp3"),
+  ] {
+    let name = on_disk_name(root.path(), asked).unwrap();
+    assert_eq!(name, stem, "{asked:?}");
+    assert_eq!(
+      read(root.path(), &name).unwrap().entries,
+      vec![entry],
+      "{asked:?} -> {name:?}"
+    );
+  }
+}
+
+#[test]
+fn on_disk_name_keeps_a_new_name_and_prefers_m3u8_over_a_legacy_m3u() {
+  let root = tmp_root();
+  // No `_Playlists/` yet: the name as given.
+  assert_eq!(on_disk_name(root.path(), "Fresh").unwrap(), "Fresh");
+  let dir = root.path().join(PLAYLISTS_DIR);
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(dir.join("Old.m3u"), b"x.mp3\n").unwrap();
+  std::fs::write(dir.join(format!("{TMP_PREFIX}job.m3u8")), b"#EXTM3U\n").unwrap();
+  assert_eq!(on_disk_name(root.path(), "Fresh").unwrap(), "Fresh");
+  // Only a legacy file: its stem, so the write path finds it and refuses it as legacy.
+  assert_eq!(on_disk_name(root.path(), "old").unwrap(), "Old");
+  // A .m3u8 of that name too: the .m3u8 wins.
+  std::fs::write(dir.join("OLD.m3u8"), b"#EXTM3U\n").unwrap();
+  assert_eq!(on_disk_name(root.path(), "old").unwrap(), "OLD");
+  // Asked for by its exact name, the legacy file is the one meant, never the folded .m3u8.
+  assert_eq!(on_disk_name(root.path(), "Old").unwrap(), "Old");
+}
+
+/// Two playlists that both match a typed name only loosely, at the same step, are refused by name;
+/// the order the disk lists them never decides. Holds wherever the disk can hold both.
+#[test]
+fn on_disk_name_refuses_two_equally_loose_matches() {
+  let root = tmp_root();
+  let dir = root.path().join(PLAYLISTS_DIR);
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(dir.join("Road Trip.m3u8"), b"#EXTM3U\n").unwrap();
+  std::fs::write(dir.join("ROAD TRIP.m3u8"), b"#EXTM3U\n").unwrap();
+  let both = std::fs::read_dir(&dir).unwrap().count() == 2;
+  match on_disk_name(root.path(), "road trip") {
+    Err(Error::Refused(m)) if both => assert_eq!(
+      m,
+      "more than one playlist is named like road trip (ROAD TRIP, Road Trip), so nothing was changed"
+    ),
+    Ok(name) if !both => assert_eq!(name.to_lowercase(), "road trip"),
+    other => panic!("{other:?} (both kept: {both})"),
+  }
+  // An exact name is never ambiguous.
+  assert_eq!(on_disk_name(root.path(), "Road Trip").unwrap(), "Road Trip");
+}
+
+#[test]
+fn files_named_reads_exact_names_from_the_listing() {
+  let root = tmp_root();
+  let dir = root.path().join(PLAYLISTS_DIR);
+  let none = NamedFiles::default();
+  assert_eq!(files_named(root.path(), "Any"), none, "no folder yet");
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(dir.join("Normal.m3u8"), b"#EXTM3U\n").unwrap();
+  std::fs::write(dir.join("Old Mix.M3U"), b"a.mp3\n").unwrap();
+  std::fs::write(dir.join("Loud.M3U8"), b"#EXTM3U\n").unwrap();
+  let named = |m3u8, other_case_m3u8, legacy| NamedFiles {
+    m3u8,
+    other_case_m3u8,
+    legacy,
+  };
+  assert_eq!(files_named(root.path(), "Normal"), named(true, false, false));
+  assert_eq!(files_named(root.path(), "Old Mix"), named(false, false, true));
+  assert_eq!(files_named(root.path(), "Loud"), named(false, true, false));
+  assert_eq!(files_named(root.path(), "loud"), none, "exact names only");
+}

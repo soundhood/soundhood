@@ -470,12 +470,14 @@ fn run(b: &mut Batch, op: Op) -> Outcome {
         Ok(f) => f,
         Err(e) => return Outcome::failed(&path, e),
       };
-      let to = match RelPath::new(&format!("{folder}/{}", rel.file_name())) {
+      let to = match RelPath::new(&format!("{folder}/{}", rel.file_name())).and_then(|to| as_on_disk(b.lib, &to)) {
         Ok(to) => to,
         Err(e) => return Outcome::failed(&path, e),
       };
-      if to == rel {
-        // The old host's answer to a move into the folder the file is already in.
+      let folder = folder_label(&to);
+      if to.key() == rel.key() && same_folder(b.lib, &to, &rel) {
+        // The old host's answer to a move into the folder the file is already in, however that
+        // folder's name was typed. A twin folder that exists beside it is another folder.
         let msg = format!("{} already exists in {folder}", rel.file_name());
         return Outcome::failed(&path, Error::Exists(msg));
       }
@@ -490,6 +492,10 @@ fn run(b: &mut Batch, op: Op) -> Outcome {
       if let Err(e) = validate_target(&to) {
         return Outcome::failed(&path, e);
       }
+      let to = match as_on_disk(b.lib, &to).and_then(|to| in_own_folder(b.lib, &rel, to)) {
+        Ok(to) => to,
+        Err(e) => return Outcome::failed(&path, e),
+      };
       if to == rel {
         return Outcome::no_change(&path, "same name");
       }
@@ -648,6 +654,52 @@ fn taken_outcome(path: &str, dest: &RelPath, undoing: bool) -> Outcome {
   } else {
     Outcome::failed(path, Error::Exists(msg))
   }
+}
+
+/// `rel` with its folders spelled as they are on disk ([`fs::folders_as_on_disk`]): a destination
+/// the user asked for goes into the folder that is there, never a second one beside it whose name
+/// differs only in case or Unicode form.
+fn as_on_disk(lib: &Library, rel: &RelPath) -> Result<RelPath> {
+  fs::folders_as_on_disk(&lib.root, rel.as_str()).and_then(|s| RelPath::new(&s))
+}
+
+/// True when `a` and `b` sit in the same folder on disk, however their paths spell it: each folder
+/// as [`as_on_disk`] finds it. An exact spelling is its own folder, so two folders side by side
+/// whose names differ only in case or Unicode form are two folders.
+fn same_folder(lib: &Library, a: &RelPath, b: &RelPath) -> bool {
+  let folder = |r: &RelPath| as_on_disk(lib, r).map(|r| r.parent()).unwrap_or_else(|_| r.parent());
+  folder(a) == folder(b)
+}
+
+/// A rename's destination `to` inside `rel`'s own folder, spelled as `rel` spells that folder, so
+/// the rename happens in place even when the two spellings differ; any other `to` as it is.
+fn in_own_folder(lib: &Library, rel: &RelPath, to: RelPath) -> Result<RelPath> {
+  let key = |r: Option<RelPath>| r.map(|p| p.key());
+  if key(to.parent()) != key(rel.parent()) || !same_folder(lib, &to, rel) {
+    return Ok(to);
+  }
+  match rel.parent() {
+    Some(folder) => folder.join(to.file_name()),
+    None => RelPath::new(to.file_name()),
+  }
+}
+
+/// The refusal for a destination with a case twin on a case-sensitive disk ([`fs::case_twin`]),
+/// given before anything is journaled; `None` when it has none. The name itself taken reads as
+/// [`taken_outcome`], the answer Windows gives; a folder on the way names what is there.
+fn twin_outcome(lib: &Library, path: &str, dest: &RelPath, undoing: bool) -> Option<Outcome> {
+  let msg = match fs::case_twin(&lib.root, dest.as_str()) {
+    Ok(None) => return None,
+    Ok(Some(fs::Twin::Name)) => return Some(taken_outcome(path, dest, undoing)),
+    Ok(Some(fs::Twin::Folder(folder))) => format!("a folder named {folder} already exists"),
+    Ok(Some(fs::Twin::NotAFolder(file))) => format!("{file} is a file, not a folder"),
+    Err(e) => return Some(skip_or_fail(path, e)),
+  };
+  Some(if undoing {
+    Outcome::skipped(path, &format!("not undone: {msg}"))
+  } else {
+    Outcome::failed(path, Error::Exists(msg))
+  })
 }
 
 /// An error from opening or renaming a file another program holds becomes a skip, never a failure.
@@ -822,10 +874,27 @@ pub(crate) fn relocate(
   if expect_hash.is_some_and(|want| want != seen.hash) {
     return Outcome::skipped(path, CHANGED_SINCE_UNDO);
   }
-  // A case or normalisation change of the same name is a rename, not a collision.
-  let taken = |dest: &RelPath, own: &RelPath| dest.key() != own.key() && lib.abs(dest).symlink_metadata().is_ok();
-  if taken(to, from) {
-    return taken_outcome(path, to, undoing);
+  // A case or normalisation change of the file's own name in its own folder is a rename, not a
+  // collision.
+  let taken = |dest: &RelPath, own: &RelPath| -> Option<Outcome> {
+    // Only where the destination's folder is there as spelled: an undo back into a twin folder
+    // that has since gone is the twin check's case below, a skip that names what is there.
+    let folder_there = lib.abs(dest).parent().is_some_and(Path::is_dir);
+    if dest.key() == own.key() && same_folder(lib, dest, own) && folder_there {
+      // Still taken when a third entry already has that name in another case or form.
+      return match fs::name_free(&lib.abs(own), &lib.abs(dest)) {
+        Ok(()) => None,
+        Err(Error::Exists(_)) => Some(taken_outcome(path, dest, undoing)),
+        Err(e) => Some(skip_or_fail(path, e)),
+      };
+    }
+    if lib.abs(dest).symlink_metadata().is_ok() {
+      return Some(taken_outcome(path, dest, undoing));
+    }
+    twin_outcome(lib, path, dest, undoing)
+  };
+  if let Some(o) = taken(to, from) {
+    return o;
   }
   let mut follow = Vec::new();
   if with_companions {
@@ -838,8 +907,8 @@ pub(crate) fn relocate(
         Ok(t) => t,
         Err(e) => return Outcome::failed(path, e),
       };
-      if taken(&c_to, &c.rel) {
-        return taken_outcome(path, &c_to, undoing);
+      if let Some(o) = taken(&c_to, &c.rel) {
+        return o;
       }
       follow.push((c.rel, c_to));
     }
@@ -1091,12 +1160,7 @@ pub(crate) fn playlist_changes(
 /// Refuses when that is not the file `pl` was read from (a legacy `.m3u`, or a file name that
 /// sanitising would change), or when another program wrote it (`playlist::foreign`).
 fn writable_playlist(root: &Path, pl: &PlaylistFile) -> Result<String> {
-  let refuse = || {
-    Error::Refused(format!(
-      "playlist {} cannot be updated by the app (only .m3u8 files with a clean name are), so nothing was changed",
-      pl.name
-    ))
-  };
+  let refuse = || cannot_update(&pl.name);
   let abs = playlist::file_rel(&pl.name).map_err(|_| refuse())?.to_abs(root);
   if abs.with_extension("m3u").exists() || !abs.is_file() {
     return Err(refuse());
@@ -1189,13 +1253,23 @@ pub(crate) enum PlaylistState {
 
 /// The current state of playlist `name`. A playlist that cannot be read at all (locked, a folder
 /// of that name) is an error, never `Absent`.
+/// What the name names is decided from the folder listing ([`playlist::files_named`]) where the
+/// app's own path would answer for another file: a legacy playlist of exactly this name and no
+/// `.m3u8` of it is the legacy one, even where a disk that folds case would open an `.m3u8` of
+/// another spelling through that path; on a case-sensitive disk a legacy `.M3U`, or a `.M3U8` (an
+/// extension the app never writes, so another program's file), is refused, never taken for absent.
 pub(crate) fn playlist_state(root: &Path, name: &str) -> Result<PlaylistState> {
   let abs = playlist::file_rel(name)?.to_abs(root);
+  let named = playlist::files_named(root, name);
+  if named.legacy && !named.m3u8 && !named.other_case_m3u8 {
+    return Ok(PlaylistState::Legacy);
+  }
   match playlist::read_exact(root, name) {
     Ok(x) if x.ours => Ok(PlaylistState::Present(x.file, x.hash)),
     Ok(x) if !x.readable => Ok(PlaylistState::Unreadable),
     Ok(_) => Ok(PlaylistState::Foreign),
     Err(Error::NotFound(_)) if abs.with_extension("m3u").exists() => Ok(PlaylistState::Legacy),
+    Err(Error::NotFound(_)) if named.other_case_m3u8 => Ok(PlaylistState::Foreign),
     Err(Error::NotFound(_)) => Ok(PlaylistState::Absent),
     Err(e) => Err(e),
   }
@@ -1275,9 +1349,30 @@ pub(crate) fn write_playlist(b: &mut Batch, kind: Kind, label: String, pc: Playl
   )
 }
 
+/// The name the UI gave, cleaned, then as it is spelled on disk ([`playlist::on_disk_name`]): every
+/// playlist op reads and writes the one file the name means, whatever the case it was typed in.
+/// A playlist whose own file name cleaning changes (`Mix..m3u8`, listed as "Mix.") is refused, the
+/// way [`writable_playlist`] refuses it: its cleaned name means another file, which may be another
+/// playlist in another case, and the app never writes the unclean name.
+fn playlist_name(b: &Batch, name: &str) -> Result<String> {
+  let clean = playlist::sanitize_name(name)?;
+  if clean != name && playlist::has_file_named(&b.lib.root, name) {
+    return Err(cannot_update(name));
+  }
+  playlist::on_disk_name(&b.lib.root, &clean)
+}
+
+/// The refusal for a playlist file the sole writer does not write: a legacy `.m3u`, or a file name
+/// that cleaning would change.
+fn cannot_update(name: &str) -> Error {
+  Error::Refused(format!(
+    "playlist {name} cannot be updated by the app (only .m3u8 files with a clean name are), so nothing was changed"
+  ))
+}
+
 /// Adds tracks (in order, no duplicates), creating the playlist when it does not exist yet.
 fn playlist_add(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
-  let clean = match playlist::sanitize_name(name) {
+  let clean = match playlist_name(b, name) {
     Ok(n) => n,
     Err(e) => return Outcome::failed(name, e),
   };
@@ -1307,7 +1402,7 @@ fn playlist_add(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
 }
 
 fn playlist_remove(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
-  let clean = match playlist::sanitize_name(name) {
+  let clean = match playlist_name(b, name) {
     Ok(n) => n,
     Err(e) => return Outcome::failed(name, e),
   };
@@ -1336,7 +1431,7 @@ fn playlist_remove(b: &mut Batch, name: &str, rels: &[RelPath]) -> Outcome {
 }
 
 fn playlist_create(b: &mut Batch, name: &str) -> Outcome {
-  let clean = match playlist::sanitize_name(name) {
+  let clean = match playlist_name(b, name) {
     Ok(n) => n,
     Err(e) => return Outcome::failed(name, e),
   };
@@ -1360,7 +1455,7 @@ fn playlist_create(b: &mut Batch, name: &str) -> Outcome {
 /// To the bin. A playlist another program wrote is refused too: undo would bring back only its
 /// track lines, in the app's format.
 fn playlist_delete(b: &mut Batch, name: &str) -> Outcome {
-  let clean = match playlist::sanitize_name(name) {
+  let clean = match playlist_name(b, name) {
     Ok(n) => n,
     Err(e) => return Outcome::failed(name, e),
   };
@@ -1438,6 +1533,11 @@ fn land_one(b: &mut Batch, staged: &Path, dest: &RelPath) -> Outcome {
   if let Err(e) = validate_target(dest) {
     return Outcome::failed(path, e);
   }
+  let resolved = match as_on_disk(lib, dest) {
+    Ok(d) => d,
+    Err(e) => return Outcome::failed(path, e),
+  };
+  let dest = &resolved;
   let abs = lib.abs(dest);
   let taken = || {
     let msg = format!("{} already exists in {}", dest.file_name(), folder_label(dest));
@@ -1445,6 +1545,9 @@ fn land_one(b: &mut Batch, staged: &Path, dest: &RelPath) -> Outcome {
   };
   if abs.symlink_metadata().is_ok() {
     return taken();
+  }
+  if let Some(o) = twin_outcome(lib, path, dest, false) {
+    return o;
   }
   let hash = match fs::file_hash(staged) {
     Ok(h) => h,

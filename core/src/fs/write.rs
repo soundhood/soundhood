@@ -260,6 +260,154 @@ fn name_key(name: &str) -> String {
   name.nfc().collect::<String>().to_lowercase()
 }
 
+/// What a new library path would clash with once synced to a disk that folds names.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Twin {
+  /// The path's own name is taken (by a file or a folder), in another case or normalisation.
+  Name,
+  /// A folder on the way there exists in another case or normalisation: its path as on disk.
+  Folder(String),
+  /// A file stands where a folder on the way would go, in another case or normalisation: its
+  /// path as on disk.
+  NotAFolder(String),
+}
+
+/// `rel` with every folder on the way spelled as it is on disk: a folder segment that folds (lower-
+/// cased NFC, as in [`check_free`]) to an existing folder's name takes that folder's spelling, so
+/// a change goes into the folder that is there instead of making a second one beside it. That is
+/// what a disk that folds case does by itself (Windows, Android's shared storage). A case-sensitive
+/// disk (Linux, Android app storage) would keep both, and NTFS keeps NFC and NFD apart, so a folder
+/// that came from a Mac in NFD has a twin there too; both clash once synced. An exact spelling
+/// wins; below the first folder that does not exist yet, the rest is new and kept as given. The
+/// last segment is kept as given too: another spelling of a name that is there is a clash
+/// ([`case_twin`]) or a rename of a file's own spelling. Errors only for a folder that cannot be
+/// listed.
+pub(crate) fn folders_as_on_disk(root: &Path, rel: &str) -> Result<String> {
+  let segs: Vec<&str> = rel.split('/').collect();
+  let Some((last, folders)) = segs.split_last() else {
+    return Ok(rel.to_string());
+  };
+  let mut dir = root.to_path_buf();
+  let mut out: Vec<String> = Vec::with_capacity(segs.len());
+  let mut existing = true;
+  for seg in folders {
+    let name = match existing.then(|| existing_folder(&dir, seg)).transpose()?.flatten() {
+      Some(name) => name,
+      None => {
+        existing = false;
+        seg.to_string()
+      }
+    };
+    dir = dir.join(&name);
+    out.push(name);
+  }
+  out.push(last.to_string());
+  Ok(out.join("/"))
+}
+
+/// The on-disk name of `dir`'s folder spelled `seg`, or folding to it; `None` when there is none.
+/// The exact spelling wins; then a folder that differs only in case, in the same Unicode form (the
+/// one a disk that folds case opens); then one in the other form. Two candidates at the same step
+/// are refused by name rather than chosen by the order the disk lists them.
+fn existing_folder(dir: &Path, seg: &str) -> Result<Option<String>> {
+  let entries = match std::fs::read_dir(dir) {
+    Ok(entries) => entries,
+    Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => return Ok(None),
+    Err(e) => return Err(e.into()),
+  };
+  let key = name_key(seg);
+  let lower = seg.to_lowercase();
+  let (mut same_form, mut other_form) = (Vec::new(), Vec::new());
+  for entry in entries {
+    let entry = entry?;
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name_key(&name) != key || !entry.path().is_dir() {
+      continue;
+    }
+    if name == seg {
+      return Ok(Some(name));
+    }
+    if name.to_lowercase() == lower {
+      same_form.push(name);
+    } else {
+      other_form.push(name);
+    }
+  }
+  let mut found = if same_form.is_empty() { other_form } else { same_form };
+  if found.len() > 1 {
+    found.sort();
+    return Err(Error::Refused(format!(
+      "more than one folder is named like {seg} ({}), so nothing was changed",
+      found.join(", ")
+    )));
+  }
+  Ok(found.pop())
+}
+
+/// Ok when the name `to` is free in its folder for `from`, the check the no-clobber rename makes
+/// ([`check_free`]): `Error::Exists` when another entry has it in any case or Unicode form. For a
+/// refusal before anything is journaled, where the destination folder already exists.
+pub(crate) fn name_free(from: &Path, to: &Path) -> Result<()> {
+  check_free(from, to)
+}
+
+/// `rel`'s case twin under `root`, walking it one segment at a time: a segment whose own spelling
+/// is not there but whose folded name (lower-cased NFC, as in [`check_free`]) another entry of that
+/// folder has. A disk that folds case and normalisation finds the exact spelling and this is
+/// `None`. A case-sensitive disk (Linux, Android app storage) keeps both names side by side, as
+/// NTFS does for NFC and NFD, and the pair clashes as soon as it syncs to a folding disk, so the
+/// write path refuses it before it journals anything. Destinations the user asks for have their
+/// folders resolved first ([`folders_as_on_disk`]), so for them only the name itself can be a twin;
+/// a folder twin is left for an undo, which puts a file back where it was. A folder twin is
+/// followed, so a file twin inside it is reported as the name being taken, the answer Windows
+/// gives for that path. Errors only for a folder that cannot be listed.
+pub(crate) fn case_twin(root: &Path, rel: &str) -> Result<Option<Twin>> {
+  let segs: Vec<&str> = rel.split('/').collect();
+  let mut dir = root.to_path_buf();
+  let mut on_disk: Vec<String> = Vec::new();
+  let mut folder = None;
+  for (i, seg) in segs.iter().enumerate() {
+    let last = i + 1 == segs.len();
+    let exact = dir.join(seg);
+    let name = if exact.symlink_metadata().is_ok() {
+      seg.to_string()
+    } else {
+      let key = name_key(seg);
+      let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => break,
+        Err(e) => return Err(e.into()),
+      };
+      let mut found = None;
+      for entry in entries {
+        let name = entry?.file_name().to_string_lossy().to_string();
+        if name_key(&name) == key {
+          found = Some(name);
+          break;
+        }
+      }
+      match found {
+        Some(name) => name,
+        None => break, // this segment is new, and so is everything below it
+      }
+    };
+    if last {
+      // Reached only through a folder twin (callers refuse the exact path themselves) or as one.
+      return Ok(Some(Twin::Name));
+    }
+    let twin = name != *seg;
+    dir = dir.join(&name);
+    on_disk.push(name);
+    if twin && !dir.is_dir() {
+      return Ok(Some(Twin::NotAFolder(on_disk.join("/"))));
+    }
+    if twin && folder.is_none() {
+      folder = Some(on_disk.join("/"));
+    }
+  }
+  Ok(folder.map(Twin::Folder))
+}
+
 /// Cross-volume landing: copy to <dest dir>/.soundhood-tmp-<job>, fsync, rename to dest, then remove src.
 ///
 /// The staged copy is hidden and named `.soundhood-tmp-<job>.<ext of dest>`. The final rename
@@ -511,6 +659,114 @@ mod tests {
     fs::write(d.path().join("Beyonce\u{301}.mp3"), b"nfd").unwrap();
     let to = d.path().join("Beyonc\u{e9}.mp3");
     assert!(matches!(rename_no_clobber(&a, &to), Err(Error::Exists(_))));
+  }
+
+  /// Holds on any disk: where the disk folds names itself, the twin spelling simply is the folder.
+  #[test]
+  fn case_twin_finds_what_a_folding_disk_would_clash_with() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    fs::create_dir_all(root.join("Downloads")).unwrap();
+    fs::write(root.join("Downloads").join("New Song.m4a"), b"x").unwrap();
+    fs::create_dir_all(root.join("Beyonce\u{301}")).unwrap();
+    let folds_case = root.join("DOWNLOADS").exists();
+    let folds_nfc = root.join("Beyonc\u{e9}").exists();
+
+    assert_eq!(case_twin(root, "Downloads/Other.m4a").unwrap(), None);
+    assert_eq!(case_twin(root, "Brand New/Other.m4a").unwrap(), None);
+    assert_eq!(case_twin(root, "Downloads/new song.M4A").unwrap(), Some(Twin::Name));
+    assert_eq!(case_twin(root, "downloads/new song.m4a").unwrap(), Some(Twin::Name));
+    assert_eq!(
+      case_twin(root, "downloads/Other.m4a").unwrap(),
+      (!folds_case).then(|| Twin::Folder("Downloads".into()))
+    );
+    assert_eq!(
+      case_twin(root, "Beyonc\u{e9}/x.m4a").unwrap(),
+      (!folds_nfc).then(|| Twin::Folder("Beyonce\u{301}".into()))
+    );
+    fs::write(root.join("Notes"), b"a file").unwrap();
+    assert_eq!(
+      case_twin(root, "notes/x.m4a").unwrap(),
+      (!folds_case).then(|| Twin::NotAFolder("Notes".into()))
+    );
+  }
+
+  /// On any disk: folders take the spelling that is on disk, the file name and new folders do not.
+  #[test]
+  fn folders_as_on_disk_spells_existing_folders_as_they_are() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    fs::create_dir_all(root.join("Downloads").join("Live Sets")).unwrap();
+    fs::create_dir_all(root.join("Beyonce\u{301}")).unwrap();
+    fs::write(root.join("Downloads").join("Song.m4a"), b"x").unwrap();
+    fs::write(root.join("Notes"), b"a file, not a folder").unwrap();
+    let as_on_disk = |rel: &str| folders_as_on_disk(root, rel).unwrap();
+
+    assert_eq!(as_on_disk("Downloads/new.m4a"), "Downloads/new.m4a");
+    assert_eq!(as_on_disk("downloads/new.m4a"), "Downloads/new.m4a");
+    assert_eq!(as_on_disk("DOWNLOADS/live sets/new.m4a"), "Downloads/Live Sets/new.m4a");
+    assert_eq!(
+      as_on_disk("downloads/song.M4A"),
+      "Downloads/song.M4A",
+      "the name is kept as given"
+    );
+    assert_eq!(as_on_disk("Beyonc\u{e9}/x.m4a"), "Beyonce\u{301}/x.m4a");
+    assert_eq!(
+      as_on_disk("downloads/New Folder/sub/x.m4a"),
+      "Downloads/New Folder/sub/x.m4a"
+    );
+    assert_eq!(
+      as_on_disk("Fresh/downloads/x.m4a"),
+      "Fresh/downloads/x.m4a",
+      "below a new folder"
+    );
+    assert_eq!(
+      as_on_disk("notes/x.m4a"),
+      "notes/x.m4a",
+      "a file is no folder to go into"
+    );
+    assert_eq!(as_on_disk("x.m4a"), "x.m4a");
+  }
+
+  /// Several folders matching a typed name: exact first, then the same Unicode form, then the
+  /// other; two at one step are refused by name, never picked by listing order.
+  #[test]
+  fn folders_as_on_disk_never_lets_listing_order_choose() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    let count = |prefix: &str| {
+      fs::read_dir(root)
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().starts_with(prefix))
+        .count()
+    };
+    fs::create_dir_all(root.join("Caf\u{e9}")).unwrap();
+    fs::create_dir_all(root.join("Cafe\u{301}")).unwrap();
+    if count("Caf") == 2 {
+      // NFC and NFD side by side (NTFS, Linux): the typed form decides.
+      assert_eq!(folders_as_on_disk(root, "CAF\u{c9}/x.m4a").unwrap(), "Caf\u{e9}/x.m4a");
+      assert_eq!(
+        folders_as_on_disk(root, "CAFE\u{301}/x.m4a").unwrap(),
+        "Cafe\u{301}/x.m4a"
+      );
+    }
+    fs::create_dir_all(root.join("Rock")).unwrap();
+    fs::create_dir_all(root.join("ROCK")).unwrap();
+    if count("R") == 2 {
+      // Case twins (a case-sensitive disk): a third spelling matches both equally.
+      match folders_as_on_disk(root, "rock/x.m4a") {
+        Err(Error::Refused(m)) => assert_eq!(
+          m,
+          "more than one folder is named like rock (ROCK, Rock), so nothing was changed"
+        ),
+        other => panic!("{other:?}"),
+      }
+      assert_eq!(
+        folders_as_on_disk(root, "ROCK/x.m4a").unwrap(),
+        "ROCK/x.m4a",
+        "exact wins"
+      );
+    }
   }
 
   #[test]

@@ -137,10 +137,16 @@ jobs:
           path: dist
           merge-multiple: true
       - name: List the artefacts
-        run: ls -l dist
+        run: ls -lR dist
       # A draft: the lead publishes it after the phase gate (the tag is made on the merge commit).
+      # One pattern per package: the Linux artifact keeps its appimage/ and deb/ folders, which a
+      # bare dist/* matches as folders (and attaches nothing from), and with a pattern each a
+      # missing package fails the run instead of being left out quietly.
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
-          files: dist/*
+          files: |
+            dist/*.exe
+            dist/**/*.AppImage
+            dist/**/*.deb
           fail_on_unmatched_files: true

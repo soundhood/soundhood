@@ -388,8 +388,39 @@ fn landing_copies_checks_and_never_overwrites() {
   assert!(again.failed[0].error.contains("already exists"));
   assert_eq!(read_bytes(&lib, &dest), bytes);
   assert!(staged.exists(), "kept for a retry");
+  let journaled = entries(&lib).len();
+  assert_eq!(journaled, 1, "the refusal was not written down");
   let bad = land(&lib, &staged, &rel("_Soundhood/x.m4a"), &ApplyOptions::default());
   assert_eq!(bad.failed.len(), 1);
+
+  // Into `downloads/`, typed in lower case: the folder that is there, on any disk.
+  let other = land(
+    &lib,
+    &staged,
+    &rel("downloads/Other - Someone.m4a"),
+    &ApplyOptions::default(),
+  );
+  assert_eq!(other.applied.len(), 1, "{}", show(&other));
+  assert_eq!(other.applied[0].label, "Saved Other - Someone.m4a in Downloads");
+  assert_eq!(
+    other.applied[0].path_after.as_deref(),
+    Some("Downloads/Other - Someone.m4a")
+  );
+  assert_eq!(
+    read_bytes(&lib, &rel("Downloads/Other - Someone.m4a")),
+    b"another download"
+  );
+  let downloads = std::fs::read_dir(&lib.root)
+    .unwrap()
+    .filter(|e| {
+      e.as_ref()
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .eq_ignore_ascii_case("downloads")
+    })
+    .count();
+  assert_eq!(downloads, 1, "no second folder beside Downloads");
 
   let u = undo::undo_batch(&lib, &rep.batch).unwrap();
   assert_eq!(u.applied[0].label, "Deleted New Song - Someone.m4a (in the bin)");

@@ -15,7 +15,42 @@ phase's number, and only Phase 7 sets 1.0.0 ([DEV](docs/DEV.md#versions-and-rele
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Playlist names in another case or Unicode form. On a disk that keeps "Road Trip" and "road trip"
+  apart (Linux, some Android storage), adding to or removing from a playlist typed in another case
+  found no playlist and was refused; creating or deleting one did the same. Windows keeps the two
+  Unicode forms of a name like "Beyonce" with an accent apart too (a Mac writes one, a keyboard the
+  other), so there the same happened for a playlist named on a Mac. Every playlist command now
+  finds the playlist in any case or form of its name, and a playlist typed in another case on
+  Windows keeps its file's own spelling instead of being renamed to the typed one. A name that
+  matches two playlists equally loosely (two that differ only in case, on those disks) is refused
+  with both names, never decided by the order the disk lists them, and a playlist's exact name
+  always means that playlist. On those disks a legacy `.M3U` is refused as legacy and a `.M3U8` as
+  another program's file, where a command used to make a second playlist beside the first or
+  answer "changed since". A listed playlist whose file name the app would clean (one ending in a
+  dot) is refused plainly instead of being taken for another playlist. "Make playlists from
+  folders" makes one playlist of two folders whose names differ only in case or form (one line for
+  a file name both hold), instead of failing on the second. Found by the first Linux check run.
+- Moves into a folder named in another case or Unicode form. A move into `downloads` beside an
+  existing `Downloads` made a second folder on those disks, and on Windows a move into `Beyonce`
+  with the accent typed beside a folder named on a Mac did the same; that included a move into the
+  track's own folder spelled another way, which on Windows was otherwise refused, after a "not
+  applied" journal entry, only for a difference in case. Both pairs clash once synced. A move now
+  goes into the folder that is there, on every disk, and a move into the track's own folder in any
+  spelling is refused before anything is written down. Two folders that already exist side by side
+  stay two folders, so a track can still be moved from one into the other; a name that matches two
+  of them equally loosely is refused with both names. A move or rename onto a file name that a
+  second file in the folder already has in another case or form (a rename that changes only the
+  case included) is refused before anything is written down. Where the disk itself did not see the
+  clash (case on those disks, Unicode form on Windows) that refusal used to come only after a "not
+  applied" journal entry; no file was touched either way. Renaming a file to another case of its
+  own name still works. Downloads do not go through this code yet (open item).
+- The Linux check run's Android build: the setup step asked for a package the current Android
+  command-line tools no longer have, and stopped. Only GitHub's build was affected, never the app.
+- GitHub's draft releases: the Linux AppImage and .deb were built but not attached, because the
+  attach step's pattern matched their folders. Each package is now named, and a missing one fails
+  the run. Neither change has run on GitHub yet.
 
 ## [0.2.1] - 2026-11-06
 

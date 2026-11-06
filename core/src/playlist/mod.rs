@@ -9,7 +9,7 @@
 use crate::error::{Error, Result};
 use crate::fs::{FileStamp, APP_DIR, PLAYLISTS_DIR, TMP_PREFIX};
 use crate::model::{PlaylistFile, RelPath};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write as _;
 use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
@@ -180,6 +180,117 @@ pub fn file_rel(name: &str) -> Result<RelPath> {
   RelPath::new(&format!("{PLAYLISTS_DIR}/{}.m3u8", sanitize_name(name)?))
 }
 
+/// The name the playlist `clean` (already [`sanitize_name`]d) has on disk: the stem of the
+/// `_Playlists/` file that matches it case- and normalisation-insensitively ([`same_name`], the
+/// comparison the no-clobber rename uses), as the folder listing spells it. So "road trip" finds
+/// `Road Trip.m3u8` on a case-sensitive disk (Linux, Android app storage) instead of being taken
+/// for a new playlist that the create-new rename then refuses; NTFS keeps NFC and NFD apart, so a
+/// playlist named on a Mac is found the same way on Windows; and a disk that folds case by itself
+/// gets the file's own spelling back, so a write never renames the file to the case it was typed
+/// in. A playlist file named exactly `clean` wins, whatever its extension's case or kind (so a
+/// listed legacy `.m3u` is refused as legacy, never taken for another playlist); then a `.m3u8`
+/// over a `.m3u`; then a name that differs only in case, in the same Unicode form, over one in
+/// the other form. Two candidates at the same step are refused by name rather than chosen by the
+/// order the disk lists them. `clean` itself when nothing matches.
+pub(crate) fn on_disk_name(root: &Path, clean: &str) -> Result<String> {
+  let entries = match std::fs::read_dir(root.join(PLAYLISTS_DIR)) {
+    Ok(entries) => entries,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(clean.to_string()),
+    Err(e) => return Err(e.into()),
+  };
+  let lower = clean.to_lowercase();
+  // [m3u8 same form, m3u8 other form, m3u same form, m3u other form]
+  let mut tiers: [Vec<String>; 4] = Default::default();
+  for entry in entries {
+    let file_name = entry?.file_name();
+    let Some(file_name) = file_name.to_str() else {
+      continue;
+    };
+    if file_name.starts_with(TMP_PREFIX) {
+      continue;
+    }
+    let Some((stem, ext)) = file_name.rsplit_once('.') else {
+      continue;
+    };
+    let m3u8 = ext.eq_ignore_ascii_case("m3u8");
+    if !(m3u8 || ext.eq_ignore_ascii_case("m3u")) || !same_name(stem, clean) {
+      continue;
+    }
+    if stem == clean {
+      return Ok(stem.to_string());
+    }
+    let tier = usize::from(!m3u8) * 2 + usize::from(stem.to_lowercase() != lower);
+    if !tiers[tier].iter().any(|s| s == stem) {
+      tiers[tier].push(stem.to_string());
+    }
+  }
+  match tiers.into_iter().find(|t| !t.is_empty()) {
+    None => Ok(clean.to_string()),
+    Some(mut found) if found.len() > 1 => {
+      found.sort();
+      Err(Error::Refused(format!(
+        "more than one playlist is named like {clean} ({}), so nothing was changed",
+        found.join(", ")
+      )))
+    }
+    Some(mut found) => Ok(found.remove(0)),
+  }
+}
+
+/// The playlist files `_Playlists/` holds under exactly the name `stem`, as the folder lists them.
+/// The app's own path (`<stem>.m3u8`, `<stem>.m3u`) reaches more than these on a disk that folds
+/// case (another spelling of the name) and fewer on one that does not (another case of the
+/// extension), so the write path asks here what the name really names.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct NamedFiles {
+  /// `<stem>.m3u8`, the file the app writes.
+  pub m3u8: bool,
+  /// `<stem>.M3U8` or another case of that extension: another program's file.
+  pub other_case_m3u8: bool,
+  /// `<stem>.m3u` in any case: a legacy playlist.
+  pub legacy: bool,
+}
+
+/// See [`NamedFiles`]; all false when `_Playlists/` cannot be listed.
+pub(crate) fn files_named(root: &Path, stem: &str) -> NamedFiles {
+  let mut named = NamedFiles::default();
+  let Ok(entries) = std::fs::read_dir(root.join(PLAYLISTS_DIR)) else {
+    return named;
+  };
+  for entry in entries.flatten() {
+    let name = entry.file_name();
+    let name = name.to_string_lossy();
+    match name.rsplit_once('.') {
+      Some((s, "m3u8")) if s == stem => named.m3u8 = true,
+      Some((s, ext)) if s == stem && ext.eq_ignore_ascii_case("m3u8") => named.other_case_m3u8 = true,
+      Some((s, ext)) if s == stem && ext.eq_ignore_ascii_case("m3u") => named.legacy = true,
+      _ => {}
+    }
+  }
+  named
+}
+
+/// True when `_Playlists/` holds a playlist file (`.m3u8` or `.m3u`) whose stem is exactly `stem`,
+/// as [`list`] names it: how a name the UI took from the list is told from a typed one.
+pub(crate) fn has_file_named(root: &Path, stem: &str) -> bool {
+  let Ok(entries) = std::fs::read_dir(root.join(PLAYLISTS_DIR)) else {
+    return false;
+  };
+  entries.flatten().any(|entry| {
+    let name = entry.file_name();
+    let name = name.to_string_lossy();
+    name
+      .rsplit_once('.')
+      .is_some_and(|(s, ext)| s == stem && (ext.eq_ignore_ascii_case("m3u8") || ext.eq_ignore_ascii_case("m3u")))
+  })
+}
+
+/// True when two playlist names are one playlist: equal after NFC and lower-casing, the key the
+/// write path compares names and lines by.
+pub(crate) fn same_name(a: &str, b: &str) -> bool {
+  entry_key(a) == entry_key(b)
+}
+
 /// A playlist name is a single file name: trimmed, outer dots removed, and refused when empty or
 /// when it holds a character Windows rejects (the old host's `sanitize_folder_name`).
 pub fn sanitize_name(raw: &str) -> Result<String> {
@@ -301,9 +412,12 @@ pub fn containing(root: &Path, rel: &RelPath) -> Result<Vec<PlaylistFile>> {
 /// The old host's `playlists_from_folders`, as a plan: files directly in the root are skipped, each
 /// first-level folder (sub-folders included) becomes a playlist named after it, entries sorted by
 /// lower-cased file name, folders in name order. A folder whose name is not a valid playlist name,
-/// or that already has a playlist of that name (`.m3u8` or `.m3u`, any case), is left out.
+/// or that already has a playlist of that name (`.m3u8` or `.m3u`, any case or Unicode form), is
+/// left out. Folders whose names differ only in case or Unicode form (made side by side on a disk
+/// that keeps them apart) are one folder on a disk that folds names, so they make one playlist:
+/// named by the first, holding the files of all of them, one line per file name.
 pub fn plan_from_folders(root: &Path, stamps: &[FileStamp]) -> Result<Vec<PlaylistFile>> {
-  let existing: Vec<String> = list(root)?.iter().map(|p| p.name.to_lowercase()).collect();
+  let existing: HashSet<String> = list(root)?.iter().map(|p| entry_key(&p.name)).collect();
   let mut by_folder: BTreeMap<&str, Vec<&FileStamp>> = BTreeMap::new();
   for s in stamps {
     let Some(folder) = s.rel.top_folder() else {
@@ -314,21 +428,41 @@ pub fn plan_from_folders(root: &Path, stamps: &[FileStamp]) -> Result<Vec<Playli
     }
     by_folder.entry(folder).or_default().push(s);
   }
-  let mut out = Vec::new();
-  for (folder, mut files) in by_folder {
+  let mut planned: Vec<(String, Vec<&FileStamp>)> = Vec::new();
+  let mut index: HashMap<String, usize> = HashMap::new();
+  for (folder, files) in by_folder {
     let Ok(name) = sanitize_name(folder) else {
       continue;
     };
-    if existing.contains(&name.to_lowercase()) {
+    let key = entry_key(&name);
+    if existing.contains(&key) {
       continue;
     }
-    files.sort_by_cached_key(|s| s.rel.file_name().to_lowercase());
-    out.push(PlaylistFile {
-      name,
-      entries: files.iter().map(|s| s.rel.as_str().to_string()).collect(),
-    });
+    match index.get(&key) {
+      Some(&i) => planned[i].1.extend(files),
+      None => {
+        index.insert(key, planned.len());
+        planned.push((name, files));
+      }
+    }
   }
-  Ok(out)
+  Ok(
+    planned
+      .into_iter()
+      .map(|(name, mut files)| {
+        files.sort_by_cached_key(|s| s.rel.file_name().to_lowercase());
+        // Twin folders can hold the same file name: one line for it, the first, as adding the
+        // second to the playlist would leave it (lines are compared by key).
+        let mut keys = HashSet::new();
+        let entries = files
+          .iter()
+          .filter(|s| keys.insert(s.rel.key()))
+          .map(|s| s.rel.as_str().to_string())
+          .collect();
+        PlaylistFile { name, entries }
+      })
+      .collect(),
+  )
 }
 
 /// The sole m3u8 writer: write-then-rename through a hidden temp in `_Playlists/`. Writes `entries`

@@ -249,7 +249,11 @@ jobs:
           cache-dependency-path: |
             app/src-tauri/gen/android/**/*.gradle*
             app/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties
+      # The action's default package list still names "tools", which the current command-line tools
+      # no longer have (sdkmanager exits 1); platform-tools is the part of that default still needed.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Android SDK platform
         run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
       - name: Android NDK ${{ env.NDK_VERSION }}

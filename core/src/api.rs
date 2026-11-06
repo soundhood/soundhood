@@ -234,16 +234,16 @@ impl Core {
       .ok_or_else(|| Error::NotFound(rel.to_string()))
   }
 
-  /// The playlist the UI asked for by name; a legacy `.m3u` of that name is found too.
+  /// The playlist the UI asked for by name, in any case or Unicode form, as the write path found it
+  /// ([`playlist::on_disk_name`]); a legacy `.m3u` of that name is found too.
   fn playlist_named(&self, name: &str) -> Result<PlaylistFile> {
-    match playlist::read(&self.lib.root, name) {
-      Err(Error::NotFound(missing)) => {
-        let clean = playlist::sanitize_name(name)?.to_lowercase();
-        playlist::list(&self.lib.root)?
-          .into_iter()
-          .find(|p| p.name.to_lowercase() == clean)
-          .ok_or(Error::NotFound(missing))
-      }
+    let clean = playlist::sanitize_name(name)?;
+    let on_disk = playlist::on_disk_name(&self.lib.root, &clean)?;
+    match playlist::read(&self.lib.root, &on_disk) {
+      Err(Error::NotFound(missing)) => playlist::list(&self.lib.root)?
+        .into_iter()
+        .find(|p| playlist::same_name(&p.name, &clean))
+        .ok_or(Error::NotFound(missing)),
       other => other,
     }
   }

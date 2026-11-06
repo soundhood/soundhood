@@ -211,3 +211,37 @@ fn plan_from_folders_never_overwrites_an_existing_playlist() {
   let names: Vec<&str> = plan.iter().map(|p| p.name.as_str()).collect();
   assert_eq!(names, vec!["Rock"]);
 }
+
+/// Folders whose names differ only in case or Unicode form are one folder where the disk folds
+/// names, so they make one playlist, named by the first, with the files of both.
+#[test]
+fn plan_from_folders_makes_one_playlist_of_twin_folders() {
+  let d = tempfile::tempdir().unwrap();
+  put(d.path(), "_Playlists/beyonc\u{e9} live.m3u8", b"#EXTM3U\n");
+  let stamps: Vec<FileStamp> = [
+    "Beyonce\u{301}/b.mp3",
+    "Beyonc\u{e9}/a.mp3",
+    "Rock/c.mp3",
+    "rock/A.mp3",
+    "rock/C.mp3",
+    "Beyonce\u{301} Live/x.mp3",
+  ]
+  .into_iter()
+  .map(stamp)
+  .collect();
+  let plan = playlist::plan_from_folders(d.path(), &stamps).unwrap();
+  assert_eq!(
+    plan,
+    vec![
+      PlaylistFile {
+        name: "Beyonce\u{301}".into(),
+        entries: strings(&["Beyonc\u{e9}/a.mp3", "Beyonce\u{301}/b.mp3"]),
+      },
+      PlaylistFile {
+        name: "Rock".into(),
+        entries: strings(&["rock/A.mp3", "Rock/c.mp3"]),
+      },
+    ],
+    "rock/C.mp3 is the same line as Rock/c.mp3; the NFD 'Live' folder already has its playlist in NFC"
+  );
+}

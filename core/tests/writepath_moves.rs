@@ -127,6 +127,213 @@ fn a_move_carries_playlists_and_lyrics_and_undo_puts_everything_back() {
   assert!(manifest::diff(&manifest_before, &manifest::build(&lib.root).unwrap()).is_empty());
 }
 
+/// The library's first-level folders, by name, without the app's own `_Soundhood/` (the first
+/// change made creates it, for its journal).
+fn top_folders(lib: &Library) -> Vec<String> {
+  let mut names: Vec<String> = std::fs::read_dir(&lib.root)
+    .unwrap()
+    .map(|e| e.unwrap())
+    .filter(|e| e.file_type().unwrap().is_dir())
+    .map(|e| e.file_name().to_string_lossy().to_string())
+    .filter(|name| name != "_Soundhood")
+    .collect();
+  names.sort();
+  names
+}
+
+/// A folder typed in another case or Unicode form is the folder that is there, on any disk: the
+/// track goes into it and no second folder appears beside it; a move into its own folder spelled
+/// another way is refused before anything is written down.
+#[test]
+fn a_move_goes_into_the_folder_that_is_there_however_it_is_spelled() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let (r, target) = favourite_with_lyrics(&lib);
+  let own = r.top_folder().unwrap().to_string();
+  assert_ne!(own.to_uppercase(), own);
+  let folders = top_folders(&lib);
+
+  let rep = apply(
+    &lib,
+    vec![Op::Move {
+      rel: r.clone(),
+      to_folder: own.to_uppercase(),
+    }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
+  assert_eq!(
+    rep.failed[0].error,
+    format!("{} already exists in {own}", r.file_name())
+  );
+  assert!(lib.abs(&r).is_file());
+  assert!(entries(&lib).is_empty(), "nothing journaled");
+  assert_eq!(top_folders(&lib), folders);
+
+  let rep = apply(
+    &lib,
+    vec![Op::Move {
+      rel: r.clone(),
+      to_folder: target.to_lowercase(),
+    }],
+    &ApplyOptions::default(),
+  );
+  assert!(rep.failed.is_empty() && rep.skipped.is_empty(), "{}", show(&rep));
+  assert_eq!(rep.applied[0].label, format!("Moved {} to {target}", r.file_name()));
+  let moved = rel(&format!("{target}/{}", r.file_name()));
+  assert!(lib.abs(&moved).is_file());
+  assert!(lib.abs(&companion(&moved, "lrc")).is_file(), "the lyrics follow");
+  assert_eq!(top_folders(&lib), folders, "no second folder");
+
+  // A folder named in NFD (as one made on a Mac arrives), asked for in NFC.
+  let nfd = "Beyonce\u{301}";
+  std::fs::create_dir_all(lib.root.join(nfd)).unwrap();
+  let folders = top_folders(&lib);
+  let rep = apply(
+    &lib,
+    vec![Op::Move {
+      rel: moved.clone(),
+      to_folder: "Beyonc\u{e9}".into(),
+    }],
+    &ApplyOptions::default(),
+  );
+  assert!(rep.failed.is_empty() && rep.skipped.is_empty(), "{}", show(&rep));
+  assert!(lib.abs(&rel(&format!("{nfd}/{}", r.file_name()))).is_file());
+  assert_eq!(top_folders(&lib), folders, "no NFC twin beside it");
+
+  let u = undo::undo_batch(&lib, &rep.batch).unwrap();
+  assert!(u.failed.is_empty() && u.skipped.is_empty(), "{}", show(&u));
+  assert!(lib.abs(&moved).is_file(), "undone into the folder it came from");
+}
+
+/// Where the disk keeps two folders apart whose names differ only in Unicode form (NTFS, Linux) or
+/// case (Linux), they are two folders: a move from one into the other is a move, and a rename that
+/// changes only the file name's case stays in place. Where the disk folds them, there is one folder.
+#[test]
+fn twin_folders_that_exist_side_by_side_are_two_folders() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let (r, _) = favourite_with_lyrics(&lib);
+  let (nfd, nfc) = ("Beyonce\u{301}", "Beyonc\u{e9}");
+  std::fs::create_dir_all(lib.root.join(nfd)).unwrap();
+  std::fs::create_dir_all(lib.root.join(nfc)).unwrap();
+  let opts = ApplyOptions::default();
+  let mv = |rel: &RelPath, to: &str| {
+    apply(
+      &lib,
+      vec![Op::Move {
+        rel: rel.clone(),
+        to_folder: to.into(),
+      }],
+      &opts,
+    )
+  };
+  let rep = mv(&r, nfd);
+  assert!(rep.failed.is_empty(), "{}", show(&rep));
+  let in_nfd = rel(&format!("{nfd}/{}", r.file_name()));
+  assert!(lib.abs(&in_nfd).is_file());
+
+  if top_folders(&lib).iter().filter(|f| f.starts_with("Beyonc")).count() == 2 {
+    let rep = mv(&in_nfd, nfc);
+    assert!(rep.failed.is_empty() && rep.skipped.is_empty(), "{}", show(&rep));
+    assert_eq!(rep.applied[0].label, format!("Moved {} to {nfc}", r.file_name()));
+    let in_nfc = rel(&format!("{nfc}/{}", r.file_name()));
+    assert!(lib.abs(&in_nfc).is_file() && !lib.abs(&in_nfd).exists());
+    assert!(lib.abs(&companion(&in_nfc, "lrc")).is_file(), "the lyrics follow");
+    let u = undo::undo_batch(&lib, &rep.batch).unwrap();
+    assert!(u.failed.is_empty() && u.skipped.is_empty(), "{}", show(&u));
+    assert!(lib.abs(&in_nfd).is_file());
+
+    // Moved over again and the emptied folder deleted: undo would make the twin folder again, so
+    // it is skipped (nothing forced), naming what is there, and the track stays where it is.
+    let rep = mv(&in_nfd, nfc);
+    assert!(rep.failed.is_empty(), "{}", show(&rep));
+    std::fs::remove_dir(lib.root.join(nfd)).unwrap();
+    let u = undo::undo_batch(&lib, &rep.batch).unwrap();
+    assert!(u.failed.is_empty(), "{}", show(&u));
+    assert!(
+      u.skipped.iter().any(|s| s.reason.starts_with("not undone: ")),
+      "{}",
+      show(&u)
+    );
+    assert!(lib.abs(&in_nfc).is_file());
+    assert!(!lib.root.join(nfd).exists(), "the twin folder is not made again");
+  } else {
+    // One folder: into "its own folder" in the other spelling, refused before anything is written.
+    let journaled = entries(&lib).len();
+    let rep = mv(&in_nfd, nfc);
+    assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
+    assert_eq!(entries(&lib).len(), journaled);
+  }
+}
+
+/// A rename that changes only a file name's case or form, onto a spelling a second file in the
+/// folder already has (NFC and NFD side by side, on NTFS or Linux), is refused before anything is
+/// written down.
+#[test]
+fn a_case_only_rename_onto_a_twin_file_is_refused_before_the_journal() {
+  let (_d, lib, report) = fixture_lib(10, false);
+  let src = track_with_ext(&report, "m4a");
+  let folder = src.parent().unwrap();
+  let (nfc, nfd) = (
+    folder.join("Caf\u{e9}.m4a").unwrap(),
+    folder.join("Cafe\u{301}.m4a").unwrap(),
+  );
+  std::fs::copy(lib.abs(&src), lib.abs(&nfc)).unwrap();
+  std::fs::copy(lib.abs(&src), lib.abs(&nfd)).unwrap();
+  age(&lib.abs(&nfc));
+  age(&lib.abs(&nfd));
+  let twins = std::fs::read_dir(lib.abs(&folder))
+    .unwrap()
+    .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().starts_with("Caf"))
+    .count();
+  if twins < 2 {
+    return; // a disk that normalises names holds one file, so there is no twin
+  }
+  let rep = apply(
+    &lib,
+    vec![Op::Rename {
+      rel: nfc.clone(),
+      to: folder.join("CAF\u{c9}.m4a").unwrap(),
+    }],
+    &ApplyOptions::default(),
+  );
+  assert_eq!(rep.failed.len(), 1, "{}", show(&rep));
+  assert!(rep.failed[0].error.contains("already exists"), "{}", show(&rep));
+  assert!(entries(&lib).is_empty(), "nothing journaled");
+  assert!(lib.abs(&nfc).is_file() && lib.abs(&nfd).is_file());
+}
+
+/// Where the disk folds case, a path can name a folder in a spelling the disk no longer uses (it
+/// was renamed in case outside the app). A rename of the file name's case alone through that path
+/// happens in place: no refusal, no second folder.
+#[test]
+fn a_case_only_rename_through_another_spelling_of_its_folder_stays_in_place() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let (r, _) = favourite_with_lyrics(&lib);
+  let folder = r.parent().unwrap().as_str().to_string();
+  let stale = folder.to_lowercase();
+  if stale == folder || !lib.root.join(&stale).is_dir() {
+    return; // a disk that keeps case apart has no such path
+  }
+  let folders = top_folders(&lib);
+  let upper = r.file_name().to_uppercase();
+  let rep = apply(
+    &lib,
+    vec![Op::Rename {
+      rel: rel(&format!("{stale}/{}", r.file_name())),
+      to: rel(&format!("{stale}/{upper}")),
+    }],
+    &ApplyOptions::default(),
+  );
+  assert!(rep.failed.is_empty() && rep.skipped.is_empty(), "{}", show(&rep));
+  let names: Vec<String> = std::fs::read_dir(lib.root.join(&folder))
+    .unwrap()
+    .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+    .filter(|n| n.to_uppercase() == upper)
+    .collect();
+  assert_eq!(names, vec![upper], "renamed in place, no copy left");
+  assert_eq!(top_folders(&lib), folders);
+}
+
 #[test]
 fn a_move_never_overwrites_and_refuses_bad_folder_names() {
   let (_d, lib, _) = fixture_lib(20, false);
