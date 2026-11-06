@@ -302,7 +302,8 @@ output, LRCLIB and Proton HTTP fixtures; none of them touches the network ([TEST
 ## Versions and releases
 
 Semantic versioning, by merge order: each phase merge to `main` bumps the minor version (0.2.0, 0.3.0,
-...) in whatever order the phases land; only Phase 7 may set 1.0.0. The version lives in
+...) in whatever order the phases land; only Phase 7 may set 1.0.0. A fix merged between phases bumps
+the patch version (0.2.1) and gets its own CHANGELOG entry. The version lives in
 `app/src-tauri/tauri.conf.json`, with `app/package.json` and `app/src-tauri/Cargo.toml` kept equal;
 Tauri derives the Android version code from it (it must never go down). The merge commit is tagged
 `v<version>` and [CHANGELOG](../CHANGELOG.md) records the phase that became that version.

@@ -73,6 +73,7 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await expect(page.locator(".mPlayer")).toBeVisible();
     await expect(page.locator(".mPlayerTitle")).toHaveText("Tin Roof Rain - Nova Tamsin");
     await expect(page.locator(".mPlayerArt img")).toBeVisible();
+    await expect(page.locator(".mPlayer .timeline .time").last()).toHaveText("2:52"); // duration from the audio metadata
 
     await expect(page).toHaveScreenshot(app.shot("player"));
   });

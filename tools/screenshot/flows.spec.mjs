@@ -316,4 +316,29 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     expect(await ipcCount(page, "downloads")).toBe(1);
     await expect(page.getByRole("button", { name: "Download queue (2)" })).toBeVisible();
   });
+
+  // The phone plays from the file's bytes, a route that once never reported the song's length: the
+  // seek bar sat at 0:00 / 0:00 and could not be dragged.
+  test("the seek bar has the song's length, moves with the song and seeks where tapped", async ({ app, page }) => {
+    await app.open();
+    await page.locator(".pill.artistPill", { hasText: "Late Night Drive" }).tap();
+    await page.locator(".trackRow", { hasText: "Tin Roof Rain" }).tap();
+    await expect(status(page)).toHaveText(/^Playing \(/);
+    await page.locator(".miniBar").tap();
+    const times = page.locator(".mPlayer .timeline .time");
+    const bar = page.locator(".mPlayer .timeline input[type=range]");
+    await expect(times.last()).toHaveText("2:52"); // 172 s in the fixture
+    await expect(bar).toHaveAttribute("max", "172");
+
+    // The mock's play() makes no sound and does not advance, so the song "plays" 30 s by hand.
+    await page.evaluate(() => { document.querySelector("audio").currentTime = 30; });
+    await expect(times.first()).toHaveText("0:30");
+    await expect(bar).toHaveValue("30");
+
+    const box = await bar.boundingBox();
+    await bar.tap({ position: { x: box.width / 2, y: box.height / 2 } });
+    await expect.poll(() => page.evaluate(() => document.querySelector("audio").currentTime)).toBeGreaterThan(60);
+    expect(await page.evaluate(() => document.querySelector("audio").currentTime)).toBeLessThan(110);
+    await expect(times.first()).toHaveText(/^1:[2-4]\d$/);
+  });
 });

@@ -1437,10 +1437,6 @@ export default function App() {
       setIsPlaying(false);
       setStatus(`Can't play "${displayName(t.name)}": ${why}`);
     };
-    audio.onloadedmetadata = () => {
-      setDuration(audio.duration || 0);
-      setProgress(0);
-    };
     // play() is called right inside the tap/click (a "user gesture") — phones refuse playback
     // started later from a callback. It simply waits for enough data, then starts.
     audio
@@ -1868,6 +1864,32 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredTracks, currentIndex, shuffle]);
+
+  // The song length, whichever route loaded the file (direct URL on the PC, the file's bytes on
+  // the phone, a reload after a write). Without it the seek bar's maximum stays 0: it sits at the
+  // start and cannot be dragged. A new file starting to load resets the bar (on the phone the old
+  // song plays on while the new one's bytes arrive); an emptied player (NaN) or a stream of
+  // unknown length (Infinity) keeps the last known length; stopPlayer clears it.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onLoadStart = () => {
+      setProgress(0);
+      setDuration(0);
+    };
+    const onLength = () => {
+      const d = audio.duration;
+      if (Number.isFinite(d) && d > 0) setDuration(d);
+    };
+    audio.addEventListener("loadstart", onLoadStart);
+    audio.addEventListener("loadedmetadata", onLength);
+    audio.addEventListener("durationchange", onLength);
+    return () => {
+      audio.removeEventListener("loadstart", onLoadStart);
+      audio.removeEventListener("loadedmetadata", onLength);
+      audio.removeEventListener("durationchange", onLength);
+    };
+  }, []);
 
   // Cover picture embedded in the playing file (front cover), as a blob URL; "" when none.
   const [coverUrl, setCoverUrl] = useState<string>("");

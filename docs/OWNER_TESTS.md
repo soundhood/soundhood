@@ -64,4 +64,12 @@ a Copy log button, you should notice nothing.
    edit": Undo brings back the old tags, but an m4a or mp3 file can come back with different bytes,
    so the comparison would list it.)
 
+## 0.2.1: fix
+
+7. **The phone's seek bar works.** Install 0.2.1 on the phone
+   ([guide](OWNER_GUIDE.md#install-the-app-on-the-phone)). Play a song and open the full player.
+   *Expected:* the time on the right shows the song's length, not 0:00, and the dot moves along as
+   the song plays. Drag the dot, or tap somewhere on the bar: the song jumps there. The thin bar
+   under the mini player moves too.
+
 When a test fails, press Copy log on that device and send the log with the test number.

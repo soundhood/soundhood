@@ -9,12 +9,23 @@ phase's number, and only Phase 7 sets 1.0.0 ([DEV](docs/DEV.md#versions-and-rele
 
 | Version | Phase | Tagged |
 |---|---|---|
+| 0.2.1 | fix after Phase 0 | v0.2.1, 2026-11-06 (local) |
 | 0.2.0 | Phase 0: foundation | v0.2.0, 2026-10-28 (local) |
 | 0.1.0 | the app before the rebuild | never tagged |
 
 ## [Unreleased]
 
 Nothing yet.
+
+## [0.2.1] - 2026-11-06
+
+### Fixed
+
+- Phone: the seek bar in the player sat at 0:00 with a length of 0:00 and could not be dragged. The
+  phone plays a song from the file's bytes, and that route never passed the song's length to the
+  player. The length now comes from the player itself, whichever route loaded the song, so the bar
+  shows the length, moves with the song and seeks where you tap or drag. Present since before the
+  rebuild; a phone test now checks it.
 
 ## [0.2.0] - 2026-10-28
 
