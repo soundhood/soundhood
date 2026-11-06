@@ -1,9 +1,9 @@
 # Phase 0 review
 
-Charters: [README](README.md). Round 1 ran on `bca3e4c` (2026-10-27/28); fixes landed in a fix wave;
+Charters: [README](README.md). Round 1 ran on `367a478` (2026-10-27/28); fixes landed in a fix wave;
 round 2 re-checks every blocking item and the fixes.
 
-## Round 1 — build gate (`bca3e4c`)
+## Round 1 — build gate (`367a478`)
 
 Clean clone, both targets built, nothing installed.
 
@@ -91,7 +91,7 @@ at any depth; the error classifier matched song titles.
 | Multi-select = N batches | **accepted**; Phase 1/2 batch IPC; tracked in OPEN |
 | Phone checks, device evidence, Rebuild index < 2 min on the phone | owner-verified; tracked in OPEN |
 
-## Round 2 (`8f80a7d`, version 0.2.0)
+## Round 2 (`2dba0c7`, version 0.2.0)
 
 Every round-1 condition was re-checked by running it.
 
@@ -109,7 +109,7 @@ version is kept as an ignored probe), one channel rule (the core's) on PC, phone
 sentence and 92 shared test URLs, gate screenshots re-captured from the fixed build, build script order
 (tools built before the fetch), deno held to its executable hash, docs and OPEN rows.
 
-## Round 3 (`2fada48`)
+## Round 3 (`622320b`)
 
 | Reviewer | Result |
 |---|---|
@@ -120,5 +120,5 @@ Remaining minors were fixed in the merge commit (docs, the decisions table, the 
 vendored code) or recorded in [OPEN](../OPEN.md) (unix recovery unlink window; the recycle-bin test runs
 only by hand).
 
-Signed: build gate, break the build, break the design, break the network (round 2, `8f80a7d`);
-break the library, regression sweep (round 3, `2fada48`). Phase 0 merges as 0.2.0.
+Signed: build gate, break the build, break the design, break the network (round 2, `2dba0c7`);
+break the library, regression sweep (round 3, `622320b`). Phase 0 merges as 0.2.0.
