@@ -194,7 +194,8 @@ pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
     }
     match std::fs::hard_link(from, to) {
       // A crash between the link and the unlink leaves both names on the one file: startup
-      // recovery finishes that move (`ingest::recover`).
+      // recovery finishes that rename, whether a move, a rename, a delete into the app bin or an
+      // undo bringing a file back from it (`ingest::recover`).
       Ok(()) => {
         crate::ingest::fault::point("after_link");
         std::fs::remove_file(from).inspect_err(|_| {

@@ -74,6 +74,13 @@ fn kill_child() {
     "land" => {
       land(&lib, Path::new(&arg), &target, &opts);
     }
+    "playlist_delete" => {
+      apply(&lib, vec![Op::PlaylistDelete { name: arg }], &opts);
+    }
+    // `arg` is the batch to undo; `target` only names the track for the parent.
+    "undo" => {
+      let _ = undo::undo_batch(&lib, &arg);
+    }
     other => panic!("unknown scenario {other}"),
   }
   std::process::exit(NOT_CRASHED);
@@ -425,15 +432,243 @@ fn two_names_after_a_crash_count_as_the_move_only_when_they_are_one_file() {
   assert_eq!(read_bytes(&lib, &to), audio);
 }
 
-/// A Favourites track in a folder, a folder to move it to, and a lyrics file beside it.
-fn favourite(lib: &Library) -> (RelPath, String) {
+/// The two-name state of an interrupted delete into the app bin, built by hand after a crash
+/// before the delete: on unix a hard link (one file, two names) is finished as the delete, the
+/// library name going; anywhere else the bin copy is a second file, so nothing is removed and the
+/// entry is closed as interrupted.
+#[test]
+fn two_names_after_a_crash_count_as_the_delete_only_when_they_are_one_file() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let r = favourite_track(&lib);
+  let audio = read_bytes(&lib, &r);
+  crash(&lib, "delete", &r, "", "after_preimage");
+  let bin = lib.abs(&rel(&format!("_Soundhood/.bin/{}/{r}", this_month())));
+  std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+  if cfg!(unix) {
+    std::fs::hard_link(lib.abs(&r), &bin).unwrap();
+  } else {
+    std::fs::copy(lib.abs(&r), &bin).unwrap();
+  }
+  cleanup_orphans(&lib).unwrap();
+  let e = entries(&lib).into_iter().find(|e| e.kind == Kind::Delete).unwrap();
+  if cfg!(unix) {
+    assert!(e.committed && e.source == "recovery" && e.bin.is_some(), "{e:?}");
+    assert!(!lib.abs(&r).exists(), "the library name is gone");
+    let fav = playlist::read(&lib.root, "Favourites").unwrap().entries;
+    assert!(!fav.contains(&r.to_string()), "recovery took the line out: {fav:?}");
+  } else {
+    assert!(!e.committed, "{e:?}");
+    assert_eq!(e.note.as_deref(), Some(INTERRUPTED));
+    assert_eq!(read_bytes(&lib, &r), audio, "nothing is removed");
+  }
+  assert_eq!(std::fs::read(&bin).unwrap(), audio);
+}
+
+/// The same for an undo of a delete, the other way round: after a crash before the file came back,
+/// a hard link from the bin name to the file's own name is finished as the file being back (the bin
+/// name goes, the playlists get their lines back); anywhere else the copy is a second file, so
+/// nothing is removed and the undo is closed as not applied.
+#[test]
+fn two_names_after_a_crash_count_as_the_undo_of_a_delete_only_when_they_are_one_file() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let r = favourite_track(&lib);
+  let audio = read_bytes(&lib, &r);
+  let lists = playlists(&lib);
+  let rep = apply(&lib, vec![Op::Delete { rel: r.clone() }], &ApplyOptions::default());
+  assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
+  let binned = walk(&lib.root.join("_Soundhood/.bin"));
+  assert_eq!(binned.len(), 1, "{binned:?}");
+  crash(&lib, "undo", &r, &rep.batch, "after_preimage");
+  assert!(!lib.abs(&r).exists(), "the crash came before the file came back");
+  if cfg!(unix) {
+    std::fs::hard_link(&binned[0], lib.abs(&r)).unwrap();
+  } else {
+    std::fs::copy(&binned[0], lib.abs(&r)).unwrap();
+  }
+  cleanup_orphans(&lib).unwrap();
+  let u = entries(&lib)
+    .into_iter()
+    .rev()
+    .find(|e| e.kind == Kind::Ingest)
+    .unwrap();
+  if cfg!(unix) {
+    assert!(u.committed && u.source == format!("undo:{}", rep.batch), "{u:?}");
+    assert!(!binned[0].exists(), "the bin name is gone");
+    assert_eq!(playlists(&lib), lists, "the playlists have their lines back");
+  } else {
+    assert!(!u.committed, "{u:?}");
+    assert_eq!(u.note.as_deref(), Some(NOT_ON_DISK));
+    assert_eq!(std::fs::read(&binned[0]).unwrap(), audio, "nothing is removed");
+  }
+  assert_eq!(read_bytes(&lib, &r), audio);
+}
+
+/// A delete into the app bin uses the same no-replace rename as a move: a crash between its link
+/// and unlink (the `after_link` point) leaves the track under its own name and the bin name.
+/// Recovery takes that as the delete having happened: the library name goes, the playlists follow,
+/// and Undo brings it all back. Compiled everywhere; only unix renames by link and unlink.
+#[test]
+fn kill_delete_after_link() {
+  if !cfg!(unix) {
+    return;
+  }
+  let (_d, lib, _) = fixture_lib(20, false);
+  let r = favourite_track(&lib);
+  let audio = read_bytes(&lib, &r);
+  let lists = playlists(&lib);
+  crash(&lib, "delete", &r, "", "after_link");
+  assert_eq!(read_bytes(&lib, &r), audio, "both names are there");
+  let binned = walk(&lib.root.join("_Soundhood/.bin"));
+  assert_eq!(binned.len(), 1, "{binned:?}");
+  assert_eq!(std::fs::read(&binned[0]).unwrap(), audio);
+  let e = after_restart(&lib, Kind::Delete, "after_replace");
+  assert!(!lib.abs(&r).exists(), "the library name is gone");
+  assert!(e.bin.is_some(), "recovery found the bin name");
+  assert_eq!(walk(&lib.root.join("_Soundhood/.bin")), binned, "the bin name stays");
+  let fav = playlist::read(&lib.root, "Favourites").unwrap().entries;
+  assert!(!fav.contains(&r.to_string()), "recovery took the line out: {fav:?}");
+  undo_recovered(&lib, &e);
+  assert_eq!(read_bytes(&lib, &r), audio);
+  assert!(walk(&lib.root.join("_Soundhood/.bin")).is_empty());
+  assert_eq!(playlists(&lib), lists, "undo puts every playlist line back exactly");
+}
+
+/// Undo brings a deleted file back with the same rename, the other way round: a crash between its
+/// link and unlink leaves the file under the bin name and its own. Recovery takes that as the file
+/// being back: the bin name goes, the playlists get their lines back, and the delete counts as
+/// undone. Compiled everywhere; only unix renames by link and unlink.
+#[test]
+fn kill_undo_of_a_delete_after_link() {
+  if !cfg!(unix) {
+    return;
+  }
+  let (_d, lib, _) = fixture_lib(20, false);
+  let r = favourite_track(&lib);
+  let audio = read_bytes(&lib, &r);
+  let lists = playlists(&lib);
+  let rep = apply(&lib, vec![Op::Delete { rel: r.clone() }], &ApplyOptions::default());
+  assert_eq!(rep.applied.len(), 1, "{}", show(&rep));
+  crash(&lib, "undo", &r, &rep.batch, "after_link");
+  assert_eq!(read_bytes(&lib, &r), audio, "both names are there");
+  let binned = walk(&lib.root.join("_Soundhood/.bin"));
+  assert_eq!(binned.len(), 1, "{binned:?}");
+  cleanup_orphans(&lib).unwrap();
+  assert!(temps(&lib.root).is_empty(), "cleanup left a temp behind");
+  let u = entries(&lib)
+    .into_iter()
+    .rev()
+    .find(|e| e.kind == Kind::Ingest)
+    .unwrap();
+  assert!(u.committed && u.source == format!("undo:{}", rep.batch), "{u:?}");
+  assert_eq!(u.note.as_deref(), Some("finished after an interrupted run"));
+  assert!(
+    walk(&lib.root.join("_Soundhood/.bin")).is_empty(),
+    "the bin name is gone"
+  );
+  assert_eq!(read_bytes(&lib, &r), audio);
+  assert_eq!(playlists(&lib), lists, "the playlists have their lines back");
+  assert!(
+    undo::last_change(&lib).unwrap().is_none(),
+    "the delete counts as undone"
+  );
+  let lines = journal_lines(&lib);
+  cleanup_orphans(&lib).unwrap();
+  assert_eq!(journal_lines(&lib), lines, "a second start writes nothing");
+}
+
+/// A playlist goes into the app bin by the same rename: a crash between its link and unlink leaves
+/// the playlist under its own name and the bin name. Recovery takes that as the delete having
+/// happened (the playlist's own name goes), and Undo writes the playlist back. Compiled
+/// everywhere; only unix renames by link and unlink.
+#[test]
+fn kill_playlist_delete_after_link() {
+  if !cfg!(unix) {
+    return;
+  }
+  let (_d, lib, _) = fixture_lib(20, false);
+  let file = lib.root.join("_Playlists/Focus.m3u8");
+  let bytes = std::fs::read(&file).unwrap();
+  let focus = playlist::read(&lib.root, "Focus").unwrap().entries;
+  crash(
+    &lib,
+    "playlist_delete",
+    &rel("_Playlists/Focus.m3u8"),
+    "Focus",
+    "after_link",
+  );
+  assert_eq!(std::fs::read(&file).unwrap(), bytes, "both names are there");
+  let binned = walk(&lib.root.join("_Soundhood/.bin"));
+  assert_eq!(binned.len(), 1, "{binned:?}");
+  assert_eq!(std::fs::read(&binned[0]).unwrap(), bytes);
+  let e = after_restart(&lib, Kind::PlaylistDelete, "after_replace");
+  assert!(!file.exists(), "the playlist's own name is gone");
+  assert!(e.bin.is_some(), "recovery found the bin name");
+  assert_eq!(walk(&lib.root.join("_Soundhood/.bin")), binned, "the bin name stays");
+  undo_recovered(&lib, &e);
+  assert_eq!(playlist::read(&lib.root, "Focus").unwrap().entries, focus);
+}
+
+/// The same state built by hand after a crash before the playlist delete: on unix a hard link from
+/// the app bin is finished as the delete; anywhere else the bin copy is a second file, so nothing
+/// is removed and the entry is closed as interrupted.
+#[test]
+fn two_names_after_a_crash_count_as_the_playlist_delete_only_when_they_are_one_file() {
+  let (_d, lib, _) = fixture_lib(20, false);
+  let file = lib.root.join("_Playlists/Focus.m3u8");
+  let bytes = std::fs::read(&file).unwrap();
+  crash(
+    &lib,
+    "playlist_delete",
+    &rel("_Playlists/Focus.m3u8"),
+    "Focus",
+    "after_preimage",
+  );
+  let bin = lib
+    .root
+    .join(format!("_Soundhood/.bin/{}/_Playlists/Focus.m3u8", this_month()));
+  std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+  if cfg!(unix) {
+    std::fs::hard_link(&file, &bin).unwrap();
+  } else {
+    std::fs::copy(&file, &bin).unwrap();
+  }
+  cleanup_orphans(&lib).unwrap();
+  let e = entries(&lib)
+    .into_iter()
+    .find(|e| e.kind == Kind::PlaylistDelete)
+    .unwrap();
+  if cfg!(unix) {
+    assert!(e.committed && e.source == "recovery" && e.bin.is_some(), "{e:?}");
+    assert!(!file.exists(), "the playlist's own name is gone");
+  } else {
+    assert!(!e.committed, "{e:?}");
+    assert_eq!(e.note.as_deref(), Some(INTERRUPTED));
+    assert_eq!(std::fs::read(&file).unwrap(), bytes, "nothing is removed");
+  }
+  assert_eq!(std::fs::read(&bin).unwrap(), bytes);
+}
+
+/// The app bin's month folder for a delete made now (`_Soundhood/.bin/<yyyy-mm>/`).
+fn this_month() -> String {
+  time::OffsetDateTime::now_utc()
+    .format(time::macros::format_description!("[year]-[month]"))
+    .unwrap()
+}
+
+/// A Favourites track in a folder, with no lyrics file beside it.
+fn favourite_track(lib: &Library) -> RelPath {
   let fav = playlist::read(&lib.root, "Favourites").unwrap();
-  let r = fav
+  fav
     .entries
     .iter()
     .map(|e| rel(e))
     .find(|r| r.parent().is_some())
-    .unwrap();
+    .unwrap()
+}
+
+/// A Favourites track in a folder, a folder to move it to, and a lyrics file beside it.
+fn favourite(lib: &Library) -> (RelPath, String) {
+  let r = favourite_track(lib);
   let folder = ["Evenings", "Ambient"]
     .into_iter()
     .find(|f| r.top_folder() != Some(f))

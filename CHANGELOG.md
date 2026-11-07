@@ -54,6 +54,17 @@ phase's number, and only Phase 7 sets 1.0.0 ([DEV](docs/DEV.md#versions-and-rele
   clash (case on those disks, Unicode form on Windows) that refusal used to come only after a "not
   applied" journal entry; no file was touched either way. Renaming a file to another case of its
   own name still works. Downloads do not go through this code yet (open item).
+- Crash recovery for a delete into the app's own bin, and for its Undo. On a disk with hard links
+  (the developer Test library in the phone app's own storage, not the music on shared storage) a
+  track or a playlist goes into that bin, and a track back out, by giving it the new name and then
+  removing the old one. A crash between the two left the file under both names: the next start
+  closed the delete as not applied and left a hidden second name in the bin, or closed the Undo as
+  not applied without putting the track back into its playlists. The next start now finishes
+  either one, as it already did for a move: the old name goes and the playlists follow. No file
+  was lost either way. Also, a delete made in the last moments of a month and recovered a month or
+  more later is now found in the bin, and when a name in the bin cannot be looked at during that
+  start (as opposed to not being there), the decision waits for the next start instead of being
+  closed. Found by review.
 - The Linux check run's Android build: the setup step asked for a package the current Android
   command-line tools no longer have, and stopped. Once past it, the NDK that GitHub restored from
   its cache had no C compiler (a known fault of the NDK setup action), so the build stopped again.

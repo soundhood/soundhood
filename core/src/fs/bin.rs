@@ -150,23 +150,59 @@ pub(crate) fn find_in_os_bin(_lib: &Library, _rel: &RelPath, _since_ms: i64, _ha
 }
 
 /// For startup recovery: where a delete a crash interrupted put `rel` in the app bin. The name is
-/// chosen at delete time (`_Soundhood/.bin/<yyyy-mm>/<rel>`, ` (n)` for a repeat), so the months of
-/// now and of `since_ms` are searched, newest first, for a copy holding `hash`.
-pub(crate) fn find_in_app_bin(lib: &Library, rel: &RelPath, since_ms: i64, hash: &str) -> Option<BinRecord> {
-  let month = |t: time::OffsetDateTime| t.format(time::macros::format_description!("[year]-[month]")).ok();
-  let since = time::OffsetDateTime::from_unix_timestamp(since_ms.div_euclid(1000)).ok()?;
-  let mut months = vec![month(time::OffsetDateTime::now_utc())?, month(since)?];
-  months.dedup();
-  for m in months {
+/// chosen at delete time (`_Soundhood/.bin/<yyyy-mm>/<rel>`, ` (n)` for a repeat), so every month
+/// from `since_ms` to now is searched, newest first, for a copy holding `hash`. `Some(None)` when no
+/// copy holds it; `None` when a name cannot be read now (the caller leaves the decision for later).
+pub(crate) fn find_in_app_bin(lib: &Library, rel: &RelPath, since_ms: i64, hash: &str) -> Option<Option<BinRecord>> {
+  find_in_app_bin_by(lib, rel, since_ms, |bin_rel| {
+    match super::file_hash(&lib.abs(bin_rel)) {
+      Ok(h) => Some(h == hash),
+      Err(Error::Io(e)) if absent(&e) => Some(false),
+      Err(_) => None,
+    }
+  })
+}
+
+/// [`find_in_app_bin`] with the test for "this is the copy" given: among the names a delete of
+/// `rel` could have used since `since_ms` that hold a file, the newest month first and the highest
+/// number within it for which `is_it` holds. `None` when the answer depends on something that
+/// cannot be read now (a month folder newer than the copy, or a name above the highest copy that
+/// cannot be looked at or that `is_it` cannot tell, `None`), so the caller can leave the decision
+/// for later; `Some(None)` when no name is the copy.
+pub(crate) fn find_in_app_bin_by(
+  lib: &Library,
+  rel: &RelPath,
+  since_ms: i64,
+  mut is_it: impl FnMut(&RelPath) -> Option<bool>,
+) -> Option<Option<BinRecord>> {
+  let Ok(since) = time::OffsetDateTime::from_unix_timestamp(since_ms.div_euclid(1000)) else {
+    return Some(None);
+  };
+  for m in months_between(since, time::OffsetDateTime::now_utc()) {
+    // A month the bin has no folder for is passed over with one look.
+    match std::fs::metadata(lib.root.join(APP_DIR).join(".bin").join(&m)) {
+      Ok(md) if md.is_dir() => {}
+      Ok(_) => continue,
+      Err(e) if absent(&e) => continue,
+      Err(_) => return None,
+    }
     let base = format!("{APP_DIR}/.bin/{m}/{}", rel.as_str());
     let mut found = None;
+    // A name that cannot be looked at or told apart now leaves the answer open, unless a higher
+    // number turns out to be the copy: the highest-numbered copy wins either way.
+    let mut unsure = false;
     let mut misses = 0;
     for n in 1..1000 {
       let Ok(bin_rel) = RelPath::new(&numbered(&base, n)) else {
         break;
       };
-      let abs = lib.abs(&bin_rel);
-      if !abs.is_file() {
+      // Only a name that is not there is free.
+      let here = match std::fs::metadata(lib.abs(&bin_rel)) {
+        Ok(md) => Some(md.is_file()),
+        Err(e) if absent(&e) => Some(false),
+        Err(_) => None,
+      };
+      if here == Some(false) {
         // Restored copies leave gaps in the numbering; a long run of free names ends the search.
         misses += 1;
         if misses > 20 {
@@ -175,20 +211,52 @@ pub(crate) fn find_in_app_bin(lib: &Library, rel: &RelPath, since_ms: i64, hash:
         continue;
       }
       misses = 0;
-      if super::file_hash(&abs).ok().as_deref() == Some(hash) {
-        found = Some(bin_rel);
+      match here.and_then(|_| is_it(&bin_rel)) {
+        Some(true) => {
+          found = Some(bin_rel);
+          unsure = false;
+        }
+        Some(false) => {}
+        None => unsure = true,
       }
     }
+    if unsure {
+      return None;
+    }
     if let Some(bin_rel) = found {
-      return Some(BinRecord {
+      return Some(Some(BinRecord {
         kind: BinKind::App,
         original: rel.clone(),
         bin_rel: Some(bin_rel),
         deleted_at: since_ms.div_euclid(1000),
-      });
+      }));
     }
   }
-  None
+  Some(None)
+}
+
+/// An error that means "nothing is at that name" (a folder on the way is missing, or the name is one
+/// no file can have), as opposed to "it cannot be looked at now".
+fn absent(e: &std::io::Error) -> bool {
+  use std::io::ErrorKind::{InvalidFilename, NotADirectory, NotFound};
+  matches!(e.kind(), NotFound | NotADirectory | InvalidFilename)
+}
+
+/// The bin's month folders (`yyyy-mm`, as [`to_app_bin`] names them) from the later of `a` and `b`
+/// back to the earlier, both included. A delete's bin month is read from the clock at the rename, a
+/// moment after its journal entry's time, so it can be the month after that entry's.
+fn months_between(a: time::OffsetDateTime, b: time::OffsetDateTime) -> Vec<String> {
+  let ym = |t: time::OffsetDateTime| (t.year(), u8::from(t.month()));
+  let (lo, hi) = (ym(a).min(ym(b)), ym(a).max(ym(b)));
+  let (mut y, mut m) = hi;
+  let mut out = Vec::new();
+  loop {
+    out.push(format!("{y:04}-{m:02}"));
+    if (y, m) <= lo {
+      return out;
+    }
+    (y, m) = if m == 1 { (y - 1, 12) } else { (y, m - 1) };
+  }
 }
 
 #[cfg(target_os = "macos")]
@@ -414,6 +482,88 @@ mod tests {
     let l = lib(d.path());
     let rel = RelPath::new("gone.mp3").unwrap();
     assert!(matches!(to_app_bin(&l, &rel), Err(Error::NotFound(_))));
+  }
+
+  /// The month folders are counted back from the later date to the earlier, across a year end,
+  /// and spelled as `to_app_bin` names them.
+  #[test]
+  fn months_between_counts_back_across_a_year_and_spells_months_as_the_bin_does() {
+    use time::macros::datetime;
+    let (nov, feb) = (datetime!(2025-11-30 23:59:59 UTC), datetime!(2026-02-01 00:00:00 UTC));
+    assert_eq!(months_between(nov, feb), ["2026-02", "2026-01", "2025-12", "2025-11"]);
+    assert_eq!(months_between(feb, nov), months_between(nov, feb));
+    assert_eq!(months_between(feb, feb), ["2026-02"]);
+    let now = time::OffsetDateTime::now_utc();
+    let named = now.format(time::macros::format_description!("[year]-[month]")).unwrap();
+    assert_eq!(months_between(now, now), [named]);
+  }
+
+  /// A delete's bin month is read from the clock at the rename, so it can be later than its
+  /// journal entry's month: every month from the entry's to now is searched, not only those two.
+  #[test]
+  fn find_in_app_bin_searches_every_month_since_the_delete() {
+    let d = tempfile::tempdir().unwrap();
+    let l = lib(d.path());
+    let rel = RelPath::new("Chill/a.mp3").unwrap();
+    let now = time::OffsetDateTime::now_utc();
+    let since = now - time::Duration::days(62);
+    let months = months_between(since, now);
+    assert!(months.len() >= 3, "{months:?}");
+    let between = &months[1];
+    let bin_rel = RelPath::new(&format!("{APP_DIR}/.bin/{between}/Chill/a.mp3")).unwrap();
+    fs::create_dir_all(l.abs(&bin_rel).parent().unwrap()).unwrap();
+    fs::write(l.abs(&bin_rel), b"audio").unwrap();
+    let hash = super::super::file_hash(&l.abs(&bin_rel)).unwrap();
+    let rec = find_in_app_bin(&l, &rel, since.unix_timestamp() * 1000, &hash)
+      .flatten()
+      .expect("found");
+    assert_eq!(rec.bin_rel, Some(bin_rel));
+    assert_eq!(rec.original, rel);
+  }
+
+  /// A name that cannot be told apart now ends the search with "cannot tell" (`None`), so recovery
+  /// leaves the decision for the next start; "no" for every name is `Some(None)`.
+  #[test]
+  fn find_in_app_bin_by_leaves_the_decision_when_a_name_cannot_be_read() {
+    let d = tempfile::tempdir().unwrap();
+    let l = lib(d.path());
+    let rel = RelPath::new("a.mp3").unwrap();
+    fs::write(l.abs(&rel), b"audio").unwrap();
+    let since_ms = time::OffsetDateTime::now_utc().unix_timestamp() * 1000;
+    let rec = to_app_bin(&l, &rel).unwrap();
+    assert_eq!(find_in_app_bin_by(&l, &rel, since_ms, |_| None), None);
+    assert_eq!(find_in_app_bin_by(&l, &rel, since_ms, |_| Some(false)), Some(None));
+    let found = find_in_app_bin_by(&l, &rel, since_ms, |_| Some(true))
+      .flatten()
+      .unwrap();
+    assert_eq!(found.bin_rel, rec.bin_rel);
+  }
+
+  /// The highest-numbered copy wins, so a name below it that cannot be told apart does not matter,
+  /// while one above it does: the copy could be that one.
+  #[test]
+  fn find_in_app_bin_by_is_unsure_only_above_the_highest_copy() {
+    let d = tempfile::tempdir().unwrap();
+    let l = lib(d.path());
+    let rel = RelPath::new("a.mp3").unwrap();
+    let since_ms = time::OffsetDateTime::now_utc().unix_timestamp() * 1000;
+    fs::write(l.abs(&rel), b"first").unwrap();
+    let first = to_app_bin(&l, &rel).unwrap().bin_rel;
+    fs::write(l.abs(&rel), b"second").unwrap();
+    let second = to_app_bin(&l, &rel).unwrap().bin_rel;
+    let unsure_about = |which: &Option<RelPath>| {
+      let which = which.clone();
+      move |b: &RelPath| if Some(b) == which.as_ref() { None } else { Some(true) }
+    };
+    let found = find_in_app_bin_by(&l, &rel, since_ms, unsure_about(&first))
+      .flatten()
+      .unwrap();
+    assert_eq!(found.bin_rel, second, "a lower name it cannot tell does not matter");
+    assert_eq!(
+      find_in_app_bin_by(&l, &rel, since_ms, unsure_about(&second)),
+      None,
+      "a higher name it cannot tell leaves the answer open"
+    );
   }
 
   /// Restore picks the newest deletion of the same path among items with that name, ignores the

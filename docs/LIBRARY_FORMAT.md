@@ -149,16 +149,24 @@ with a `note` that starts with `not applied: `.
 
 **Fold rule.** Readers group lines by `id`; the last line for an id wins. An entry whose last line is
 a commit line happened; any other entry did not (a closing line says so explicitly; a bare pre-image
-is a write a crash interrupted). At the next start the app decides this device's last entry once, if it
-is still open (a pre-image, or a tag edit's `ready` line). It is finished only when the disk shows
+is a write a crash interrupted). At the next start the app decides this device's last entry once it
+can, if it is still open (a pre-image, or a tag edit's `ready` line). It is finished only when the disk shows
 exactly what the app's change would have left: for a tag edit, the file's BLAKE3 equals the `ready`
 line's `file_hash_after`; for a move or rename, the same bytes are under the new name only (or, on
-unix, both names are one file after a crash inside the no-replace rename); for a delete, the same
-bytes are in the bin. Then the app writes the journaled playlist lines where those playlists are
+unix, both names are one file after a crash inside the no-replace rename); for a delete of a track
+or a playlist, the same bytes are in the bin (or, on unix with the Android app bin, the file's own
+name and a bin name are one file after a crash inside that rename, and the file's own name is then
+removed); for a file Undo brings back from the app bin, a file is under its own name and the bin name
+is gone (or both names are one file after that crash, and the bin name is then removed); its bytes
+are not compared, as a live Undo also brings back a bin copy that differs from the file deleted.
+Then the app writes the journaled playlist lines where those playlists are
 unchanged and appends a commit line with `source: "recovery"` (an undo keeps its `undo:<batch>`) and
-the note `finished after an interrupted run`, so "Undo last change" can reach it. Otherwise it appends
-a closing line (`not applied: interrupted before the change` or `... and the change is not on disk`),
-and the entry is never looked at again. It also removes any temp file the crash left behind
+the note `finished after an interrupted run`, so "Undo last change" can reach it. When the disk can be
+read and shows neither, it appends a closing line (`not applied: interrupted before the change` or
+`... and the change is not on disk`), and the entry is never looked at again. When something it needs
+cannot be read at that start (a locked file, a bin that cannot be listed, a folder or name in the app
+bin that cannot be looked at), it writes nothing and the next start decides; until then the entry is
+a bare pre-image, which readers fold as not happened. It also removes any temp file the crash left behind
 ([temp files](#temp-files)).
 
 Illustrative pair (hashes and ids shortened):

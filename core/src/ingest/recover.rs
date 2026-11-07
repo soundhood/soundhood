@@ -9,7 +9,12 @@
 //! - The disk shows exactly what the change would have left (for a tag edit, the bytes of the
 //!   checked copy whose hash the write path journaled right before the rename; for a move or
 //!   rename, the same bytes under the new name only, or on both names of one file after a crash
-//!   inside the unix no-replace rename; for a delete, the same bytes in the bin): the playlists it
+//!   inside the unix no-replace rename; for a delete of a track or a playlist, the same bytes in
+//!   the bin, or on both names after a crash inside that rename into the app bin; for a file Undo
+//!   brings back from the app bin, a file under its own name and the bin name gone, or both names
+//!   one file after a crash inside the rename back, whose bin name then goes; its bytes are not
+//!   compared, as a live Undo also brings back a bin copy that differs from the file deleted): the
+//!   playlists it
 //!   was about to rewrite get their journaled lines (only where they are still as the entry found
 //!   them) and the commit line is written, source `"recovery"` (an undo keeps its
 //!   `"undo:<batch>"`, which the undo bookkeeping keys on), note [`RECOVERED`].
@@ -122,13 +127,21 @@ fn finished(lib: &Library, mut e: JournalEntry) -> Option<Found> {
       let rel = e.path_before.clone()?;
       let before = e.file_hash_before.clone()?;
       match hash_at(lib, &rel)? {
-        Some(now) if now == before => return not(INTERRUPTED),
+        // The no-replace rename into the app bin links the bin name, then unlinks this one (unix):
+        // a crash in between leaves both names on the one file. The delete happened; this name
+        // goes.
+        Some(now) if now == before => match linked_into_app_bin(lib, &rel, e.ts, &before)? {
+          Some(rec) => {
+            std::fs::remove_file(lib.abs(&rel)).ok()?;
+            e.bin = Some(rec);
+          }
+          None => return not(INTERRUPTED),
+        },
         Some(_) => return not(NOT_ON_DISK),
-        None => {}
-      }
-      match binned(lib, &rel, e.ts, &before)? {
-        Some(rec) => e.bin = Some(rec),
-        None => return not(NOT_ON_DISK),
+        None => match binned(lib, &rel, e.ts, &before)? {
+          Some(rec) => e.bin = Some(rec),
+          None => return not(NOT_ON_DISK),
+        },
       }
       finish_playlists(lib, &mut e);
     }
@@ -138,10 +151,15 @@ fn finished(lib: &Library, mut e: JournalEntry) -> Option<Found> {
         return not(INTERRUPTED);
       };
       match &e.bin {
-        // A delete being undone: the file is back and no longer in the app bin.
+        // A delete being undone: the file is back and no longer in the app bin. The rename back
+        // is the same no-replace rename, so a crash inside it leaves both names on the one file:
+        // the file is back, and the bin name goes.
         Some(rec) => {
-          if rec.bin_rel.as_ref().is_some_and(|b| lib.abs(b).exists()) {
-            return not(NOT_ON_DISK);
+          if let Some(b) = rec.bin_rel.as_ref().filter(|b| lib.abs(b).exists()) {
+            if !two_names_of_one_file(lib, b, &rel, &hash)? {
+              return not(NOT_ON_DISK);
+            }
+            std::fs::remove_file(lib.abs(b)).ok()?;
           }
         }
         // A download landing: the pre-image holds the download's hash.
@@ -163,6 +181,18 @@ fn finished(lib: &Library, mut e: JournalEntry) -> Option<Found> {
         Err(_) => return None,
       };
       if now == pc.before_hash {
+        // A playlist goes into the app bin by the same no-replace rename as a track: a crash
+        // between its link and unlink leaves both names on the one file. The delete happened;
+        // the playlist's own name goes.
+        let to_bin = pc.after.is_none().then(|| pc.before_hash.clone()).flatten();
+        if let Some(before) = to_bin {
+          let rel = playlist::file_rel(&pc.name).ok()?;
+          if let Some(rec) = linked_into_app_bin(lib, &rel, ts, &before)? {
+            std::fs::remove_file(lib.abs(&rel)).ok()?;
+            e.bin = Some(rec);
+            return Some(Found::Done(Box::new(e)));
+          }
+        }
         return not(INTERRUPTED);
       }
       match pc.after.clone() {
@@ -243,12 +273,26 @@ fn two_names_of_one_file(_lib: &Library, _from: &RelPath, _to: &RelPath, _hash: 
   Some(false)
 }
 
+/// The app-bin name an interrupted delete linked to the file still at `rel` (holding `hash`), left
+/// by a crash inside the unix no-replace rename: one of the names that delete could have used that
+/// is the same file. `Some(None)` when there is none, and always away from the app bin (the OS
+/// recycle bin is not reached by that rename) and from unix (two names are two files); `None` when
+/// a name cannot be read now.
+fn linked_into_app_bin(lib: &Library, rel: &RelPath, since_ms: i64, hash: &str) -> Option<Option<BinRecord>> {
+  if !cfg!(unix) || lib.platform != Platform::Android {
+    return Some(None);
+  }
+  fs::find_in_app_bin_by(lib, rel, since_ms, |bin_rel| {
+    two_names_of_one_file(lib, rel, bin_rel, hash)
+  })
+}
+
 /// Where an interrupted delete put the bytes `hash` that were at `rel`: the app bin on Android, the
-/// OS recycle bin elsewhere. `Some(None)` when they are in neither, `None` when the bin cannot be
-/// listed now.
+/// OS recycle bin elsewhere. `Some(None)` when they are in neither, `None` when the bin, or a name
+/// in it, cannot be read now.
 fn binned(lib: &Library, rel: &RelPath, since_ms: i64, hash: &str) -> Option<Option<BinRecord>> {
   if lib.platform == Platform::Android {
-    Some(fs::find_in_app_bin(lib, rel, since_ms, hash))
+    fs::find_in_app_bin(lib, rel, since_ms, hash)
   } else {
     fs::find_in_os_bin(lib, rel, since_ms, hash).ok()
   }
