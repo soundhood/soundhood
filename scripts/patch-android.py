@@ -160,7 +160,7 @@ class MainActivity : TauriActivity() {{
       v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       insets
     }}
-    // Let the webview finish loading the UI before bouncing to the system permission screen —
+    // Let the webview finish loading the UI before bouncing to the system permission screen:
     // if the app goes to the background mid-load, Android throttles its requests and the page stays blank.
     Handler(Looper.getMainLooper()).postDelayed({{ requestAllFilesAccessIfNeeded() }}, 2500)
     handleShare(intent)

@@ -17,7 +17,7 @@ required-features = ["tools"]
 
 [features]
 default = []
-# Network lookups (AcoustID, MusicBrainz, LRCLIB, ...) — off unless a host enables it.
+# Network lookups (AcoustID, MusicBrainz, LRCLIB, ...): off unless a host enables it.
 online = ["dep:ureq"]
 # Desktop sidecar manager: fetch + verify yt-dlp and deno from upstream releases.
 sidecars = ["dep:ureq", "dep:sha2", "dep:zip"]

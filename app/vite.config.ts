@@ -23,7 +23,7 @@ export default defineConfig(async () => ({
     // (see scripts/build-android.ps1); nothing in the repo pins it.
     host: host || mobile ? "0.0.0.0" : false,
     // Phone: no live-reload channel at all. The WebView drops the socket whenever the app is
-    // backgrounded, and Vite's client answers a dropped socket with a full page reload on resume —
+    // backgrounded, and Vite's client answers a dropped socket with a full page reload on resume,
     // which re-scanned the library at every unlock. Changes reach the phone by reopening the app.
     hmr: mobile
       ? false

@@ -13,6 +13,15 @@ export const RULE_EMAIL = "email";
 export const RULE_PROFILE = "user-profile-path";
 export const RULE_DEVICE = "device-id";
 export const RULE_SECRET_FILE = "secret-file";
+export const RULE_DASH = "dash";
+
+/** Vendored upstream code keeps its authors' e-mail addresses and punctuation; every other rule applies. */
+export const VENDORED_EXEMPT_RULES = new Set([RULE_EMAIL, RULE_DASH]);
+
+/** True for a tracked path inside vendored upstream code (third_party/). */
+export function isVendored(relPath) {
+  return relPath.startsWith("third_party/");
+}
 
 /** SHA-256 hex of the lower-cased token, the form deny-list words are compared in. */
 export function tokenHash(token) {
@@ -163,6 +172,20 @@ const SECRET_FILE_NAMES = [
   /^\.env\..+$/i,
 ];
 
+// En and em dashes, as characters or as HTML entities (named, decimal or hex, leading zeros
+// allowed). Public text uses a hyphen, a colon or a comma instead: the long dashes read as
+// machine-written, and some filters flag them. The patterns use escapes and never spell out a
+// whole entity, so this file passes the rule it defines.
+const DASH_RE = /[\u2013\u2014]|&(?:ndash|mdash|#0*821[12]|#x0*201[34]);/gi;
+const EN_DASH_ENTITY_RE = /^&(?:ndash|#0*8211|#x0*2013);$/i;
+
+/** Plain name of a dash match for messages: "en dash (U+2013)", "em dash (U+2014)" or the entity. */
+export function dashLabel(match) {
+  if (match === "\u2013") return "en dash (U+2013)";
+  if (match === "\u2014") return "em dash (U+2014)";
+  return `HTML entity ${match} (${EN_DASH_ENTITY_RE.test(match) ? "en" : "em"} dash)`;
+}
+
 /** True when a tracked file's name (the last path segment) marks a key, session or secret file. */
 export function isSecretFileName(relPath) {
   const name = relPath.split(/[\\/]/).pop() ?? "";
@@ -212,6 +235,9 @@ export function scanText(text, forbiddenHashes = FORBIDDEN_WORD_HASHES, denyTerm
   for (const m of text.matchAll(PROFILE_RE)) {
     if (isProfilePlaceholder(m[1])) continue;
     found.push({ index: m.index, rule: RULE_PROFILE, message: "Windows user-profile path: use %USERPROFILE% or a placeholder" });
+  }
+  for (const m of text.matchAll(DASH_RE)) {
+    found.push({ index: m.index, rule: RULE_DASH, message: `${dashLabel(m[0])}: write a hyphen, a colon or a comma` });
   }
   // Same position reported once per rule (a camelCase part shares its word's index).
   const seen = new Set();

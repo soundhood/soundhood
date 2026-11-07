@@ -3,9 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { REPO_ROOT } from "./common.mjs";
+import { REPO_ROOT, formatFinding } from "./common.mjs";
 import {
   FORBIDDEN_WORD_HASHES,
+  RULE_DASH,
   RULE_DENY_TERM,
   RULE_DEVICE,
   RULE_EMAIL,
@@ -14,9 +15,12 @@ import {
   RULE_NAME,
   RULE_PROFILE,
   RULE_SECRET_FILE,
+  VENDORED_EXEMPT_RULES,
+  dashLabel,
   isAllowedEmail,
   isPrivateIpv4,
   isSecretFileName,
+  isVendored,
   looksLikeSerial,
   parseDenyList,
   scanPath,
@@ -252,6 +256,65 @@ describe("file names", () => {
     const found = scanPath("docs/evidence/zorblax-phone.png", hashes);
     expect(found.map((f) => `${f.line}:${f.rule}`)).toEqual([`0:${RULE_NAME}`]);
     expect(found[0].message).not.toMatch(/zorblax/i);
+  });
+});
+
+describe("en and em dashes", () => {
+  // Written as escapes and split entities, so this file passes the rule it tests.
+  const EN = "\u2013";
+  const EM = "\u2014";
+
+  it("flags each en and em dash with its line and a plain message", () => {
+    const found = scanText(j("pages 3", EN, "5\nfast ", EM, " and safe ", EM, " mostly"));
+    expect(found.map((f) => `${f.line}:${f.rule}`)).toEqual([`1:${RULE_DASH}`, `2:${RULE_DASH}`, `2:${RULE_DASH}`]);
+    expect(found[0].message).toBe("en dash (U+2013): write a hyphen, a colon or a comma");
+    expect(found[1].message).toBe("em dash (U+2014): write a hyphen, a colon or a comma");
+    expect(formatFinding({ file: "docs/x.md", ...found[1] })).toBe(
+      "docs/x.md:2  dash  em dash (U+2014): write a hyphen, a colon or a comma",
+    );
+  });
+
+  it("flags the HTML entities, named, decimal and hex, in any case", () => {
+    const cases = [
+      [j("&", "ndash;"), "en"],
+      [j("&", "mdash;"), "em"],
+      [j("&#", "8211;"), "en"],
+      [j("&#", "8212;"), "em"],
+      [j("&#x", "2013;"), "en"],
+      [j("&#X", "2014;"), "em"],
+      [j("&#x", "02014;"), "em"],
+    ];
+    for (const [entity, kind] of cases) {
+      const found = scanText(j("a ", entity, " b"));
+      expect(found.map((f) => f.rule), entity).toEqual([RULE_DASH]);
+      expect(dashLabel(entity), entity).toBe(`HTML entity ${entity} (${kind} dash)`);
+    }
+  });
+
+  it("leaves hyphens, other dashes and other entities alone", () => {
+    for (const text of [
+      "a - b",
+      "--update-snapshots",
+      "x-y-z",
+      "a \u2012 b \u2015 c \u2212 d",
+      "&amp; &nbsp; &#8210; &#x2015;",
+      j("&", "mdash"),
+      j("&", "ndashx;"),
+    ]) {
+      expect(rulesOf(text), text).toEqual([]);
+    }
+  });
+
+  it("flags a dash in a file path, on line 0", () => {
+    expect(scanPath(j("docs/Notes ", EM, " draft.md")).map((f) => `${f.line}:${f.rule}`)).toEqual([`0:${RULE_DASH}`]);
+  });
+
+  it("does not apply to vendored upstream code, like e-mail addresses", () => {
+    expect(isVendored("third_party/lofty/src/lib.rs")).toBe(true);
+    expect(isVendored("core/third_party.rs")).toBe(false);
+    expect(VENDORED_EXEMPT_RULES.has(RULE_DASH)).toBe(true);
+    expect(VENDORED_EXEMPT_RULES.has(RULE_EMAIL)).toBe(true);
+    expect(VENDORED_EXEMPT_RULES.has(RULE_PROFILE)).toBe(false);
   });
 });
 

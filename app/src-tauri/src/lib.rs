@@ -1,6 +1,6 @@
 //! The Tauri host: thin commands over `soundhood_core::api::Core`, plus what only a host can do
-//! (app folders, events, spawning the desktop yt-dlp). Every write to a user file — audio files and
-//! `_Playlists/**/*.m3u8` — goes through the core's one write path; nothing here writes one itself.
+//! (app folders, events, spawning the desktop yt-dlp). Every write to a user file (audio files and
+//! `_Playlists/**/*.m3u8`) goes through the core's one write path; nothing here writes one itself.
 //! The command names and argument shapes are the binding "Host IPC" contract in `core/CONTRACT.md`.
 
 mod dev;

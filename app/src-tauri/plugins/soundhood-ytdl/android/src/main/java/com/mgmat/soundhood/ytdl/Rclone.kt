@@ -10,7 +10,7 @@ import kotlin.concurrent.thread
  * rclone (bundled as jniLibs/arm64-v8a/librclone.so, a static Go executable) driven for one purpose:
  * mirroring the Music folder with Proton Drive. All traffic goes through the in-app relay (HTTP_PROXY),
  * for the same reason yt-dlp does. The config lives in the app's private files dir; after the first
- * login only the username and rclone's cached session tokens remain in it — the password is never
+ * login only the username and rclone's cached session tokens remain in it; the password is never
  * written to disk (it is passed to that one login run through the environment).
  */
 object Rclone {

@@ -62,7 +62,7 @@ class YtdlPlugin(private val activity: Activity) : Plugin(activity) {
   private val initLock = Object()
 
   override fun load(webView: WebView) {
-    // Unpacking python on first run takes a few seconds — never on the UI thread.
+    // Unpacking python on first run takes a few seconds, so never on the UI thread.
     thread(name = "ytdl-init") { ensureInit() }
   }
 
@@ -213,7 +213,7 @@ class YtdlPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  /** Diagnostic: the bundled python talks to the network by itself — DNS, raw TCP, HTTPS. */
+  /** Diagnostic: the bundled python talks to the network by itself: DNS, raw TCP, HTTPS. */
   @Command
   fun netcheck(invoke: Invoke) {
     thread(name = "ytdl-netcheck") {
@@ -355,7 +355,7 @@ step("https youtube robots", lambda: urllib.request.urlopen("https://www.youtube
         val local = args.libraryDir.trimEnd('/')
         val common = listOf(
           // size-only: the phone's copy of the library was not made by rclone, so file times differ
-          // everywhere — comparing by size avoids re-copying thousands of identical files.
+          // everywhere; comparing by size avoids re-copying thousands of identical files.
           "--size-only", "--transfers", "2", "--checkers", "2",
           // Proton throttles bursts (429): keep well under its rate and let rclone retry patiently.
           "--tpslimit", "4", "--tpslimit-burst", "8", "--retries", "5", "--low-level-retries", "20",
@@ -382,7 +382,7 @@ step("https youtube robots", lambda: urllib.request.urlopen("https://www.youtube
         }
         if (failed != null) {
           val needsLogin = log.contains("401") || log.contains("authentication", true) || log.contains("login", true) && log.contains("fail", true)
-          invoke.reject((if (needsLogin) "Proton session expired — connect again.\n" else "Sync failed ($failed).\n") + log.toString().takeLast(3000))
+          invoke.reject((if (needsLogin) "Proton session expired. Connect again.\n" else "Sync failed ($failed).\n") + log.toString().takeLast(3000))
           return@thread
         }
         invoke.resolve(JSObject().apply { put("ok", true); put("log", log.toString().takeLast(4000)) })

@@ -2,8 +2,9 @@
 // Hygiene lint over every tracked file (`git ls-files`). In the text of each file: paths inside a
 // Proton Drive folder, private LAN addresses, e-mail addresses other than GitHub noreply / the
 // commit trailer / example domains, Windows user-profile paths, device serials and IMEIs next to
-// the word that names them, and the owner-specific words and terms of the deny list (comma- or
-// newline-separated words, terms or 64-hex SHA-256 hashes; see lint/hygiene.mjs parseDenyList).
+// the word that names them, en and em dashes (U+2013, U+2014, also as HTML entities), and the
+// owner-specific words and terms of the deny list (comma- or newline-separated words, terms or
+// 64-hex SHA-256 hashes; see lint/hygiene.mjs parseDenyList).
 // The deny list is never in the repository: it is the HYGIENE_DENY environment variable (a CI
 // secret) plus, when it exists, the deny file %USERPROFILE%\.soundhood\hygiene-deny.txt (or the
 // path in HYGIENE_DENY_FILE), kept outside the repo like keystore.properties.
@@ -16,7 +17,15 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { REPO_ROOT, formatFinding } from "./lint/common.mjs";
-import { FORBIDDEN_WORD_HASHES, MIN_DENY_LENGTH, parseDenyList, scanPath, scanText } from "./lint/hygiene.mjs";
+import {
+  FORBIDDEN_WORD_HASHES,
+  MIN_DENY_LENGTH,
+  VENDORED_EXEMPT_RULES,
+  isVendored,
+  parseDenyList,
+  scanPath,
+  scanText,
+} from "./lint/hygiene.mjs";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -44,8 +53,9 @@ const findings = [];
 for (const file of tracked) {
   // The path first: a keystore is binary, so its contents are never read.
   for (const f of scanPath(file, hashes, deny.terms)) findings.push({ file, ...f });
-  // Vendored upstream code (third_party/) keeps its authors' e-mail addresses; every other rule still applies.
-  const vendored = file.startsWith("third_party/");
+  // Vendored upstream code (third_party/) keeps its authors' e-mail addresses and dashes; every
+  // other rule still applies.
+  const vendored = isVendored(file);
   const abs = path.join(REPO_ROOT, file);
   let bytes;
   try {
@@ -58,7 +68,7 @@ for (const file of tracked) {
   if (bytes.subarray(0, 8192).includes(0)) continue;
   scanned++;
   for (const f of scanText(bytes.toString("utf8"), hashes, deny.terms)) {
-    if (vendored && f.rule === "email") continue;
+    if (vendored && VENDORED_EXEMPT_RULES.has(f.rule)) continue;
     findings.push({ file, ...f });
   }
 }

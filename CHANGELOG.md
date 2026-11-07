@@ -15,6 +15,14 @@ phase's number, and only Phase 7 sets 1.0.0 ([DEV](docs/DEV.md#versions-and-rele
 
 ## [Unreleased]
 
+### Added
+
+- The repository hygiene lint refuses en and em dashes in tracked text files, as characters or as
+  HTML entities (vendored `third_party/` code excepted), and names the file and line. The ones
+  already there are gone from the code, the docs and the app's own text: a status line now reads
+  "Proton sync failed (see the log)", like the app's other "see the log" lines, and the shuffle
+  button's tooltip "Shuffle is on; click to play in order".
+
 ### Fixed
 
 - Playlist names in another case or Unicode form. On a disk that keeps "Road Trip" and "road trip"

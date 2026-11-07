@@ -35,7 +35,7 @@ pub async fn ytdlp_download_audio(app: AppHandle, args: YtDlpArgs) -> Result<(),
   desktop::start(app, args)
 }
 
-/// A target folder is a single folder NAME under the library root — never a path.
+/// A target folder is a single folder NAME under the library root, never a path.
 #[cfg_attr(mobile, allow(dead_code))]
 fn sanitize_folder_name(raw: &str) -> Result<String, String> {
   let name = raw.trim().trim_matches('.').trim();

@@ -317,7 +317,9 @@ attaches them to a draft release. The phone APK is built locally with the owner'
 ## Public repository hygiene
 
 The repository is public. Never commit a real library path, a person's name, a device identifier or
-serial, a LAN address, a screenshot of a real library, a keystore, `cookies.txt` or any token. Tests
+serial, a LAN address, a screenshot of a real library, a keystore, `cookies.txt` or any token. Text
+uses no en or em dash: write a hyphen (spaced, ` - `, where a dash would join clauses), a colon or a
+comma; long dashes read as machine-written and some filters flag them. Tests
 use temporary folders and synthetic paths, never a real library. Committed screenshots come from the
 fixture library ([TESTING](TESTING.md#evidence-rules)); the lint cannot see inside an image, so check
 every screenshot by eye for a real path or name before committing it. `node tools/hygiene-lint.mjs`

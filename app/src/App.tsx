@@ -45,7 +45,7 @@ function splitArtists(artist: string): string[] {
 }
 
 // One settings store, one key per setting. (An earlier edit had two store
-// instances writing two different keys to the same file — Import broke on it.)
+// instances writing two different keys to the same file; Import broke on it.)
 const storePromise = Store.load("music-hood.json");
 const KEY_LIBRARY_DIR = "library_dir";
 const KEY_DOWNLOAD_TARGET = "download_target";
@@ -55,7 +55,7 @@ const NEW_FOLDER_SENTINEL = "__new__";
 const KEY_VOLUME = "volume";
 const KEY_SORT = "sort";
 const KEY_DOWNLOAD_PLAYLISTS = "download_playlists";
-// Links shared into the app (phone share sheet) waiting to be downloaded — the phone has no downloader yet.
+// Links shared into the app (phone share sheet) waiting to be downloaded: the phone has no downloader yet.
 const KEY_SHARE_QUEUE = "share_queue";
 const KEY_LAST_SYNC = "last_sync";
 // Hidden developer section: 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop).
@@ -185,13 +185,13 @@ function TrashIcon() {
   );
 }
 
-// Filename without extension — what the user should read as the title.
+// Filename without extension: what the user should read as the title.
 function displayName(fileName: string) {
   return fileName.replace(/\.[^./\\]+$/, "");
 }
 
 // In-app dropdown. The native <select> popup is drawn by Windows/WebView2 and
-// ignores the app's dark theme (light grey on light grey — unreadable), so we draw our own.
+// ignores the app's dark theme (light grey on light grey, unreadable), so we draw our own.
 type DropdownProps = {
   value: string;
   options: string[];
@@ -392,7 +392,7 @@ export default function App() {
   // On a touchscreen a tap plays; "Select" switches taps to ticking rows for bulk playlist edits.
   const [mSelectMode, setMSelectMode] = useState<boolean>(false);
   const [mSettings, setMSettings] = useState<boolean>(false);
-  // Height of the phone's bottom block (mini player + tabs + gesture bar) — the full-screen player
+  // Height of the phone's bottom block (mini player + tabs + gesture bar): the full-screen player
   // stops above it instead of guessing a fixed number.
   const [shareQueue, setShareQueue] = useState<QueuedLink[]>([]);
   const [sharedLink, setSharedLink] = useState<string>("");
@@ -1261,7 +1261,7 @@ export default function App() {
     return () => { active = false; if (un) un(); };
   }, [isMobile]);
   useEffect(() => { if (!dlBusy) setDlProgress(-1); }, [dlBusy]);
-  // Seconds since the download started — so a silent yt-dlp is distinguishable from a dead one.
+  // Seconds since the download started, so a silent yt-dlp is distinguishable from a dead one.
   const [dlSeconds, setDlSeconds] = useState<number>(0);
   useEffect(() => {
     if (!dlBusy) { setDlSeconds(0); return; }
@@ -1342,7 +1342,7 @@ export default function App() {
       setStatus(r.connected ? `Connected to Proton Drive as ${r.username}` : "Proton: login finished but no session saved");
       setDlLogs((prev) => prev + `[proton] top-level folders:\n${r.folders}\n`);
     } catch (e) {
-      setStatus("Proton login failed — see the log");
+      setStatus("Proton login failed (see the log)");
       setDlLogs((prev) => prev + `[proton] ${String(e)}\n`);
     }
     setProtonBusy("");
@@ -1365,7 +1365,7 @@ export default function App() {
       const now = Date.now();
       setLastSync(now);
       try { const store = await storePromise; await store.set(KEY_LAST_SYNC, now); await store.save(); } catch { /* ignore */ }
-      setStatus(r.ok ? "Proton sync done — refreshing…" : "Proton sync finished with errors");
+      setStatus(r.ok ? "Proton sync done, refreshing…" : "Proton sync finished with errors");
       // Whatever arrived: new tracks, playlists, the download queue.
       const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
       setAllTracks(found);
@@ -1373,7 +1373,7 @@ export default function App() {
       await loadQueueFromLibrary(lib);
       setStatus(`Synced · ${found.length} tracks`);
     } catch (e) {
-      setStatus("Proton sync failed — see the log");
+      setStatus("Proton sync failed (see the log)");
       setDlLogs((prev) => prev + `[proton] ${String(e)}\n`);
     }
     setProtonBusy("");
@@ -1386,7 +1386,7 @@ export default function App() {
     try {
       const r = await invoke<{ output: string }>("plugin:soundhood-ytdl|netcheck");
       setDlLogs((prev) => prev + r.output + "\n");
-      setStatus("Network check done — see the log");
+      setStatus("Network check done (see the log)");
     } catch (e) {
       setDlLogs((prev) => prev + `[netcheck] failed: ${String(e)}\n`);
       setStatus("Network check failed");
@@ -1420,8 +1420,8 @@ export default function App() {
     setCurrentName(displayName(t.name));
     setCurrentPlaylist(t.playlist || "(root)");
 
-    // Phone: the webview never accepts the direct file URL (and can take seconds to say so) —
-    // go straight to the bytes route.
+    // Phone: the webview never accepts the direct file URL (and can take seconds to say so),
+    // so go straight to the bytes route.
     if (isMobile) {
       playViaBlob(t, src, "android: direct file URL skipped", true);
       return;
@@ -1437,7 +1437,7 @@ export default function App() {
       setIsPlaying(false);
       setStatus(`Can't play "${displayName(t.name)}": ${why}`);
     };
-    // play() is called right inside the tap/click (a "user gesture") — phones refuse playback
+    // play() is called right inside the tap/click (a "user gesture"): phones refuse playback
     // started later from a callback. It simply waits for enough data, then starts.
     audio
       .play()
@@ -1632,7 +1632,7 @@ export default function App() {
     setStatus(
       done.length === 1 && failed.length === 0
         ? `Moved "${displayName(tracks[0].name)}" to ${bin}`
-        : `${isMobile ? "Bin" : "Recycle Bin"}: ${done.length} moved${failed.length ? `, ${failed.length} failed — ${failed[0]}` : ""}`
+        : `${isMobile ? "Bin" : "Recycle Bin"}: ${done.length} moved${failed.length ? `, ${failed.length} failed (${failed[0]})` : ""}`
     );
     await loadPlaylists(lib);
     setConfirmDelete(null);
@@ -1726,7 +1726,7 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKey);
   }, [confirmDelete, editTags, confirmDeletePlaylist]);
 
-  // "Song - Artist" from a filename — the library convention.
+  // "Song - Artist" from a filename, the library convention.
   function titleArtistFromName(name: string): { title: string; artist: string } {
     const stem = displayName(name);
     const i = stem.lastIndexOf(" - ");
@@ -1819,7 +1819,7 @@ export default function App() {
         if (typeof savedFixtureRoot === "string") setFixtureRoot(savedFixtureRoot);
 
         let saved = await store.get<string>(KEY_LIBRARY_DIR);
-        // Android: no folder picker (it returns content URIs, not paths) — start from the standard Music folder.
+        // Android: no folder picker (it returns content URIs, not paths), so start from the standard Music folder.
         if ((!saved || typeof saved !== "string") && os === "android") {
           saved = "/storage/emulated/0/Music";
           await store.set(KEY_LIBRARY_DIR, saved);
@@ -2326,7 +2326,7 @@ export default function App() {
           border-bottom:1px solid var(--border);
           background: rgba(255,255,255,0.03);
         }
-        /* The list takes whatever height is left AFTER the header/search row —
+        /* The list takes whatever height is left AFTER the header/search row;
            sizing it to the whole panel hid the last item under the panel edge. */
         .list{
           flex:1;
@@ -2421,7 +2421,7 @@ export default function App() {
           flex: 0 1 280px;
           min-width: 180px;
           max-width: 34%;
-          /* no overflow:hidden here — it would clip the "Move to…" popup; the children clip themselves */
+          /* no overflow:hidden here: it would clip the "Move to…" popup; the children clip themselves */
         }
         .nowPlaying{ flex-direction: row; align-items: center; gap: 10px; }
         .npText{ display:flex; flex-direction:column; gap: 2px; min-width: 0; flex: 1; }
@@ -2473,7 +2473,7 @@ export default function App() {
           gap: 10px;
         }
         .time{ color: var(--textDim); font-size: 12px; min-width: 44px; text-align:center; flex:none; }
-        /* Sliders: thin purple fill on a faint track, small glowing thumb — no native blue, no white. */
+        /* Sliders: thin purple fill on a faint track, small glowing thumb; no native blue, no white. */
         .range{
           width: 100%; min-width: 0;
           -webkit-appearance: none; appearance: none;
@@ -2894,7 +2894,7 @@ export default function App() {
                     <div className="modalTrack">No playlist files yet</div>
                     <div className="modalHint" style={{ margin: "6px 0 10px" }}>
                       Playlists now live as small <code>.m3u8</code> files in <code>{folder}\_Playlists</code>, so a song can be in several at once.
-                      Create one per existing folder to start from what you have — nothing moves on disk.
+                      Create one per existing folder to start from what you have. Nothing moves on disk.
                     </div>
                     <button className="btn primaryBtn" onClick={createPlaylistsFromFolders}>Create playlists from folders</button>
                   </div>
@@ -3100,7 +3100,7 @@ export default function App() {
             <button
               className={`shuffleBtn ${shuffle ? "on" : ""}`}
               onClick={() => setShuffle((s) => !s)}
-              title={shuffle ? "Shuffle is on — click to play in order" : "Shuffle is off — click to shuffle"}
+              title={shuffle ? "Shuffle is on; click to play in order" : "Shuffle is off; click to shuffle"}
               aria-pressed={shuffle}
             >
               <ShuffleIcon on={shuffle} />
@@ -3197,7 +3197,7 @@ export default function App() {
           <button
             className={`shuffleBtn ${shuffle ? "on" : ""}`}
             onClick={() => setShuffle((s) => !s)}
-            title={shuffle ? "Shuffle is on — click to play in order" : "Shuffle is off — click to shuffle"}
+            title={shuffle ? "Shuffle is on; click to play in order" : "Shuffle is off; click to shuffle"}
             aria-pressed={shuffle}
           >
             <ShuffleIcon on={shuffle} />

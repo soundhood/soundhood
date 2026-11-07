@@ -11,7 +11,7 @@ import kotlin.concurrent.thread
 
 /**
  * A tiny HTTP proxy on 127.0.0.1 for the bundled yt-dlp. Name resolution and the outgoing
- * connections happen here, in the app's own (Java) network stack — the python process only ever
+ * connections happen here, in the app's own (Java) network stack: the python process only ever
  * talks to localhost. Supports CONNECT (all of YouTube is https) and plain absolute-URL requests.
  */
 object LocalProxy {
@@ -76,7 +76,7 @@ object LocalProxy {
       } catch (e: Exception) { last = e; Thread.sleep(150L * attempt) }
     }
     dnsCache[host]?.let { (_, list) -> return list } // stale is better than nothing
-    Log.w(TAG, "proxy: cannot resolve $host — ${last?.message}")
+    Log.w(TAG, "proxy: cannot resolve $host: ${last?.message}")
     return null
   }
 
@@ -140,7 +140,7 @@ object LocalProxy {
       forwardHead = sb.toString().toByteArray()
     }
 
-    // Resolve here (the app's resolver), then try IPv4 addresses first, IPv6 after — like a browser
+    // Resolve here (the app's resolver), then try IPv4 addresses first, IPv6 after, like a browser
     // does, because on some networks IPv6 is advertised but not routed.
     val remote = connectAny(host, port)
     if (remote == null) {

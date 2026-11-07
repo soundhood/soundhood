@@ -6,8 +6,8 @@ use std::path::{Component, Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 
 /// A path relative to the library root: forward slashes, no leading slash, no `.`/`..` segments,
-/// never empty. The characters are kept exactly as they are on disk — including decomposed (NFD)
-/// names, which NTFS treats as different files from their NFC twins — so a `RelPath` is exactly
+/// never empty. The characters are kept exactly as they are on disk, including decomposed (NFD)
+/// names (NTFS treats them as different files from their NFC twins), so a `RelPath` is exactly
 /// the line written into `_Playlists/*.m3u8`. Comparisons go through [`RelPath::key`], which
 /// applies NFC and lower-casing; only names the app creates itself are written in NFC.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

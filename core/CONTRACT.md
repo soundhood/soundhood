@@ -8,7 +8,7 @@ keep the signatures shown here. A needed signature change or a new dependency is
 Conventions for every module:
 
 - Errors: `crate::Result<T>` / `crate::Error`. No `unwrap()` on I/O or user data outside tests.
-- Paths: user-file positions are `RelPath` (forward slashes, characters exactly as on disk — never
+- Paths: user-file positions are `RelPath` (forward slashes, characters exactly as on disk; never
   NFC-normalise an existing name: NTFS treats an NFD name and its NFC twin as two files). Compare with
   `RelPath::key()` / `model::path_key()` (NFC + lower-case). Absolute paths only at the edges
   (`Library::abs`).
@@ -21,13 +21,13 @@ Conventions for every module:
 - Comment density matches the existing host code: a doc line on every pub item, short "why" comments
   where behaviour is subtle; no banner comments.
 
-## model (lead) — `src/model.rs`
+## model (lead): `src/model.rs`
 
 `RelPath`, `DeviceId`, `Platform`, `Library { root, device, platform }`, `Track` (the UI's wire
 shape, unchanged), `PlaylistFile { name, entries }`, `TagSet` (Option fields; `None` = untouched,
 `Some("")` = clear).
 
-## fs — `src/fs/` (zone: core-foundation)
+## fs: `src/fs/` (zone: core-foundation)
 
 ```rust
 pub const APP_DIR: &str = "_Soundhood";
@@ -73,7 +73,7 @@ pub fn list_tmp_files(root: &Path) -> Result<Vec<RelPath>>; // every TMP_PREFIX 
 pub(crate) fn remove_file(abs: &Path) -> Result<()>;      // only for the core's own temp files
 ```
 
-## tags — `src/tags/` (zone: core-foundation)
+## tags: `src/tags/` (zone: core-foundation)
 
 lofty **0.25.x**. Round-trip tests per container (m4a, mp3, flac, opus, ogg) against the fixture
 audio in `core/fixtures/audio/`.
@@ -97,7 +97,7 @@ pub(crate) fn verify(tmp: &Path, before: &TagRead, changes: &TagSet) -> Result<T
 pub fn tagset_of(r: &TagRead) -> TagSet;                  // full pre-image for the journal
 ```
 
-## playlist — `src/playlist/` (zone: core-foundation)
+## playlist: `src/playlist/` (zone: core-foundation)
 
 Ported from the host **behaviour-identical** (format: `#EXTM3U\n` + one entry per line + `\n`, LF;
 reader strips BOM, trims, skips blanks and `#` lines, turns `\` into `/`; membership compares
@@ -123,7 +123,7 @@ pub fn plan_from_folders(root: &Path, stamps: &[FileStamp]) -> Result<Vec<Playli
 pub(crate) fn write(root: &Path, name: &str, entries: &[String], job: &str) -> Result<()>;
 ```
 
-## ingest — `src/ingest/` (zone: core-writepath)
+## ingest: `src/ingest/` (zone: core-writepath)
 
 The one write path. Journal: `<root>/_Soundhood/journal/<device-id>/YYYY-MM.jsonl`, append-only,
 one JSON object per line, fsync after each append. An operation writes a pre-image line
@@ -201,7 +201,7 @@ not yet renamed), `after_stage_copy`, `after_link` (unix no-replace rename), `af
 The kill tests re-run the test binary as a child with that env set, then assert the original is intact and `cleanup_orphans` leaves
 no temp behind.
 
-## index — `src/index/` (zone: core-index)
+## index: `src/index/` (zone: core-index)
 
 rusqlite (bundled). `schema.sql` is migration 1 (lead-owned); later migrations are numbered files.
 
@@ -229,7 +229,7 @@ pub fn remove_legacy_json_cache(cache_dir: &Path, root: &Path) -> Result<bool>;
 
 "Analyse library" (audio hash, fingerprint, loudness) is a separate job and is NOT part of refresh.
 
-## manifest — `src/manifest.rs` (zone: tools)
+## manifest: `src/manifest.rs` (zone: tools)
 
 ```rust
 #[derive(Serialize, Deserialize)] pub struct Manifest { pub root_name: String, pub files: Vec<ManifestEntry> }
@@ -238,20 +238,20 @@ pub fn build(root: &Path) -> Result<Manifest>;   // audio files + _Playlists/**;
 pub fn diff(a: &Manifest, b: &Manifest) -> Vec<String>; // "changed: x", "added: y", "removed: z"
 ```
 
-## ytdlp — `src/ytdlp/` (zone: tools)
+## ytdlp: `src/ytdlp/` (zone: tools)
 
 Pure functions. `args.rs` ports the current desktop argument list exactly (tests pin it);
 `pins.rs` holds the minimum yt-dlp version, the bootstrap build hash and the deno release hashes;
 `errors.rs` starts the classifier (bot wall, 429, missing JS runtime, archive skip) from stderr
 fixtures.
 
-## sidecars — `src/sidecars.rs` (zone: tools; feature `sidecars`, desktop only)
+## sidecars: `src/sidecars.rs` (zone: tools; feature `sidecars`, desktop only)
 
 Fetch a yt-dlp / deno release asset over TLS (`ureq`), fetch the release's `SHA2-256SUMS` /
 `.sha256sum`, verify (`sha2`), refuse on mismatch or below the pinned minimum, extract (zip for deno),
 write next to the destination with write-then-rename. Logs both hashes.
 
-## fixtures — `src/fixtures.rs` (zone: tools)
+## fixtures: `src/fixtures.rs` (zone: tools)
 
 Generates the fixture library from template audio embedded with `include_bytes!`
 (`core/fixtures/audio/*`): N tracks with tags, aqua/purple/greyscale covers, 5 playlists, a few
@@ -260,8 +260,8 @@ messy names. Used by tests, by `soundhood-tools fixture-lib <dir>`, and by the a
 
 ### As built in wave 1 (tools zone)
 
-- `ytdlp::args::build(&DownloadArgs) -> Result<Vec<String>>` — the pre-rebuild desktop argv byte-for-byte;
-  refuses a link starting with `-`. `ytdlp::pins` — `MIN_YTDLP_VERSION`, bootstrap yt-dlp per triple, deno 2.9.8
+- `ytdlp::args::build(&DownloadArgs) -> Result<Vec<String>>`: the pre-rebuild desktop argv byte-for-byte;
+  refuses a link starting with `-`. `ytdlp::pins`: `MIN_YTDLP_VERSION`, bootstrap yt-dlp per triple, deno 2.9.8
   per triple (SHA-256), `compare_versions`, `ytdlp_version_allowed`. `ytdlp::errors::{classify, classify_output,
   corpus}` → `Classified { kind, error }`.
 - `sidecars::{fetch(&Asset, &Path, Option<&str>) -> Result<FetchReport>, host_triple(), exe_name()}`; `Asset::
@@ -273,15 +273,15 @@ messy names. Used by tests, by `soundhood-tools fixture-lib <dir>`, and by the a
 - lofty 0.25 writes ID3v2 frames from a generic `Tag` in HashMap order (bytes differ run to run): `file_hash_after`
   is not reproducible across identical writes; the fixture generator sorts frames to stay deterministic.
 
-## sync — `src/sync/` (Phase 2 stub)
+## sync: `src/sync/` (Phase 2 stub)
 
 `SyncProvider` trait only, per the build brief §4.6.
 
-## api — `src/api.rs` (lead)
+## api: `src/api.rs` (lead)
 
 The facade the hosts call. See the file.
 
-## Host IPC (Phase 0) — lead-owned, binding for the host and the UI
+## Host IPC (Phase 0): lead-owned, binding for the host and the UI
 
 Unchanged names and shapes (the UI keeps calling them exactly as today):
 `scan_music_folder {dir}` → `Track[]` · `list_playlists {libraryDir}` → `PlaylistFile[]` ·
