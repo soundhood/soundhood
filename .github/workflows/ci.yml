@@ -20,8 +20,9 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   NODE_VERSION: "24"
-  # Android NDK for the core check and the debug APK (r27 or newer; docs/DEV.md).
-  NDK_VERSION: r27c
+  # Android NDK for the core check and the debug APK: r27c, the newest r27 release (the docs ask for
+  # r27 or newer; docs/DEV.md), named as sdkmanager names it.
+  NDK_VERSION: "27.2.12479018"
 
 jobs:
   core-test:
@@ -37,12 +38,16 @@ jobs:
       - uses: ./.github/actions/rust
         with:
           cache-key: core-test
+      # --no-fail-fast: cargo otherwise stops at the first test file with a failure and never runs
+      # the rest, which hid failures on the first Linux runs.
       - name: cargo test -p soundhood-core
-        run: cargo test -p soundhood-core --locked
+        run: cargo test -p soundhood-core --locked --no-fail-fast
       # All features: the fault-injection kill tests, the sidecar manager (against local fixtures,
-      # no network) and the soundhood-tools CLI.
+      # no network) and the soundhood-tools CLI. Runs also when the step above failed, so one run
+      # shows both.
       - name: cargo test -p soundhood-core --all-features
-        run: cargo test -p soundhood-core --all-features --locked
+        if: ${{ !cancelled() }}
+        run: cargo test -p soundhood-core --all-features --locked --no-fail-fast
 
   clippy:
     name: clippy (${{ matrix.os }})
@@ -85,13 +90,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Android NDK ${{ env.NDK_VERSION }}
-        id: ndk
-        uses: nttld/setup-ndk@v1
+      - uses: ./.github/actions/android-ndk
         with:
-          ndk-version: ${{ env.NDK_VERSION }}
-          add-to-path: false
-          local-cache: true
+          version: ${{ env.NDK_VERSION }}
       - uses: ./.github/actions/rust
         with:
           components: clippy
@@ -102,8 +103,6 @@ jobs:
       # A bare `cargo check --target aarch64-linux-android` fails: rusqlite's bundled SQLite build
       # script needs the NDK's clang, which cargo-ndk puts in place.
       - name: cargo ndk -t arm64-v8a check -p soundhood-core
-        env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: cargo ndk -t arm64-v8a check -p soundhood-core --locked
       # Same placeholders as the clippy job: the host embeds app/dist and tauri-build looks for the
       # sidecars named in tauri.conf.json.
@@ -118,8 +117,6 @@ jobs:
       # The phone-only Rust (cfg(mobile): the plugin's mobile.rs, the host's Android paths) is
       # compiled only for an Android target, so the desktop clippy job never sees it.
       - name: cargo ndk -t arm64-v8a clippy (host and ytdl plugin)
-        env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: cargo ndk -t arm64-v8a clippy -p soundhood -p tauri-plugin-soundhood-ytdl --locked -- -D warnings
 
   web:
@@ -256,13 +253,9 @@ jobs:
           packages: platform-tools
       - name: Android SDK platform
         run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
-      - name: Android NDK ${{ env.NDK_VERSION }}
-        id: ndk
-        uses: nttld/setup-ndk@v1
+      - uses: ./.github/actions/android-ndk
         with:
-          ndk-version: ${{ env.NDK_VERSION }}
-          add-to-path: false
-          local-cache: true
+          version: ${{ env.NDK_VERSION }}
       - uses: ./.github/actions/rust
         with:
           targets: aarch64-linux-android
@@ -281,6 +274,4 @@ jobs:
         run: chmod +x app/src-tauri/gen/android/gradlew
       - name: tauri android build --debug --apk --target aarch64
         working-directory: app
-        env:
-          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: npm run tauri -- android build --debug --apk --target aarch64

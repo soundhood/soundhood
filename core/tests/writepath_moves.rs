@@ -605,6 +605,9 @@ fn a_root_track_named_with_a_hash_keeps_its_playlist_line() {
   let src = track_with_ext(&report, "mp3");
   let hash = rel("#1 Crush - Someone.mp3");
   std::fs::copy(lib.abs(&src), lib.abs(&hash)).unwrap();
+  // A copy keeps the source's modification time on Windows but not on Linux, where the write path
+  // would leave the new file alone as changed a few seconds ago.
+  age(&lib.abs(&hash));
   let rep = apply(
     &lib,
     vec![Op::PlaylistAdd {

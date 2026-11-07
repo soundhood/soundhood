@@ -47,10 +47,13 @@ phase's number, and only Phase 7 sets 1.0.0 ([DEV](docs/DEV.md#versions-and-rele
   applied" journal entry; no file was touched either way. Renaming a file to another case of its
   own name still works. Downloads do not go through this code yet (open item).
 - The Linux check run's Android build: the setup step asked for a package the current Android
-  command-line tools no longer have, and stopped. Only GitHub's build was affected, never the app.
+  command-line tools no longer have, and stopped. Once past it, the NDK that GitHub restored from
+  its cache had no C compiler (a known fault of the NDK setup action), so the build stopped again.
+  The NDK now comes from Google's own installer, and its compiler is checked before the build; that
+  has not run on GitHub yet. Only GitHub's build was affected, never the app.
 - GitHub's draft releases: the Linux AppImage and .deb were built but not attached, because the
   attach step's pattern matched their folders. Each package is now named, and a missing one fails
-  the run. Neither change has run on GitHub yet.
+  the run. This has not run on GitHub yet.
 
 ## [0.2.1] - 2026-11-06
 

@@ -1,0 +1,32 @@
+name: Android NDK
+description: >
+  Installs the pinned Android NDK with Google's sdkmanager into the runner's Android SDK, checks
+  that its clang runs, and exports its path as NDK_HOME (Tauri) and ANDROID_NDK_HOME (cargo-ndk).
+  Replaces nttld/setup-ndk, whose cached NDK came back without its clang link (that action's open
+  issue 547) and whose v1.6.0 breaks the NDK for others (issue 576).
+inputs:
+  version:
+    description: The NDK's sdkmanager version, such as 27.2.12479018 (r27c).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install the NDK with sdkmanager
+      shell: bash
+      env:
+        NDK_PACKAGE: ndk;${{ inputs.version }}
+      run: |
+        # setup-android puts sdkmanager on the PATH; without it, the runner image's own copy.
+        sdkmanager=$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")
+        "$sdkmanager" --install "$NDK_PACKAGE"
+    - name: Check its clang runs and export its path
+      shell: bash
+      env:
+        NDK_VERSION: ${{ inputs.version }}
+      run: |
+        ndk="$ANDROID_HOME/ndk/$NDK_VERSION"
+        bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        # The wrapper Tauri and cc-rs call runs bin/clang; a broken NDK fails here, not mid-build.
+        "$bin/aarch64-linux-android24-clang" --version
+        echo "NDK_HOME=$ndk" >> "$GITHUB_ENV"
+        echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
