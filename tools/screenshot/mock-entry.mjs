@@ -1,6 +1,6 @@
 // Runs in the page before any app script (bundled by harness.mjs, registered with
 // page.addInitScript). Swaps the Tauri IPC bridge for @tauri-apps/api/mocks and answers every
-// command the current UI sends at startup and in the suite's flows, from the fixture data the
+// command the UI sends at startup and in the suite's flows, from the fixture data the
 // harness puts in window.__SOUNDHOOD_FIXTURE__ (see fixture.mjs pageData). Unknown commands fail
 // loudly so a new command in the app cannot slip past the suite unmocked.
 import { emit } from "@tauri-apps/api/event";
@@ -49,7 +49,8 @@ const mock = {
 window.__soundhoodMock = mock;
 window.__soundhoodEmit = (event, payload) => emit(event, payload);
 
-// The library the mock serves: the fixture tracks and playlists, edited by write_tags / playlist_add
+// The library the mock serves: the fixture tracks and playlists, edited by write_tags / playlist_add /
+// playlist_remove / playlist_create
 // and put back by undo_last. Paths are kept relative to the library root.
 const rootOf = (p) => (p.startsWith(`${FIXTURE_ROOT}/`) ? FIXTURE_ROOT : fx.root);
 const relOf = (abs) => abs.slice(rootOf(abs).length + 1);
@@ -108,6 +109,32 @@ function playlistAdd({ name, paths }) {
   return structuredClone(pl);
 }
 
+function playlistRemove({ name, paths }) {
+  const pl = playlists.find((p) => p.name === name);
+  if (!pl) throw new Error(`no playlist ${name}`);
+  const before = [...pl.entries];
+  const gone = new Set(paths.map((p) => relOf(p).toLowerCase()));
+  pl.entries = pl.entries.filter((e) => !gone.has(e.toLowerCase()));
+  const n = before.length - pl.entries.length;
+  journal(`Removed ${n} track${n === 1 ? "" : "s"} from ${name}`, { path_before: null, path_after: null }, () => {
+    pl.entries = before;
+    return { label: `Restored playlist ${name}`, path_before: null, path_after: null };
+  });
+  return structuredClone(pl);
+}
+
+function playlistCreate({ name }) {
+  if (playlists.some((p) => p.name.toLowerCase() === name.toLowerCase())) throw new Error(`a playlist ${name} exists`);
+  const pl = { name, entries: [] };
+  playlists.push(pl);
+  playlists.sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+  journal(`Created playlist ${name}`, { path_before: null, path_after: null }, () => {
+    playlists.splice(playlists.indexOf(pl), 1);
+    return { label: `Removed playlist ${name}`, path_before: null, path_after: null };
+  });
+  return structuredClone(pl);
+}
+
 function undoLast() {
   const batch = `fixture-undo-${++batchSeq}`;
   // A test can make the undo leave entries as they are (changed since, file in use): nothing is put back.
@@ -154,6 +181,10 @@ function answer(cmd, args) {
       return writeTags(args.args);
     case "playlist_add":
       return playlistAdd(args.args);
+    case "playlist_remove":
+      return playlistRemove(args.args);
+    case "playlist_create":
+      return playlistCreate(args.args);
     case "ytdlp_download_audio":
       // The download runs in the host; the test sends its output and end with __soundhoodEmit.
       mock.downloads.push(structuredClone(args.args));

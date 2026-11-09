@@ -1,7 +1,9 @@
-// Behaviour checks of the settings and tools on the mocked UI (no screenshots): the log and Copy
-// log, a partial undo, the test library switch and what it turns off, the self-test wording.
-// Moved here from flows.spec.mjs.
+// Behaviour checks of the settings and tools on the mocked UI: the log and Copy log, a partial undo,
+// the test library switch and what it turns off, the self-test wording (moved here from
+// flows.spec.mjs), and the settings sheet photographed (from baseline.spec.mjs). The settings and
+// tools are the old ones, inside the settings sheet the rebuilt shell opens, until Settings is rebuilt.
 import { expect, test } from "./harness.mjs";
+import { goTo, openPlaylist, openSettings, row, settle, status } from "./ui.mjs";
 
 const SYNC_OFF = "Sync is off while the test library is shown";
 /** The settings store as the mock holds it. */
@@ -12,8 +14,16 @@ const emit = (page, event, payload) => page.evaluate(([e, p]) => window.__soundh
 const beforeLoad = (page, fn, arg) => page.addInitScript(fn, arg);
 const ipcCount = (page, field) => page.evaluate((f) => window.__soundhoodMock[f].length, field);
 
+/** Adds Quiet Bloom from Late Night to Focus with the mouse (Ctrl+click selects it). */
+async function addQuietBloomToFocus(page) {
+  await openPlaylist(page, "Late Night");
+  await row(page, "Quiet Bloom").click({ modifiers: ["Control"] });
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Add to playlist" }).click();
+  await page.getByRole("dialog", { name: "Add to playlist" }).locator(".ListRow", { hasText: "Focus" }).click();
+  await expect(page.locator(".Toast")).toContainText("Added Quiet Bloom to Focus");
+}
+
 test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
-  const status = (page) => page.locator(".topbar .status");
 
   test("Copy log carries the change lines below the visible log; a refused copy says how to copy by hand", async ({ app, page }) => {
     await app.open();
@@ -21,10 +31,8 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       window.__copied = [];
       navigator.clipboard.writeText = async (t) => void window.__copied.push(t);
     });
-    await page.locator(".pill.artistPill", { hasText: "Late Night" }).click();
-    await page.locator(".trackRow", { hasText: "Quiet Bloom" }).click();
-    await page.locator(".searchRow .ddBtn", { hasText: "Add to playlist" }).click();
-    await page.locator(".ddMenu .ddItem", { hasText: "Focus" }).click();
+    await addQuietBloomToFocus(page);
+    await openSettings(app, page);
     await expect(status(page)).toHaveText("Status: Added to Focus");
     await app.settled();
     await expect(page.locator(".downloadLogs")).toHaveCount(0);
@@ -62,10 +70,8 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
 
   test("a partial undo says how much was left and shows why in the log", async ({ app, page }) => {
     await app.open();
-    await page.locator(".pill.artistPill", { hasText: "Late Night" }).click();
-    await page.locator(".trackRow", { hasText: "Quiet Bloom" }).click();
-    await page.locator(".searchRow .ddBtn", { hasText: "Add to playlist" }).click();
-    await page.locator(".ddMenu .ddItem", { hasText: "Focus" }).click();
+    await addQuietBloomToFocus(page);
+    await openSettings(app, page);
     await expect(status(page)).toHaveText("Status: Added to Focus");
     await page.evaluate(() => {
       window.__soundhoodMock.undoSkipped = [{ path: "_Playlists/Focus.m3u8", reason: "changed since, not undone" }];
@@ -77,6 +83,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
 
   test("the test library: named, not printed; on follows the shown folder; off goes back", async ({ app, page }) => {
     await app.open();
+    await openSettings(app, page);
     const fixtureRoot = await page.evaluate(() => window.__soundhoodMock.fixtureRoot);
     await page.keyboard.press("Control+Alt+Shift+KeyD");
     const sw = page.getByRole("switch");
@@ -117,6 +124,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       m.store.set("dev_mode", true);
     });
     await app.open();
+    await openSettings(app, page);
     await expect(page.locator(".pathLine")).toHaveText("Folder: test library");
     await expect(page.locator(".testLibraryNote")).toBeVisible();
     await expect(page.getByRole("switch")).toHaveText("Test library: on");
@@ -132,6 +140,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     });
     await page.goto("/");
     await app.settled("platform");
+    await openSettings(app, page);
     await expect(page.locator(".pathLine")).toHaveText("Pick a folder to begin.");
     const sw = page.getByRole("switch");
     await sw.click();
@@ -143,26 +152,38 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(page.locator(".pathLine")).toHaveText("Pick a folder to begin.");
     await expect(status(page)).toHaveText("Status: Test library off: choose your library folder again");
     await expect(page.locator(".testLibraryNote")).toHaveCount(0);
-    await expect(page.locator(".trackRow")).toHaveCount(0);
+    await expect(page.locator(".TrackRow, .PlaylistCard")).toHaveCount(0);
     expect((await storeOf(page)).library_dir).toBe("");
   });
 
   test("the self-test result reads in sentence case", async ({ app, page }) => {
     await beforeLoad(page, () => window.__soundhoodMock.store.set("dev_mode", true));
     await app.open();
+    await openSettings(app, page);
     await page.getByRole("button", { name: "Run self-test" }).click();
     await expect(status(page)).toHaveText("Status: Self-test: 2 passed, 0 failed");
   });
 });
 
-test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
-  const status = (page) => page.locator(".topbar .status");
+/** The phone's settings panel, inside the settings sheet. */
+async function openPhoneSettings(app, page) {
+  await openSettings(app, page);
+  await expect(page.locator(".mSettings")).toBeVisible();
+  await app.settled("plugin:soundhood-ytdl|ytdlp_version");
+}
 
-  async function openSettings(app, page) {
-    await page.locator(".topbar .brand .iconBtn").tap();
-    await expect(page.locator(".mSettings")).toBeVisible();
-    await app.settled("plugin:soundhood-ytdl|ytdlp_version");
-  }
+test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
+  test("settings sheet", async ({ app, page }) => {
+    await app.open();
+    // Over a screen without artwork: a blurred cover grid mixes aqua and purple into blue pixels.
+    await goTo(page, "Folders");
+    await openPhoneSettings(app, page);
+    await expect(page.locator(".mSettings")).toContainText(`yt-dlp ${app.data.ytdlpVersion}`);
+    await expect(page.locator(".mSettings input[type=password]")).toBeVisible(); // Proton login form
+    await settle(app, page);
+    await expect(page).toHaveScreenshot(app.shot("settings"));
+  });
+
 
   test("the test library turns Proton sync off and names the library", async ({ app, page }) => {
     await beforeLoad(page, () => {
@@ -170,7 +191,7 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
       window.__soundhoodMock.store.set("dev_mode", true);
     });
     await app.open();
-    await openSettings(app, page);
+    await openPhoneSettings(app, page);
     const buttons = ["Sync now", "Get new", "Send new"].map((name) => page.getByRole("button", { name, exact: true }));
     for (const b of buttons) await expect(b).toBeEnabled();
     await expect(page.locator(".mSettings")).not.toContainText(SYNC_OFF);

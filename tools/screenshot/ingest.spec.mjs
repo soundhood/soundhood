@@ -1,7 +1,10 @@
 // Behaviour checks of adding and downloading links on the mocked UI (no screenshots): the narrow
 // desktop window, the download queue after a refusal, channel links. Moved here from flows.spec.mjs.
+// The download box and the links queue are the old ones, inside the settings sheet the rebuilt shell
+// opens, until they are rebuilt.
 import { readFileSync } from "node:fs";
 import { expect, test } from "./harness.mjs";
+import { openSettings, status } from "./ui.mjs";
 
 // The one refusal sentence, from the vector file the UI and plugin unit tests share.
 const CHANNEL_REFUSAL = JSON.parse(readFileSync(new URL("./channel-links.json", import.meta.url), "utf8")).refusal;
@@ -12,7 +15,6 @@ const beforeLoad = (page, fn, arg) => page.addInitScript(fn, arg);
 const ipcCount = (page, field) => page.evaluate((f) => window.__soundhoodMock[f].length, field);
 
 test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
-  const status = (page) => page.locator(".topbar .status");
 
   test("at 760 px wide the download bar wraps instead of scrolling sideways", async ({ app, page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop-1280x800", "one desktop size is enough");
@@ -21,6 +23,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     });
     await page.setViewportSize({ width: 760, height: 520 });
     await app.open();
+    await openSettings(app, page);
     const overflow = () =>
       page.evaluate(() => {
         const doc = document.documentElement;
@@ -48,6 +51,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       ]);
     });
     await app.open();
+    await openSettings(app, page);
     await page.getByRole("button", { name: "Download queue (3)" }).click();
     await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
 
@@ -70,6 +74,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       window.__soundhoodMock.store.set("share_queue", [{ url: "https://www.youtube.com/@someartist/videos", added: 1 }]);
     });
     await app.open();
+    await openSettings(app, page);
     // The common shape, then the ones only the core used to know: an uploads list, a legacy name.
     for (const url of [
       "https://www.youtube.com/channel/UC0123456789abcdefghijkl",
@@ -94,6 +99,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       window.__soundhoodMock.downloadError = reason;
     }, CHANNEL_REFUSAL);
     await app.open();
+    await openSettings(app, page);
     await page.locator(".downloadBar .downloadInput").fill("https://www.youtube.com/watch?v=AbCdEfGhIjK");
     await page.getByRole("button", { name: "Download", exact: true }).click();
     await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
@@ -105,17 +111,15 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
 });
 
 test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
-  const status = (page) => page.locator(".topbar .status");
-
-  async function openSettings(app, page) {
-    await page.locator(".topbar .brand .iconBtn").tap();
+  async function openPhoneSettings(app, page) {
+    await openSettings(app, page);
     await expect(page.locator(".mSettings")).toBeVisible();
     await app.settled("plugin:soundhood-ytdl|ytdlp_version");
   }
 
   test("a shared or pasted channel link is refused before it is queued", async ({ app, page }) => {
     await app.open();
-    await openSettings(app, page);
+    await openPhoneSettings(app, page);
     await page.getByPlaceholder("Paste a YouTube link…").fill("https://www.youtube.com/@someartist/videos");
     await page.getByRole("button", { name: "Add", exact: true }).tap();
     await expect(status(page)).toHaveText(CHANNEL_REFUSAL);
@@ -142,7 +146,7 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
       m.phoneDownload = { exitCode: 1, files: [], log: "ERROR: [youtube] aaaaaaaaaaa: Sign in to confirm you're not a bot\n" };
     });
     await app.open();
-    await openSettings(app, page);
+    await openPhoneSettings(app, page);
     await page.getByRole("button", { name: "Download queue (2)" }).tap();
     await expect(status(page)).toHaveText("Queue stopped: [youtube] aaaaaaaaaaa: Sign in to confirm you're not a bot");
     await page.waitForTimeout(1000);
