@@ -1,9 +1,10 @@
-// Behaviour checks of the settings and tools on the mocked UI: the log and Copy log, a partial undo,
-// the test library switch and what it turns off, the self-test wording (moved here from
-// flows.spec.mjs), and the settings sheet photographed (from baseline.spec.mjs). The settings and
-// tools are the old ones, inside the settings sheet the rebuilt shell opens, until Settings is rebuilt.
+// The settings sheet on the mocked UI: photographed at every size over Folders (the parity grid
+// pairs <size>-settings.png; over Playlists the blurred cover grid mixes aqua and purple into blue
+// pixels that fail the blue scan), Ctrl+comma, the text size, the log (View log, Copy log on every
+// device, the change lines only in what Copy log carries), a partial undo, the test library switch
+// and what it turns off, the self-test wording.
 import { expect, test } from "./harness.mjs";
-import { goTo, openPlaylist, openSettings, row, settle, status } from "./ui.mjs";
+import { goTo, openPlaylist, openSettings, playSong, report, row, settingRow, settle, status } from "./ui.mjs";
 
 const SYNC_OFF = "Sync is off while the test library is shown";
 /** The settings store as the mock holds it. */
@@ -13,6 +14,13 @@ const emit = (page, event, payload) => page.evaluate(([e, p]) => window.__soundh
 /** Changes the mock before the app's first script runs. */
 const beforeLoad = (page, fn, arg) => page.addInitScript(fn, arg);
 const ipcCount = (page, field) => page.evaluate((f) => window.__soundhoodMock[f].length, field);
+/** The newest toast with this text. */
+const toast = (page, text) => page.locator(".Toast").filter({ hasText: text }).last();
+const sheet = (page) => page.locator(".SettingsSheet");
+const testSwitch = (page) => sheet(page).getByRole("switch", { name: "Test library" });
+/** The Music folder row's help line: the folder, by name for the test library. */
+const folderLine = (page) => settingRow(page, "Music folder").locator(".SettingRow-help");
+const developer = (page) => sheet(page).locator("section", { has: page.locator("h3", { hasText: "Developer" }) });
 
 /** Adds Quiet Bloom from Late Night to Focus with the mouse (Ctrl+click selects it). */
 async function addQuietBloomToFocus(page) {
@@ -23,7 +31,69 @@ async function addQuietBloomToFocus(page) {
   await expect(page.locator(".Toast")).toContainText("Added Quiet Bloom to Focus");
 }
 
+/** Opens View log, a sub-sheet of Settings. */
+async function openLog(page) {
+  await sheet(page).getByRole("button", { name: /^View log/ }).click();
+  await expect(page.getByRole("dialog", { name: "Log" })).toBeVisible();
+  return page.getByRole("dialog", { name: "Log" });
+}
+
+test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
+  test("settings", async ({ app, page }, testInfo) => {
+    const phone = testInfo.project.use.soundhoodPlatform === "android";
+    await app.open();
+    await goTo(page, "Folders");
+    await expect(page.locator(".ScreenHeader h1")).toHaveText("Folders");
+    await openSettings(app, page);
+    if (phone) await app.settled("plugin:soundhood-ytdl|ytdlp_version");
+    // The groups in DESIGN.md's order, only those with a working row; Proton Drive only where the
+    // host syncs (the phone); the developer section hidden.
+    const groups = sheet(page).locator(".SettingGroup > h3");
+    await expect(groups).toHaveText(
+      phone ? ["Library", "YouTube", "Proton Drive", "Appearance", "Tools", "About"] : ["Library", "YouTube", "Appearance", "Tools", "About"],
+    );
+    await expect(folderLine(page)).toHaveText(app.data.root);
+    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Nothing to undo");
+    await expect(sheet(page).getByRole("button", { name: "Copy log" })).toBeVisible();
+    await expect(status(page)).toHaveText("Found 50 tracks");
+    await expect(sheet(page).locator(".VersionRow")).toContainText("Version 0.1.0");
+    await expect(sheet(page)).toContainText("Inter typeface, SIL Open Font License 1.1");
+    if (phone) {
+      await expect(settingRow(page, "Download helper")).toContainText(`yt-dlp ${app.data.ytdlpVersion}`);
+      await expect(sheet(page).getByRole("textbox", { name: "Password" })).toBeVisible(); // Proton login form
+    }
+    await settle(app, page);
+    await expect(page).toHaveScreenshot(app.shot("settings"));
+  });
+
+  test("the text size sets --text-scale on the root and is remembered", async ({ app, page }) => {
+    await app.open();
+    await openSettings(app, page);
+    await sheet(page).getByRole("combobox", { name: "Text size" }).click();
+    await page.getByRole("option", { name: "130%" }).click();
+    const scale = () => page.evaluate(() => document.documentElement.style.getPropertyValue("--text-scale"));
+    await expect.poll(scale).toBe("1.3");
+    await expect.poll(async () => (await storeOf(page)).text_scale).toBe(1.3);
+    await sheet(page).getByRole("combobox", { name: "Text size" }).click();
+    await page.getByRole("option", { name: "100%" }).click();
+    await expect.poll(scale).toBe("");
+  });
+
+  test("a stored text size applies at start", async ({ app, page }) => {
+    await beforeLoad(page, () => window.__soundhoodMock.store.set("text_scale", 1.15));
+    await app.open();
+    expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--text-scale"))).toBe("1.15");
+  });
+});
+
 test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
+  test("Ctrl+comma opens the settings", async ({ app, page }) => {
+    await app.open();
+    await expect(sheet(page)).toHaveCount(0);
+    await page.keyboard.press("Control+Comma");
+    await expect(sheet(page)).toBeVisible();
+    await expect(sheet(page).getByRole("heading", { name: "Settings" })).toBeVisible();
+  });
 
   test("Copy log carries the change lines below the visible log; a refused copy says how to copy by hand", async ({ app, page }) => {
     await app.open();
@@ -33,16 +103,19 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     });
     await addQuietBloomToFocus(page);
     await openSettings(app, page);
-    await expect(status(page)).toHaveText("Status: Added to Focus");
+    // Copy log is in Tools with or without a log; the add put no line in the visible log.
+    await expect(sheet(page).getByRole("button", { name: "Copy log" })).toBeVisible();
+    await expect(status(page)).toHaveText("Found 50 tracks");
     await app.settled();
-    await expect(page.locator(".downloadLogs")).toHaveCount(0);
 
-    // Download output still shows, as before; Copy log appears with it.
+    // Download output still goes to the log, as before.
     await emit(page, "ytdlp:stdout", "[download] Destination: Downloads/A - B.m4a");
-    await expect(page.locator(".downloadLogs")).toContainText("[download] Destination");
-    await expect(page.locator(".downloadLogs")).not.toContainText("[change]");
-    await page.getByRole("button", { name: "Copy log" }).click();
-    await expect(status(page)).toHaveText("Status: Log copied");
+    await expect(status(page)).toHaveText("[download] Destination: Downloads/A - B.m4a");
+    let log = await openLog(page);
+    await expect(log.locator(".LogText")).toContainText("[download] Destination");
+    await expect(log.locator(".LogText")).not.toContainText("[change]");
+    await log.getByRole("button", { name: "Copy log" }).click();
+    await expect(toast(page, "Log copied")).toBeVisible();
     const copied = await page.evaluate(() => window.__copied[0]);
     expect(copied.startsWith("appVersion: 0.1.0\n")).toBe(true);
     const at = (s) => copied.indexOf(s);
@@ -53,64 +126,81 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
       document.execCommand = () => false;
     });
-    await page.getByRole("button", { name: "Copy log" }).click();
-    await expect(status(page)).toHaveText("Status: Copy failed: select the log text and press Ctrl+C");
+    await log.getByRole("button", { name: "Copy log" }).click();
+    await expect(toast(page, "Copy failed: select the log text and press Ctrl+C")).toBeVisible();
 
-    // Clear logs clears both: the next copy has no change lines.
-    await page.getByRole("button", { name: "Clear logs" }).click();
-    await expect(page.locator(".downloadLogs")).toHaveCount(0);
+    // Clear log clears both: the next copy has no change lines.
+    await log.getByRole("button", { name: "Clear log" }).click();
+    await expect(log.locator(".LogText")).toHaveCount(0);
+    await log.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(status(page)).toHaveText("Nothing logged yet");
     await page.evaluate(() => {
       navigator.clipboard.writeText = async (t) => void window.__copied.push(t);
     });
     await emit(page, "ytdlp:stdout", "[download] 100%");
-    await page.getByRole("button", { name: "Copy log" }).click();
-    await expect(status(page)).toHaveText("Status: Log copied");
+    await sheet(page).getByRole("button", { name: "Copy log" }).click();
+    await expect.poll(() => page.evaluate(() => window.__copied.length)).toBe(2);
     expect(await page.evaluate(() => window.__copied.at(-1))).not.toContain("[change]");
+    log = await openLog(page);
+    await expect(log.locator(".LogText")).toHaveText("[download] 100%");
   });
 
-  test("a partial undo says how much was left and shows why in the log", async ({ app, page }) => {
+  test("a partial undo says how much was left and shows why in the report and the log", async ({ app, page }) => {
     await app.open();
     await addQuietBloomToFocus(page);
     await openSettings(app, page);
-    await expect(status(page)).toHaveText("Status: Added to Focus");
+    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 track to Focus");
     await page.evaluate(() => {
       window.__soundhoodMock.undoSkipped = [{ path: "_Playlists/Focus.m3u8", reason: "changed since, not undone" }];
     });
-    await page.locator(".topbar .btn", { hasText: /^Undo$/ }).click();
-    await expect(status(page)).toHaveText("Status: Undo: 0 restored, 1 left as they are (see the log)");
-    await expect(page.locator(".downloadLogs")).toHaveText("[skipped] _Playlists/Focus.m3u8 - changed since, not undone");
+    await settingRow(page, "Undo last change").getByRole("button", { name: "Undo" }).click();
+    // Nothing closes silently: the report stays until Done, and an undo has no undo of its own.
+    const r = report(page);
+    await expect(r.getByRole("heading")).toHaveText("Undo: 0 restored, 1 left as they are (see the log)");
+    await expect(r.locator(".BatchRow.is-skipped")).toContainText("Focus.m3u8");
+    await expect(r.locator(".BatchRow.is-skipped")).toContainText("changed since, not undone");
+    await expect(r.getByRole("button", { name: "Undo this batch" })).toHaveCount(0);
+    await page.waitForTimeout(5000);
+    await expect(r).toBeVisible();
+    await r.getByRole("button", { name: "Done" }).last().click();
+    await expect(report(page)).toHaveCount(0);
+    await expect(status(page)).toHaveText("[skipped] _Playlists/Focus.m3u8 - changed since, not undone");
   });
 
   test("the test library: named, not printed; on follows the shown folder; off goes back", async ({ app, page }) => {
     await app.open();
     await openSettings(app, page);
     const fixtureRoot = await page.evaluate(() => window.__soundhoodMock.fixtureRoot);
+    await expect(developer(page)).toHaveCount(0);
     await page.keyboard.press("Control+Alt+Shift+KeyD");
-    const sw = page.getByRole("switch");
-    await expect(sw).toHaveText("Test library: off");
-    await expect(page.locator(".pathLine")).toHaveText(`Folder: ${app.data.root}`);
-    await expect(page.locator(".testLibraryNote")).toHaveCount(0);
+    await expect(developer(page)).toBeVisible();
+    const sw = testSwitch(page);
+    await expect(sw).toHaveAttribute("aria-checked", "false");
+    await expect(settingRow(page, "Test library")).toContainText("Off: your own library is shown");
+    await expect(folderLine(page)).toHaveText(app.data.root);
+    await expect(page.locator(".TestBadge")).toHaveCount(0);
 
     await sw.click();
-    await expect(sw).toHaveText("Test library: on");
     await expect(sw).toHaveAttribute("aria-checked", "true");
-    await expect(page.locator(".pathLine")).toHaveText("Folder: test library");
-    await expect(page.locator(".testLibraryNote")).toHaveText("Test library");
+    await expect(settingRow(page, "Test library")).toContainText("On: the generated test library is shown, and sync is off");
+    await expect(folderLine(page)).toHaveText("test library");
+    await expect(page.locator(".TestBadge").filter({ visible: true })).toHaveText("Test library");
     await expect(page.locator("body")).not.toContainText("AppData");
-    await expect(page.locator(".downloadLogs")).toHaveCount(0);
+    // The switch's own lines go only to what Copy log carries.
+    await expect(status(page)).not.toContainText("[dev]");
     let s = await storeOf(page);
     expect(s).toMatchObject({ library_dir: fixtureRoot, fixture_root: fixtureRoot, real_library_dir: app.data.root });
 
     // The note stays when the developer section is hidden.
     await page.keyboard.press("Control+Alt+Shift+KeyD");
-    await expect(page.locator(".devBar")).toHaveCount(0);
-    await expect(page.locator(".testLibraryNote")).toBeVisible();
+    await expect(developer(page)).toHaveCount(0);
+    await expect(page.locator(".TestBadge").filter({ visible: true })).toBeVisible();
     await page.keyboard.press("Control+Alt+Shift+KeyD");
 
     await sw.click();
-    await expect(sw).toHaveText("Test library: off");
-    await expect(page.locator(".pathLine")).toHaveText(`Folder: ${app.data.root}`);
-    await expect(page.locator(".testLibraryNote")).toHaveCount(0);
+    await expect(sw).toHaveAttribute("aria-checked", "false");
+    await expect(folderLine(page)).toHaveText(app.data.root);
+    await expect(page.locator(".TestBadge")).toHaveCount(0);
     s = await storeOf(page);
     expect(s).toMatchObject({ library_dir: app.data.root, real_library_dir: "" });
   });
@@ -125,12 +215,12 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     });
     await app.open();
     await openSettings(app, page);
-    await expect(page.locator(".pathLine")).toHaveText("Folder: test library");
-    await expect(page.locator(".testLibraryNote")).toBeVisible();
-    await expect(page.getByRole("switch")).toHaveText("Test library: on");
-    await page.getByRole("switch").click();
-    await expect(page.locator(".pathLine")).toHaveText("Folder: C:/Music");
-    await expect(page.getByRole("switch")).toHaveText("Test library: off");
+    await expect(folderLine(page)).toHaveText("test library");
+    await expect(page.locator(".TestBadge").filter({ visible: true })).toBeVisible();
+    await expect(testSwitch(page)).toHaveAttribute("aria-checked", "true");
+    await testSwitch(page).click();
+    await expect(folderLine(page)).toHaveText("C:/Music");
+    await expect(testSwitch(page)).toHaveAttribute("aria-checked", "false");
   });
 
   test("no real library known: on then off closes the library instead of keeping the test one", async ({ app, page }) => {
@@ -140,18 +230,22 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     });
     await page.goto("/");
     await app.settled("platform");
+    // An install that ran before but has no folder: the setup asks for the folder alone.
+    await expect(page.locator(".Onboarding")).toContainText("Step 1 of 1");
+    await page.locator(".Onboarding").getByRole("button", { name: "Skip" }).click();
+    await expect(page.locator(".Onboarding")).toHaveCount(0);
     await openSettings(app, page);
-    await expect(page.locator(".pathLine")).toHaveText("Pick a folder to begin.");
-    const sw = page.getByRole("switch");
+    await expect(folderLine(page)).toHaveText("None chosen yet");
+    const sw = testSwitch(page);
     await sw.click();
-    await expect(page.locator(".pathLine")).toHaveText("Folder: test library");
+    await expect(folderLine(page)).toHaveText("test library");
     expect((await storeOf(page)).real_library_dir).toBeUndefined();
 
     await sw.click();
-    await expect(sw).toHaveText("Test library: off");
-    await expect(page.locator(".pathLine")).toHaveText("Pick a folder to begin.");
-    await expect(status(page)).toHaveText("Status: Test library off: choose your library folder again");
-    await expect(page.locator(".testLibraryNote")).toHaveCount(0);
+    await expect(sw).toHaveAttribute("aria-checked", "false");
+    await expect(folderLine(page)).toHaveText("None chosen yet");
+    await expect(toast(page, "Test library off: choose your library folder again")).toBeVisible();
+    await expect(page.locator(".TestBadge")).toHaveCount(0);
     await expect(page.locator(".TrackRow, .PlaylistCard")).toHaveCount(0);
     expect((await storeOf(page)).library_dir).toBe("");
   });
@@ -160,54 +254,74 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await beforeLoad(page, () => window.__soundhoodMock.store.set("dev_mode", true));
     await app.open();
     await openSettings(app, page);
-    await page.getByRole("button", { name: "Run self-test" }).click();
-    await expect(status(page)).toHaveText("Status: Self-test: 2 passed, 0 failed");
+    await sheet(page).getByRole("button", { name: "Run self-test" }).click();
+    await expect(toast(page, "Self-test: 2 passed, 0 failed")).toBeVisible();
+    await expect(status(page)).toHaveText("Self-test: 2 passed, 0 failed");
   });
 });
 
-/** The phone's settings panel, inside the settings sheet. */
+/** The phone's settings sheet, once the helper's version is in. */
 async function openPhoneSettings(app, page) {
   await openSettings(app, page);
-  await expect(page.locator(".mSettings")).toBeVisible();
   await app.settled("plugin:soundhood-ytdl|ytdlp_version");
 }
 
 test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
-  test("settings sheet", async ({ app, page }) => {
-    await app.open();
-    // Over a screen without artwork: a blurred cover grid mixes aqua and purple into blue pixels.
-    await goTo(page, "Folders");
-    await openPhoneSettings(app, page);
-    await expect(page.locator(".mSettings")).toContainText(`yt-dlp ${app.data.ytdlpVersion}`);
-    await expect(page.locator(".mSettings input[type=password]")).toBeVisible(); // Proton login form
-    await settle(app, page);
-    await expect(page).toHaveScreenshot(app.shot("settings"));
-  });
-
-
   test("the test library turns Proton sync off and names the library", async ({ app, page }) => {
     await beforeLoad(page, () => {
       window.__soundhoodMock.proton = { bundled: true, connected: true, username: "tester@example.com" };
       window.__soundhoodMock.store.set("dev_mode", true);
     });
     await app.open();
+    await goTo(page, "Folders");
     await openPhoneSettings(app, page);
-    const buttons = ["Sync now", "Get new", "Send new"].map((name) => page.getByRole("button", { name, exact: true }));
+    const buttons = ["Sync now", "Get new", "Send new"].map((name) => sheet(page).getByRole("button", { name, exact: true }));
     for (const b of buttons) await expect(b).toBeEnabled();
-    await expect(page.locator(".mSettings")).not.toContainText(SYNC_OFF);
+    await expect(sheet(page)).not.toContainText(SYNC_OFF);
 
-    await page.getByRole("switch").tap();
-    await expect(page.locator(".mFolder")).toHaveText("Library: test library");
+    await testSwitch(page).tap();
+    await expect(folderLine(page)).toHaveText("test library");
     for (const b of buttons) await expect(b).toBeDisabled();
-    await expect(page.locator(".mSettings")).toContainText(SYNC_OFF);
-    await expect(page.locator(".testLibraryNote")).toBeVisible();
+    await expect(sheet(page)).toContainText(SYNC_OFF);
+    await expect(page.locator(".TestBadge").filter({ visible: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("fixture-library");
     expect(await ipcCount(page, "protonSyncs")).toBe(0);
 
-    await page.getByRole("switch").tap();
-    await expect(page.locator(".mFolder")).toHaveText(`Library: ${app.data.root}`);
+    await testSwitch(page).tap();
+    await expect(folderLine(page)).toHaveText(app.data.root);
     for (const b of buttons) await expect(b).toBeEnabled();
-    await expect(page.locator(".mSettings")).not.toContainText(SYNC_OFF);
+    await expect(sheet(page)).not.toContainText(SYNC_OFF);
   });
 
+  test("a failed Proton login shows an error row with Copy log and Retry; Retry logs in", async ({ app, page }) => {
+    await beforeLoad(page, () => (window.__soundhoodMock.protonLoginError = "Proton refused the login: wrong password"));
+    await app.open();
+    await openPhoneSettings(app, page);
+    await sheet(page).getByRole("textbox", { name: "Proton email" }).fill("tester@example.com");
+    await sheet(page).getByRole("textbox", { name: "Password" }).fill("test-password");
+    await sheet(page).getByRole("button", { name: "Connect" }).tap();
+    const error = sheet(page).locator(".ErrorRow");
+    await expect(error).toContainText("Proton login failed");
+    await expect(error).toContainText("Proton refused the login: wrong password");
+    await expect(error.getByRole("button", { name: "Copy log" })).toBeVisible();
+    await page.evaluate(() => (window.__soundhoodMock.protonLoginError = ""));
+    await error.getByRole("button", { name: "Retry" }).tap();
+    await expect(sheet(page).locator(".ErrorRow")).toHaveCount(0);
+    await expect(toast(page, "Connected to Proton Drive as tester@example.com")).toBeVisible();
+    await expect(settingRow(page, "Account")).toContainText("tester@example.com");
+  });
+});
+
+test.describe("tablet and phone: View log", { tag: "@phone" }, () => {
+  test("View log shows the visible log and its newest line", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await playSong(app, page, "Static Garden");
+    await openPhoneSettings(app, page);
+    // The phone plays from the file's bytes, and says so in the log.
+    await expect(status(page)).toHaveText(/^Playing \(/);
+    const log = await openLog(page);
+    await expect(log.locator(".LogText")).toContainText("Found 50 tracks");
+    await expect(log.locator(".LogText")).toContainText("Playing (");
+  });
 });

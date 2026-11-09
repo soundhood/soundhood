@@ -4,7 +4,7 @@
 // the toast's Undo), the sort order, a new playlist, search and filtering an open list, the Playing
 // tab, the sidebar's remembered width and fold, the test library label.
 import { expect, test } from "./harness.mjs";
-import { closeSettings, goTo, openPlaylist, openSettings, playSong, row, searchField, status } from "./ui.mjs";
+import { closeSettings, goTo, openPlaylist, openSettings, playSong, row, searchField, settingRow, status } from "./ui.mjs";
 
 /** The settings store as the mock holds it. */
 const storeOf = (page) => page.evaluate(() => Object.fromEntries(window.__soundhoodMock.store));
@@ -19,7 +19,7 @@ const toast = (page) => page.locator(".Toast");
 const card = (page, name) => page.locator(".PlaylistCard", { hasText: name });
 
 test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
-  test("at start: the library's playlists, the Playlists tab, the scan on the status line", async ({ app, page }, testInfo) => {
+  test("at start: the library's playlists, the Playlists tab, the scan in the log", async ({ app, page }) => {
     await app.open();
     await expect(page.locator(".PlaylistCard")).toHaveCount(5);
     await expect(page.locator(".ScreenHeader h1")).toHaveText("Playlists");
@@ -28,8 +28,7 @@ test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
     // Nothing plays yet: Playing cannot be opened.
     await expect(page.locator(".BottomTabs-tab, .Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Playing" })).toBeDisabled();
     await openSettings(app, page);
-    const phone = testInfo.project.use.soundhoodPlatform === "android";
-    await expect(status(page)).toHaveText(phone ? "Found 50 tracks" : "Status: Found 50 tracks");
+    await expect(status(page)).toHaveText("Found 50 tracks");
   });
 
   test("the sort order reorders the open list and is remembered", async ({ app, page }) => {
@@ -141,8 +140,7 @@ test.describe("mouse and keyboard (platform windows)", { tag: "@desktop" }, () =
     await goTo(page, "Playlists");
     await expect(card(page, "Focus")).toContainText("8 songs");
     await openSettings(app, page);
-    await expect(status(page)).toHaveText("Status: Added to Focus");
-    await expect(page.locator(".topbar .btn", { hasText: /^Undo$/ })).toHaveAttribute("title", "Undo: Added 1 track to Focus");
+    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 track to Focus");
     await closeSettings(page);
     await toast(page).getByRole("button", { name: "Undo" }).click();
     await expect(card(page, "Focus")).toContainText("7 songs");

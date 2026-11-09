@@ -27,13 +27,18 @@ const FIXTURE_ROOT =
  * What a test can read and steer through window.__soundhoodMock, set from an init script (before
  * the app loads) or from page.evaluate:
  * - `store`: the settings store (a Map), e.g. delete "library_dir" to start without a library;
- * - `proton`: what proton_status answers; `protonSyncs`: every proton_sync call;
+ * - `proton`: what proton_status answers; `protonSyncs`: every proton_sync call; `protonLoginError`:
+ *   the reason the next proton_login is refused with;
  * - `downloads`: every ytdlp_download_audio call (desktop), `phoneDownload`: the next phone result;
  * - `downloadError`: a reason the next ytdlp_download_audio call is refused with, a plain string as
  *   the host's start errors arrive;
  * - `history`: the journal behind last_change / undo_last (core/CONTRACT.md "Host IPC (Phase 0)"),
  *   newest last; it starts empty, so the baselines have nothing to undo;
- * - `undoSkipped`: [{ path, reason }] makes the next undo_last leave the change as it is.
+ * - `undoSkipped`: [{ path, reason }] makes the next undo_last leave the change as it is;
+ * - `deleteRefused`: file names delete_track refuses ("file in use"); `writeTagsError`: the reason
+ *   write_tags refuses with;
+ * - `holdPhoneDownload`: the phone's download runs until `finishPhoneDownload()`; `cancels`: every
+ *   cancel call; `pickFolder`: what the folder picker (plugin:dialog|open) answers, null = closed.
  * window.__soundhoodEmit(event, payload) sends a host event (ytdlp:stdout, ytdlp:done, ...).
  */
 const mock = {
@@ -45,12 +50,16 @@ const mock = {
   phoneDownload: { exitCode: 0, files: [], log: "" },
   downloadError: "",
   history: [],
+  deleteRefused: [],
+  holdPhoneDownload: false,
+  cancels: [],
+  pickFolder: null,
 };
 window.__soundhoodMock = mock;
 window.__soundhoodEmit = (event, payload) => emit(event, payload);
 
 // The library the mock serves: the fixture tracks and playlists, edited by write_tags / playlist_add /
-// playlist_remove / playlist_create
+// playlist_remove / playlist_create / playlist_delete / move_track / delete_track
 // and put back by undo_last. Paths are kept relative to the library root.
 const rootOf = (p) => (p.startsWith(`${FIXTURE_ROOT}/`) ? FIXTURE_ROOT : fx.root);
 const relOf = (abs) => abs.slice(rootOf(abs).length + 1);
@@ -135,6 +144,61 @@ function playlistCreate({ name }) {
   return structuredClone(pl);
 }
 
+/** The first-level folder a library path sits in, as scan_music_folder names it ("(root)" at the top). */
+const folderOfRel = (rel) => (rel.includes("/") ? rel.slice(0, rel.indexOf("/")) : "(root)");
+
+/** Every playlist entry naming `from` now names `to` (null: the entry goes); returns how to put them back. */
+function repointEntries(from, to) {
+  const before = playlists.map((p) => [...p.entries]);
+  for (const p of playlists) {
+    p.entries = p.entries.flatMap((e) => (e.toLowerCase() === from.toLowerCase() ? (to ? [to] : []) : [e]));
+  }
+  return () => playlists.forEach((p, i) => (p.entries = before[i]));
+}
+
+function moveTrack({ path, targetFolder }) {
+  const rel = relOf(path);
+  const t = tracks.find((x) => x.rel === rel);
+  if (!t) throw new Error(`not in the library: ${rel}`);
+  const to = `${targetFolder}/${fileName(rel)}`;
+  if (tracks.some((x) => x.rel.toLowerCase() === to.toLowerCase())) throw `${fileName(rel)} already exists in ${targetFolder}`;
+  const putBack = repointEntries(rel, to);
+  Object.assign(t, { rel: to, playlist: targetFolder });
+  journal(`Moved ${fileName(rel)} to ${targetFolder}`, { path_before: rel, path_after: to }, () => {
+    putBack();
+    Object.assign(t, { rel, playlist: folderOfRel(rel) });
+    return { label: `Moved ${fileName(rel)} back to ${folderOfRel(rel)}`, path_before: to, path_after: rel };
+  });
+  const { rel: _rel, ...shown } = t;
+  return { ...shown, path: `${rootOf(path)}/${to}` };
+}
+
+function deleteTrack({ path }) {
+  const rel = relOf(path);
+  const at = tracks.findIndex((x) => x.rel === rel);
+  if (at < 0) throw new Error(`not in the library: ${rel}`);
+  if (mock.deleteRefused.includes(fileName(rel))) throw "file in use";
+  const [t] = tracks.splice(at, 1);
+  const putBack = repointEntries(rel, null);
+  journal(`Moved ${fileName(rel)} to the bin`, { path_before: rel, path_after: null }, () => {
+    tracks.splice(at, 0, t);
+    putBack();
+    return { label: `Restored ${fileName(rel)} from the bin`, path_before: null, path_after: rel };
+  });
+  return null;
+}
+
+function playlistDelete({ name }) {
+  const at = playlists.findIndex((p) => p.name === name);
+  if (at < 0) throw new Error(`no playlist ${name}`);
+  const [pl] = playlists.splice(at, 1);
+  journal(`Deleted playlist ${name}`, { path_before: null, path_after: null }, () => {
+    playlists.splice(at, 0, pl);
+    return { label: `Restored playlist ${name}`, path_before: null, path_after: null };
+  });
+  return null;
+}
+
 function undoLast() {
   const batch = `fixture-undo-${++batchSeq}`;
   // A test can make the undo leave entries as they are (changed since, file in use): nothing is put back.
@@ -178,6 +242,7 @@ function answer(cmd, args) {
     case "read_file_bytes":
       return arrayBuffer(silentWav(fx.durationOf[fixturePath(args.path)] ?? 1));
     case "write_tags":
+      if (mock.writeTagsError) throw mock.writeTagsError;
       return writeTags(args.args);
     case "playlist_add":
       return playlistAdd(args.args);
@@ -185,6 +250,12 @@ function answer(cmd, args) {
       return playlistRemove(args.args);
     case "playlist_create":
       return playlistCreate(args.args);
+    case "playlist_delete":
+      return playlistDelete(args.args);
+    case "move_track":
+      return moveTrack(args.args);
+    case "delete_track":
+      return deleteTrack(args.args);
     case "ytdlp_download_audio":
       // The download runs in the host; the test sends its output and end with __soundhoodEmit.
       mock.downloads.push(structuredClone(args.args));
@@ -196,12 +267,27 @@ function answer(cmd, args) {
       return null;
     case "plugin:soundhood-ytdl|download":
       mock.downloads.push(structuredClone(args.args));
+      // Held: the download runs until the test calls __soundhoodMock.finishPhoneDownload().
+      if (mock.holdPhoneDownload) {
+        return new Promise((resolve) => {
+          mock.finishPhoneDownload = () => resolve(structuredClone(mock.phoneDownload));
+        });
+      }
       return structuredClone(mock.phoneDownload);
+    case "plugin:soundhood-ytdl|cancel":
+      mock.cancels.push(structuredClone(args.args));
+      return null;
+    case "plugin:dialog|open":
+      return mock.pickFolder;
     case "plugin:soundhood-ytdl|register_listener":
     case "plugin:soundhood-ytdl|remove_listener":
       return null;
     case "plugin:soundhood-ytdl|proton_status":
       return structuredClone(mock.proton);
+    case "plugin:soundhood-ytdl|proton_login":
+      if (mock.protonLoginError) throw mock.protonLoginError;
+      mock.proton = { bundled: true, connected: true, username: args.args.username };
+      return { connected: true, username: args.args.username, folders: "Music" };
     case "plugin:soundhood-ytdl|proton_sync":
       mock.protonSyncs.push(structuredClone(args.args));
       return { ok: true, log: "" };
