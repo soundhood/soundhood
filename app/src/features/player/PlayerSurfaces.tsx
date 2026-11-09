@@ -1,11 +1,19 @@
-// The player on screen, over the existing player (usePlayer): the mini player (narrow shells; a tap
-// opens Playing), the player bar (tablet and desktop) and the Playing screen (the full player: over
-// everything on the phone, two columns in the main area on wider shells). The hairline and the
-// position follow the audio element. Repeat and the queue are not here yet (no dead controls).
+// The player on screen, over the player (usePlayer): the mini player (narrow shells; a tap opens
+// Playing), the player bar (tablet and desktop) and the Playing screen (the full player: over
+// everything on the phone, two columns in the main area on wider shells). Shuffle, Repeat (off, all,
+// one) and the queue button (the right pane where it fits, else the queue sheet: QueueUi) are live.
+// The position and the length come from the player's clock (usePlaybackTime), so a tick re-renders
+// these surfaces and nothing else; the hairline reads the audio element itself.
+import { useEffect, useRef, useState } from "react";
 import { FullPlayer, MiniPlayer, PlayerBar } from "../../design";
 import { useApp } from "../../app/context";
 import { libraryView, type Detail } from "../../hooks/useNavigation";
+import { reducedMotion } from "../../design/lib/dom";
+import { useQueueUi } from "../queue/QueueUi";
+import { upcomingCount } from "../queue/queueModel";
 import { folderLabel, songCount, trackArtist, trackFormat, trackLength, trackTitle } from "../library/trackInfo";
+import { usePlaybackTime } from "./playbackClock";
+import "./player.css";
 
 /** What the player surfaces show for the song that is loaded. */
 function useNowPlaying() {
@@ -25,8 +33,19 @@ export function sourceLabel(source: Detail | null): { kind: string; name: string
   return { kind: source.kind, name: source.kind === "folder" ? folderLabel(source.name) : source.name };
 }
 
+/** Play or pause; with nothing loaded and nothing queued, the list on screen from the top. */
+function usePlayPause() {
+  const { player, nav, lib } = useApp();
+  if (player.currentPath || upcomingCount(player.queue) > 0) return player.togglePlay;
+  return () => {
+    nav.setSource(libraryView(lib));
+    player.playFrom(lib.filteredTracks, player.shuffle);
+  };
+}
+
 export function NowMini() {
   const { player, nav } = useApp();
+  const queue = useQueueUi();
   const now = useNowPlaying();
   if (!player.currentPath) return null;
   return (
@@ -38,22 +57,19 @@ export function NowMini() {
       getProgress={player.getProgress}
       onPlayPause={player.togglePlay}
       onNext={player.playNext}
+      onQueue={queue.toggle}
       onOpen={() => nav.setPlaying(true)}
     />
   );
 }
 
 export function NowBar() {
-  const { player, nav, lib, actions } = useApp();
+  const { player, nav, actions } = useApp();
+  const queue = useQueueUi();
+  const time = usePlaybackTime(player.clock);
   const now = useNowPlaying();
+  const playPause = usePlayPause();
   const t = player.currentTrack;
-  // With nothing loaded yet, Play starts the list on screen (every song at first) from the top.
-  const playPause = player.currentPath
-    ? player.togglePlay
-    : () => {
-        nav.setSource(libraryView(lib));
-        player.playFrom(lib.filteredTracks, player.shuffle);
-      };
   return (
     <PlayerBar
       title={now.title}
@@ -61,9 +77,9 @@ export function NowBar() {
       cover={now.cover}
       playing={player.isPlaying}
       shuffle={player.shuffle}
-      repeat="off"
-      position={player.progress}
-      duration={player.duration}
+      repeat={player.repeat}
+      position={time.position}
+      duration={time.duration}
       volume={player.volume * 100}
       muted={player.muted}
       onSeek={(s) => player.seekTo(String(s))}
@@ -76,6 +92,9 @@ export function NowBar() {
       onPrev={player.playPrev}
       onNext={player.playNext}
       onShuffle={() => player.setShuffle((s) => !s)}
+      onRepeat={player.cycleRepeat}
+      onQueue={queue.toggle}
+      queueOpen={queue.shown}
       onAddToPlaylist={t ? () => actions.addToPlaylist([t]) : undefined}
       onToggleFull={player.currentPath ? () => nav.setPlaying(!nav.playing) : undefined}
       fullOpen={nav.playing}
@@ -83,16 +102,36 @@ export function NowBar() {
   );
 }
 
+/** Mirrors shell.css: the full player is a screen of its own (and slides away) under 720 px. */
+const PHONE = "(max-width: 719px)";
+
 export function PlayingScreen() {
-  const { player, lib, nav, actions } = useApp();
+  const { player, nav, actions } = useApp();
+  const queue = useQueueUi();
+  const time = usePlaybackTime(player.clock);
   const now = useNowPlaying();
   const t = player.currentTrack;
-  const listed = lib.filteredTracks.length;
-  const facts = t
-    ? [trackLength(t), trackFormat(t), folderLabel(t.playlist), player.currentIndex >= 0 ? `${player.currentIndex + 1} of ${listed}` : songCount(listed)]
-    : [];
+  const q = player.queue;
+  const total = q.past.length + (q.now ? 1 : 0) + upcomingCount(q);
+  const facts = t ? [trackLength(t), trackFormat(t), folderLabel(t.playlist), q.now ? `${q.past.length + 1} of ${total}` : songCount(total)] : [];
+
+  // On the phone the full player slides back down before it goes (swipe down, Esc, Close).
+  const [leaving, setLeaving] = useState(false);
+  const done = useRef(0);
+  useEffect(() => () => clearTimeout(done.current), []);
+  const close = () => {
+    if (leaving) return;
+    if (reducedMotion() || typeof matchMedia !== "function" || !matchMedia(PHONE).matches) {
+      nav.setPlaying(false);
+      return;
+    }
+    setLeaving(true);
+    done.current = window.setTimeout(() => nav.setPlaying(false), 400);
+  };
+
   return (
     <FullPlayer
+      className={leaving ? "is-leaving" : undefined}
       title={now.title}
       artist={now.artist}
       cover={now.cover}
@@ -100,15 +139,17 @@ export function PlayingScreen() {
       facts={facts.filter(Boolean)}
       playing={player.isPlaying}
       shuffle={player.shuffle}
-      repeat="off"
-      position={player.progress}
-      duration={player.duration}
+      repeat={player.repeat}
+      position={time.position}
+      duration={time.duration}
       onSeek={(s) => player.seekTo(String(s))}
       onPlayPause={player.togglePlay}
       onPrev={player.playPrev}
       onNext={player.playNext}
       onShuffle={() => player.setShuffle((s) => !s)}
-      onClose={() => nav.setPlaying(false)}
+      onRepeat={player.cycleRepeat}
+      onQueue={queue.toggle}
+      onClose={close}
       onAddToPlaylist={t ? () => actions.addToPlaylist([t]) : undefined}
     />
   );

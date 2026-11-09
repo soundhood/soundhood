@@ -1,0 +1,12 @@
+/* The phone's full player rises from the bottom (player.css in the design system) and slides back
+   down before it closes: Close, Esc or a swipe down (PlayerSurfaces.tsx waits --dur-l, then closes).
+   Wider shells close it at once; reduced motion skips the slide. */
+@container shell (max-width: 719px) {
+  .FullPlayer.is-leaving {
+    transform: translateY(100%);
+    pointer-events: none;
+    transition:
+      transform var(--dur-l) var(--ease-accel),
+      translate var(--dur-m) var(--ease-decel);
+  }
+}

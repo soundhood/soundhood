@@ -27,7 +27,9 @@
 .MiniPlayer {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
   align-items: center;
   column-gap: var(--sp-1);
   height: var(--mini-h);
@@ -78,6 +80,17 @@
 
 .MiniPlayer .IconButton {
   color: var(--fg-0);
+}
+
+/* Play and pause share one cell; the one not in use fades out (as in the PlayButton). */
+.MiniPlayer-play .Icon {
+  grid-area: 1 / 1;
+  transition: opacity var(--dur-opacity) var(--ease-standard);
+}
+
+.MiniPlayer-play[data-state="playing"] .MiniPlayer-playIcon,
+.MiniPlayer-play[data-state="paused"] .MiniPlayer-pauseIcon {
+  opacity: 0;
 }
 
 /* FullPlayer. */

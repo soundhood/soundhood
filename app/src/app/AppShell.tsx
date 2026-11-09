@@ -5,11 +5,14 @@
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { BottomTabs, RightPane, Shell, useArtworkTint, type Tab } from "../design";
 import { NowBar, NowMini } from "../features/player/PlayerSurfaces";
+import { QueueUiProvider, useQueueUi } from "../features/queue/QueueUi";
+import { QueueOverlays, QueuePane } from "../features/queue/QueueView";
 import { useCover } from "../hooks/useCovers";
 import type { TopTab } from "../hooks/useNavigation";
 import { useShellPrefs } from "../hooks/useShellPrefs";
 import { AppSidebar } from "./AppSidebar";
 import { useApp, type Picker } from "./context";
+import { KeyboardShortcuts } from "./KeyboardShortcuts";
 import { MainArea } from "./MainArea";
 import { Overlays } from "./Overlays";
 
@@ -54,8 +57,22 @@ function MainSlot() {
   );
 }
 
-export function AppShell({ picker, closePicker, rightPane }: { picker: Picker | null; closePicker: () => void; rightPane?: ReactNode }) {
+type AppShellProps = { picker: Picker | null; closePicker: () => void; rightPane?: ReactNode };
+
+/** The queue's open or closed state (QueueUi) is shared by the player surfaces, the pane and the keys. */
+export function AppShell(props: AppShellProps) {
+  return (
+    <QueueUiProvider>
+      <ShellView {...props} />
+    </QueueUiProvider>
+  );
+}
+
+function ShellView({ picker, closePicker, rightPane }: AppShellProps) {
   const { player, nav } = useApp();
+  const queue = useQueueUi();
+  // The queue in the right pane where the shell has room for it and the user opened it.
+  const right = rightPane ?? (queue.paneFits && queue.paneOpen ? <QueuePane /> : null);
   const prefs = useShellPrefs();
   const cover = useCover(player.currentPath);
   const tint = useArtworkTint(cover?.url, cover?.hash);
@@ -77,8 +94,7 @@ export function AppShell({ picker, closePicker, rightPane }: { picker: Picker | 
       sidebarCollapsed={prefs.sidebarCollapsed}
       sidebar={<AppSidebar prefs={prefs} />}
       main={<MainSlot />}
-      // The queue pane plugs in here (closed until the queue is built: README.md).
-      right={rightPane ? <RightPane label="Queue">{rightPane}</RightPane> : undefined}
+      right={right ? <RightPane label="Queue">{right}</RightPane> : undefined}
       bar={<NowBar />}
       bottom={
         <>
@@ -86,7 +102,14 @@ export function AppShell({ picker, closePicker, rightPane }: { picker: Picker | 
           <BottomTabs tabs={tabs} current={currentTab} onChange={nav.goTo} />
         </>
       }
-      overlays={<Overlays picker={picker} closePicker={closePicker} />}
+      overlays={
+        <>
+          <Overlays picker={picker} closePicker={closePicker} />
+          <QueueOverlays />
+          {/* Last, so the components that own a key handle it first. */}
+          <KeyboardShortcuts />
+        </>
+      }
     />
   );
 }

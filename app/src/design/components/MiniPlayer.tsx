@@ -1,10 +1,12 @@
 // MiniPlayer (phone): 56 px on --bg-1 with the hairline on its top edge; the cover (40 px, with a
-// soft glow of the artwork tint), title over artist, play/pause and next. Tap or swipe up opens the
-// full player. The title is a live region, so a new song is announced.
+// soft glow of the artwork tint), title over artist, play/pause, next and (with onQueue) the queue.
+// Tap or swipe up opens the full player. The title is a live region, so a new song is announced.
+// Play and pause are both drawn and cross-fade (player.css), like the PlayButton.
 import { useRef, type PointerEvent } from "react";
 import { cx } from "../lib/cx";
 import { isControlTarget } from "../lib/dom";
 import { Hairline } from "./Hairline";
+import { Icon } from "./Icon";
 import { IconButton } from "./IconButton";
 import { Thumb } from "./Thumb";
 
@@ -16,6 +18,8 @@ export interface MiniPlayerProps {
   getProgress: () => number;
   onPlayPause?: () => void;
   onNext?: () => void;
+  /** Opens the queue; the button is not shown without it. */
+  onQueue?: () => void;
   onOpen?: () => void;
   className?: string;
 }
@@ -30,6 +34,7 @@ export function MiniPlayer({
   getProgress,
   onPlayPause,
   onNext,
+  onQueue,
   onOpen,
   className,
 }: MiniPlayerProps) {
@@ -78,8 +83,19 @@ export function MiniPlayer({
           <span className="MiniPlayer-artist">{artist}</span>
         </span>
       </button>
-      <IconButton icon={playing ? "pause" : "play"} label={playing ? "Pause" : "Play"} onClick={onPlayPause} />
+      <button
+        type="button"
+        className="IconButton MiniPlayer-play"
+        data-state={playing ? "playing" : "paused"}
+        aria-label={playing ? "Pause" : "Play"}
+        title={playing ? "Pause" : "Play"}
+        onClick={onPlayPause}
+      >
+        <Icon name="play" size={24} className="MiniPlayer-playIcon" />
+        <Icon name="pause" size={24} className="MiniPlayer-pauseIcon" />
+      </button>
       <IconButton icon="next" label="Next" onClick={onNext} />
+      {onQueue && <IconButton icon="queue" label="Queue" onClick={onQueue} />}
     </div>
   );
 }
