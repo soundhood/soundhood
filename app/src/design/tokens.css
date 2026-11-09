@@ -66,17 +66,20 @@
   --press: rgba(255, 255, 255, 0.06);
   --hover: rgba(255, 255, 255, 0.04);
 
-  /* Type. Inter 4.1 variable, bundled (never a CDN). The optical-size axis follows the font size. */
+  /* Type. Inter 4.1 variable, bundled (never a CDN). The optical-size axis follows the font size.
+     --text-scale is the app's text size (Settings, Appearance; on the phone it starts from the
+     system font scale); it is set on the root element only, where these tokens resolve. */
+  --text-scale: 1;
   --font-sans: "Inter", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --t-display: 700 40px / 44px var(--font-sans);
-  --t-h1: 700 28px / 34px var(--font-sans);
-  --t-h2: 600 22px / 28px var(--font-sans);
-  --t-h3: 600 17px / 22px var(--font-sans);
-  --t-body: 450 15px / 20px var(--font-sans);
-  --t-body-strong: 550 15px / 20px var(--font-sans);
-  --t-body-sm: 400 13px / 18px var(--font-sans);
-  --t-caption: 500 12px / 16px var(--font-sans);
-  --t-overline: 600 11px / 14px var(--font-sans);
+  --t-display: 700 calc(40px * var(--text-scale)) / calc(44px * var(--text-scale)) var(--font-sans);
+  --t-h1: 700 calc(28px * var(--text-scale)) / calc(34px * var(--text-scale)) var(--font-sans);
+  --t-h2: 600 calc(22px * var(--text-scale)) / calc(28px * var(--text-scale)) var(--font-sans);
+  --t-h3: 600 calc(17px * var(--text-scale)) / calc(22px * var(--text-scale)) var(--font-sans);
+  --t-body: 450 calc(15px * var(--text-scale)) / calc(20px * var(--text-scale)) var(--font-sans);
+  --t-body-strong: 550 calc(15px * var(--text-scale)) / calc(20px * var(--text-scale)) var(--font-sans);
+  --t-body-sm: 400 calc(13px * var(--text-scale)) / calc(18px * var(--text-scale)) var(--font-sans);
+  --t-caption: 500 calc(12px * var(--text-scale)) / calc(16px * var(--text-scale)) var(--font-sans);
+  --t-overline: 600 calc(11px * var(--text-scale)) / calc(14px * var(--text-scale)) var(--font-sans);
   --tracking-tight: -0.02em;
   --tracking-overline: 0.06em;
 

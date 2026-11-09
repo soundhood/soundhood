@@ -96,8 +96,8 @@
     --gutter: 32px;
     --row-h: 48px;
     --playerbar-h: 80px;
-    --t-body: 450 14px / 20px var(--font-sans);
-    --t-body-strong: 550 14px / 20px var(--font-sans);
+    --t-body: 450 calc(14px * var(--text-scale)) / calc(20px * var(--text-scale)) var(--font-sans);
+    --t-body-strong: 550 calc(14px * var(--text-scale)) / calc(20px * var(--text-scale)) var(--font-sans);
     grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
     grid-template-areas:
       "side main"
