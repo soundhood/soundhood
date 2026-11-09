@@ -1,12 +1,9 @@
-// Behaviour checks on the mocked UI (no screenshots): the log, Copy log, the narrow desktop window,
-// the test library switch and what it turns off, the download queue after a refusal, channel links.
-import { readFileSync } from "node:fs";
+// Behaviour checks of the settings and tools on the mocked UI (no screenshots): the log and Copy
+// log, a partial undo, the test library switch and what it turns off, the self-test wording.
+// Moved here from flows.spec.mjs.
 import { expect, test } from "./harness.mjs";
 
-// The one refusal sentence, from the vector file the UI and plugin unit tests share.
-const CHANNEL_REFUSAL = JSON.parse(readFileSync(new URL("./channel-links.json", import.meta.url), "utf8")).refusal;
 const SYNC_OFF = "Sync is off while the test library is shown";
-
 /** The settings store as the mock holds it. */
 const storeOf = (page) => page.evaluate(() => Object.fromEntries(window.__soundhoodMock.store));
 /** Sends a host event, like the Rust side does. */
@@ -76,31 +73,6 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await page.locator(".topbar .btn", { hasText: /^Undo$/ }).click();
     await expect(status(page)).toHaveText("Status: Undo: 0 restored, 1 left as they are (see the log)");
     await expect(page.locator(".downloadLogs")).toHaveText("[skipped] _Playlists/Focus.m3u8 - changed since, not undone");
-  });
-
-  test("at 760 px wide the download bar wraps instead of scrolling sideways", async ({ app, page }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop-1280x800", "one desktop size is enough");
-    await beforeLoad(page, () => {
-      window.__soundhoodMock.store.set("share_queue", [{ url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", added: 1 }]);
-    });
-    await page.setViewportSize({ width: 760, height: 520 });
-    await app.open();
-    const overflow = () =>
-      page.evaluate(() => {
-        const doc = document.documentElement;
-        const bar = document.querySelector(".downloadBar");
-        return { page: doc.scrollWidth - doc.clientWidth, bar: bar.scrollWidth - bar.clientWidth };
-      });
-    await emit(page, "ytdlp:stdout", "[download] Destination: Downloads/A - B.m4a");
-    await expect(page.getByRole("button", { name: "Copy log" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Download queue (1)" })).toBeVisible();
-    expect(await overflow()).toEqual({ page: 0, bar: 0 });
-
-    // The new-folder box is the widest the bar gets.
-    await page.locator(".downloadBar .ddBtn").first().click();
-    await page.locator(".ddMenu .ddItem", { hasText: "New folder" }).click();
-    await expect(page.locator(".downloadBar .targetNew")).toBeVisible();
-    expect(await overflow()).toEqual({ page: 0, bar: 0 });
   });
 
   test("the test library: named, not printed; on follows the shown folder; off goes back", async ({ app, page }) => {
@@ -175,69 +147,6 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect((await storeOf(page)).library_dir).toBe("");
   });
 
-  test("a refused download stops the queue; the link stays queued", async ({ app, page }) => {
-    await beforeLoad(page, () => {
-      window.__soundhoodMock.store.set("share_queue", [
-        { url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", added: 3 },
-        { url: "https://www.youtube.com/watch?v=bbbbbbbbbbb", added: 2 },
-        { url: "https://www.youtube.com/watch?v=ccccccccccc", added: 1 },
-      ]);
-    });
-    await app.open();
-    await page.getByRole("button", { name: "Download queue (3)" }).click();
-    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
-
-    // The first link finishes: the queue moves on to the second.
-    await emit(page, "ytdlp:done", 0);
-    await expect.poll(() => ipcCount(page, "downloads")).toBe(2);
-    await expect(page.getByRole("button", { name: "Download queue (2)" })).toBeVisible();
-
-    // The second meets the bot wall: nothing else is started.
-    await emit(page, "ytdlp:stderr", "ERROR: [youtube] bbbbbbbbbbb: Sign in to confirm you're not a bot");
-    await emit(page, "ytdlp:done", 1);
-    await expect(status(page)).toHaveText("Status: Queue stopped: [youtube] bbbbbbbbbbb: Sign in to confirm you're not a bot");
-    await page.waitForTimeout(1000);
-    expect(await ipcCount(page, "downloads")).toBe(2);
-    await expect(page.getByRole("button", { name: "Download queue (2)" })).toBeVisible();
-  });
-
-  test("a channel link is refused in the download box and in the queue", async ({ app, page }) => {
-    await beforeLoad(page, () => {
-      window.__soundhoodMock.store.set("share_queue", [{ url: "https://www.youtube.com/@someartist/videos", added: 1 }]);
-    });
-    await app.open();
-    // The common shape, then the ones only the core used to know: an uploads list, a legacy name.
-    for (const url of [
-      "https://www.youtube.com/channel/UC0123456789abcdefghijkl",
-      "https://www.youtube.com/playlist?list=UU0123456789abcdefghijkl",
-      "https://www.youtube.com/SomeLegacyName/videos",
-    ]) {
-      // Move the status off the refusal first (the developer toggle names itself there).
-      await page.keyboard.press("Control+Alt+Shift+KeyD");
-      await expect(status(page)).toHaveText(/^Status: Developer tools (on|off)$/);
-      await page.locator(".downloadBar .downloadInput").fill(url);
-      await page.getByRole("button", { name: "Download", exact: true }).click();
-      await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
-    }
-    await page.getByRole("button", { name: "Download queue (1)" }).click();
-    await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
-    await app.settled();
-    expect(await ipcCount(page, "downloads")).toBe(0);
-  });
-
-  test("a download the host refuses to start says why on the status line", async ({ app, page }) => {
-    await beforeLoad(page, (reason) => {
-      window.__soundhoodMock.downloadError = reason;
-    }, CHANNEL_REFUSAL);
-    await app.open();
-    await page.locator(".downloadBar .downloadInput").fill("https://www.youtube.com/watch?v=AbCdEfGhIjK");
-    await page.getByRole("button", { name: "Download", exact: true }).click();
-    await expect(status(page)).toHaveText(`Status: ${CHANNEL_REFUSAL}`);
-    await expect(page.locator(".downloadLogs")).toContainText(`[error] ${CHANNEL_REFUSAL}`);
-    expect(await ipcCount(page, "downloads")).toBe(1);
-    await expect(page.getByRole("button", { name: "Download", exact: true })).toBeEnabled();
-  });
-
   test("the self-test result reads in sentence case", async ({ app, page }) => {
     await beforeLoad(page, () => window.__soundhoodMock.store.set("dev_mode", true));
     await app.open();
@@ -280,67 +189,4 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await expect(page.locator(".mSettings")).not.toContainText(SYNC_OFF);
   });
 
-  test("a shared or pasted channel link is refused before it is queued", async ({ app, page }) => {
-    await app.open();
-    await openSettings(app, page);
-    await page.getByPlaceholder("Paste a YouTube link…").fill("https://www.youtube.com/@someartist/videos");
-    await page.getByRole("button", { name: "Add", exact: true }).tap();
-    await expect(status(page)).toHaveText(CHANNEL_REFUSAL);
-    await expect(page.locator(".modal")).toHaveCount(0);
-    await expect(page.locator(".mSettings .downloadLogs")).toContainText(CHANNEL_REFUSAL);
-
-    const queued = await page.evaluate(() => window.__soundhoodShare("listen: https://m.youtube.com/c/SomeArtist"));
-    expect(queued).toBe(false);
-    await expect(page.locator(".modal")).toHaveCount(0);
-
-    // A single video still opens "Where should this go?".
-    await page.getByPlaceholder("Paste a YouTube link…").fill("https://www.youtube.com/watch?v=aaaaaaaaaaa");
-    await page.getByRole("button", { name: "Add", exact: true }).tap();
-    await expect(page.locator(".modal .modalTitle")).toHaveText("Where should this go?");
-  });
-
-  test("a refused phone download stops the queue", async ({ app, page }) => {
-    await beforeLoad(page, () => {
-      const m = window.__soundhoodMock;
-      m.store.set("share_queue", [
-        { url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", added: 2 },
-        { url: "https://www.youtube.com/watch?v=bbbbbbbbbbb", added: 1 },
-      ]);
-      m.phoneDownload = { exitCode: 1, files: [], log: "ERROR: [youtube] aaaaaaaaaaa: Sign in to confirm you're not a bot\n" };
-    });
-    await app.open();
-    await openSettings(app, page);
-    await page.getByRole("button", { name: "Download queue (2)" }).tap();
-    await expect(status(page)).toHaveText("Queue stopped: [youtube] aaaaaaaaaaa: Sign in to confirm you're not a bot");
-    await page.waitForTimeout(1000);
-    expect(await ipcCount(page, "downloads")).toBe(1);
-    await expect(page.getByRole("button", { name: "Download queue (2)" })).toBeVisible();
-  });
-
-  // The phone plays from the file's bytes, a route that once never reported the song's length: the
-  // seek bar sat at 0:00 / 0:00 and could not be dragged.
-  test("the seek bar has the song's length, moves with the song and seeks where tapped", async ({ app, page }) => {
-    await app.open();
-    await page.locator(".pill.artistPill", { hasText: "Late Night" }).tap();
-    await page.locator(".trackRow", { hasText: "Static Garden" }).tap();
-    await expect(status(page)).toHaveText(/^Playing \(/);
-    await page.locator(".miniBar").tap();
-    const times = page.locator(".mPlayer .timeline .time");
-    const bar = page.locator(".mPlayer .timeline input[type=range]");
-    // Every track of the core's fixture library is the same 3-second tone; the bar moves in 0.25 s steps.
-    await expect(times.last()).toHaveText("0:03");
-    await expect(bar).toHaveAttribute("max", "3");
-
-    // The mock's play() makes no sound and does not advance, so the song "plays" 2.5 s by hand.
-    await page.evaluate(() => { document.querySelector("audio").currentTime = 2.5; });
-    await expect(times.first()).toHaveText("0:02");
-    await expect(bar).toHaveValue("2.5");
-
-    // A tap in the middle seeks back to about 1.5 s (35 % to 64 % of the bar, as before).
-    const box = await bar.boundingBox();
-    await bar.tap({ position: { x: box.width / 2, y: box.height / 2 } });
-    await expect.poll(() => page.evaluate(() => document.querySelector("audio").currentTime)).toBeLessThan(1.95);
-    expect(await page.evaluate(() => document.querySelector("audio").currentTime)).toBeGreaterThan(1.05);
-    await expect(times.first()).toHaveText("0:01");
-  });
 });
