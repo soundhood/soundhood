@@ -38,12 +38,6 @@ export type ProtonForm = { username: string; password: string; twofa: string };
 /** What the player held when it let go of a file that is about to be rewritten or moved. */
 export type HeldPlayback = { pos: number; wasPlaying: boolean; viaBytes: boolean };
 
-/** The phone layout's screens: browse = Playlists/Artists/Folders, tracks = the song list, player = now playing. */
-export type PhoneScreen = "browse" | "tracks" | "player";
-
-/** The left panel's tabs: playlist files, artists (from tags), folders (storage). */
-export type SideTab = "playlists" | "artists" | "folders";
-
 /** Which developer tool is running ("" = none). */
 export type DevBusy = "" | "fixture" | "selftest" | "rebuild";
 

@@ -24,3 +24,6 @@ export const KEY_REAL_LIBRARY_DIR = "real_library_dir";
 // Where the host generated the fixture library ("test library"): the switch is on while the shown
 // library is this folder.
 export const KEY_FIXTURE_ROOT = "fixture_root";
+// The desktop sidebar: its width in px (200 to 320) and whether it is folded to the rail.
+export const KEY_SIDEBAR_WIDTH = "sidebar_width";
+export const KEY_SIDEBAR_COLLAPSED = "sidebar_collapsed";

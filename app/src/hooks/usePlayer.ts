@@ -1,6 +1,6 @@
 // The player: the audio element, loading a track (direct file URL on the PC, the file's bytes on
-// the phone), play/pause/previous/next, shuffle, seeking, volume, the song length, letting go of
-// a file before it is rewritten and picking it up again, cover art and the Media Session.
+// the phone), play/pause/previous/next, shuffle, seeking, volume and mute, the song length, letting
+// go of a file before it is rewritten and picking it up again, cover art and the Media Session.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { clamp } from "../lib/format";
@@ -48,6 +48,12 @@ export function usePlayer({ isMobile, setStatus, allTracks, filteredTracks, open
   // The list is derived state, so the play happens once the new list has been computed.
   const autoplayRef = useRef<boolean>(false);
   const [volume, setVolume] = useState<number>(1);
+  // Mute silences the player without touching the saved volume (not remembered across starts).
+  const [muted, setMuted] = useState<boolean>(false);
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) audio.muted = muted;
+  }, [muted]);
   // Set by the startup load once the saved settings (the volume among them) have been read.
   const settingsLoadedRef = useRef<boolean>(false);
 
@@ -266,6 +272,20 @@ export function usePlayer({ isMobile, setStatus, allTracks, filteredTracks, open
     setDuration(0);
   }
 
+  /** Plays `list` from its first song, or from a random one with shuffle on. */
+  function playFrom(list: Track[], shuffleOn: boolean) {
+    if (list.length === 0) return;
+    setShuffle(shuffleOn);
+    loadAndPlay(shuffleOn ? list[Math.floor(Math.random() * list.length)] : list[0]);
+  }
+
+  /** The playing position as a fraction of the song, read from the audio element (the hairline). */
+  function getProgress(): number {
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return 0;
+    return audio.currentTime / audio.duration;
+  }
+
   function togglePlay() {
     const audio = audioRef.current;
     if (!audio) return;
@@ -424,7 +444,11 @@ export function usePlayer({ isMobile, setStatus, allTracks, filteredTracks, open
     setShuffle,
     volume,
     setVolume,
+    muted,
+    setMuted,
     coverUrl,
+    playFrom,
+    getProgress,
     loadAndPlay,
     releasePlayingTrack,
     reloadHeldTrack,

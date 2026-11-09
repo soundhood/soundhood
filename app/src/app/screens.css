@@ -1,0 +1,98 @@
+/* The app's screens inside the shell: how the design-system components sit together on a screen.
+   Tokens only (tokens.css); layouts switch on the shell's width, never the platform. */
+
+/* The phone (under 720 px) only: the screen header's Settings button, which the rail and the
+   sidebar carry on wider shells. */
+@container shell (min-width: 720px) {
+  .App-phoneOnly {
+    display: none !important;
+  }
+}
+
+.App-main {
+  min-height: 100%;
+}
+
+.Screen {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Back, above the title of an open list (narrower shells; the desktop navigates from the sidebar). */
+.Screen-back {
+  padding: var(--sp-2) calc(var(--gutter) - var(--sp-2)) 0;
+}
+
+@container shell (max-width: 1079px) {
+  .Screen-back + .ScreenHeader {
+    padding-top: var(--sp-1);
+  }
+}
+
+.ScreenHeader-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Play, Shuffle, the sort order and Select, under an open list's title. */
+.Screen-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--gutter) var(--sp-3);
+}
+
+.Screen-spacer {
+  flex: 1;
+}
+
+/* While songs are selected, the selection bar stays in view at the top of the main area; on
+   narrower shells it takes the header's place. */
+.TrackScreen .SelectModeBar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+@container shell (max-width: 1079px) {
+  .TrackScreen.is-selecting .Screen-head {
+    display: none;
+  }
+}
+
+@container shell (min-width: 1080px) {
+  .TrackScreen .SelectModeBar {
+    margin-bottom: var(--sp-2);
+  }
+}
+
+/* Search: the groups follow each other; the first one needs no room above it. */
+.SearchResults > section:first-child .SectionHeader {
+  padding-top: var(--sp-2);
+}
+
+/* The playlists grid sits under the header with the same room as a list. */
+.Screen .CardGrid {
+  padding-top: var(--sp-2);
+}
+
+/* Sheets: choose from rows; a name field. */
+.PickList {
+  display: grid;
+}
+
+.SheetField {
+  padding: var(--sp-2) var(--gutter) 0;
+}
+
+.SheetField .TextField {
+  width: 100%;
+}
+
+/* The settings sheet holds the old settings and tools until Settings is rebuilt. */
+.SettingsSheet .legacySettings {
+  padding: 0 var(--sp-2);
+}

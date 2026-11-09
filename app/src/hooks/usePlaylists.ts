@@ -1,6 +1,6 @@
-// Playlist files: the filter and the "new playlist" field of the Playlists tab, and creating,
-// filling, emptying and deleting playlists.
-import { useMemo, useState } from "react";
+// Playlist files: creating, filling, emptying and deleting them. Each call says how it went on the
+// status line, as before, and also returns it (true, or the new playlist's name) so the screens can
+// show a toast.
 import type { MutableRefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PlaylistFile, Setter, Track } from "../lib/types";
@@ -11,7 +11,6 @@ type PlaylistsArgs = {
   isMobile: boolean;
   setStatus: Setter<string>;
   folderRef: MutableRefObject<string>;
-  playlistFiles: PlaylistFile[];
   setPlaylistFiles: Setter<PlaylistFile[]>;
   plView: string;
   setPlView: Setter<string>;
@@ -24,7 +23,6 @@ export function usePlaylists({
   isMobile,
   setStatus,
   folderRef,
-  playlistFiles,
   setPlaylistFiles,
   plView,
   setPlView,
@@ -32,15 +30,6 @@ export function usePlaylists({
   refreshLastChange,
   setConfirmDeletePlaylist,
 }: PlaylistsArgs) {
-  const [plQuery, setPlQuery] = useState<string>("");
-  const [newPlaylistMode, setNewPlaylistMode] = useState<boolean>(false);
-  const [newPlaylistName, setNewPlaylistName] = useState<string>("");
-
-  const shownPlaylistFiles = useMemo(() => {
-    const q = plQuery.trim().toLowerCase();
-    return q ? playlistFiles.filter((p) => p.name.toLowerCase().includes(q)) : playlistFiles;
-  }, [playlistFiles, plQuery]);
-
   async function createPlaylistsFromFolders() {
     const lib = folderRef.current;
     if (!lib) return;
@@ -54,9 +43,10 @@ export function usePlaylists({
     await refreshLastChange(lib);
   }
 
-  async function addToPlaylist(name: string, tracks: Track[]) {
+  async function addToPlaylist(name: string, tracks: Track[]): Promise<boolean> {
     const lib = folderRef.current;
-    if (!lib || !name || tracks.length === 0) return;
+    if (!lib || !name || tracks.length === 0) return false;
+    let ok = false;
     try {
       const pl = await invoke<PlaylistFile>("playlist_add", {
         args: { libraryDir: lib, name, paths: tracks.map((t) => t.path) },
@@ -67,31 +57,38 @@ export function usePlaylists({
         return next.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
       });
       setStatus(`Added to ${pl.name}`);
+      ok = true;
     } catch (err) {
       setStatus(`Add failed: ${String(err)}`);
     }
     await refreshLastChange(lib);
+    return ok;
   }
 
-  async function removeFromPlaylist(name: string, tracks: Track[]) {
+  async function removeFromPlaylist(name: string, tracks: Track[]): Promise<boolean> {
     const lib = folderRef.current;
-    if (!lib || !name || tracks.length === 0) return;
+    if (!lib || !name || tracks.length === 0) return false;
+    let ok = false;
     try {
       const pl = await invoke<PlaylistFile>("playlist_remove", {
         args: { libraryDir: lib, name, paths: tracks.map((t) => t.path) },
       });
       setPlaylistFiles((prev) => prev.map((p) => (p.name === pl.name ? pl : p)));
       setStatus(`Removed from ${pl.name}`);
+      ok = true;
     } catch (err) {
       setStatus(`Remove failed: ${String(err)}`);
     }
     await refreshLastChange(lib);
+    return ok;
   }
 
-  async function createPlaylist(name: string) {
+  /** Creates the playlist file; `open` also shows it as the track list (the default, as before). */
+  async function createPlaylist(name: string, open = true): Promise<string | null> {
     const lib = folderRef.current;
     const clean = name.trim();
-    if (!lib || !clean) return;
+    if (!lib || !clean) return null;
+    let created: string | null = null;
     try {
       const pl = await invoke<PlaylistFile>("playlist_create", { args: { libraryDir: lib, name: clean } });
       setPlaylistFiles((prev) =>
@@ -99,13 +96,13 @@ export function usePlaylists({
           ? prev
           : [...prev, pl].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
       );
-      setNewPlaylistMode(false);
-      setNewPlaylistName("");
-      openPlaylistView(pl.name);
+      if (open) openPlaylistView(pl.name);
+      created = pl.name;
     } catch (err) {
       setStatus(`Create failed: ${String(err)}`);
     }
     await refreshLastChange(lib);
+    return created;
   }
 
   async function deletePlaylist(name: string) {
@@ -126,13 +123,6 @@ export function usePlaylists({
   }
 
   return {
-    plQuery,
-    setPlQuery,
-    newPlaylistMode,
-    setNewPlaylistMode,
-    newPlaylistName,
-    setNewPlaylistName,
-    shownPlaylistFiles,
     createPlaylistsFromFolders,
     addToPlaylist,
     removeFromPlaylist,

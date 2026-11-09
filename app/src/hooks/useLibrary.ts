@@ -8,7 +8,7 @@ import { isTestLibrary } from "../testLibrary";
 import { KEY_LIBRARY_DIR, KEY_SORT, storePromise } from "../lib/store";
 import { UNTAGGED, relKey, sortTracks, splitArtists } from "../lib/tracks";
 import type { SortMode } from "../lib/tracks";
-import type { PlaylistFile, Setter, SideTab, Track } from "../lib/types";
+import type { PlaylistFile, Setter, Track } from "../lib/types";
 
 export type Library = ReturnType<typeof useLibrary>;
 
@@ -18,15 +18,13 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
   const [pathInput, setPathInput] = useState<string>("");
   const [allTracks, setAllTracks] = useState<Track[]>([]);
 
+  // What the track list shows: a folder ("(all)" = every track), an artist, or a playlist file.
   const [playlist, setPlaylist] = useState<string>("(all)");
-  // Left panel: playlist FILES (membership, many-to-many) · Artists (from tags) · Folders (storage).
-  const [sideTab, setSideTab] = useState<SideTab>("playlists");
   const [artistView, setArtistView] = useState<string>("");
   // The playlist file being viewed ("" = none). Exactly one of artistView / plView / folder is active.
   const [plView, setPlView] = useState<string>("");
   const [playlistFiles, setPlaylistFiles] = useState<PlaylistFile[]>([]);
-  const [artistQuery, setArtistQuery] = useState<string>("");
-  const [playlistQuery, setPlaylistQuery] = useState<string>("");
+  // Filters the open list (the search field while a list is open).
   const [query, setQuery] = useState<string>("");
   const [sortMode, setSortMode] = useState<SortMode>("Natural order");
 
@@ -79,16 +77,6 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
         return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
       });
   }, [allTracks]);
-
-  const shownPlaylists = useMemo(() => {
-    const q = playlistQuery.trim().toLowerCase();
-    return q ? playlists.filter((p) => p === "(all)" || p.toLowerCase().includes(q)) : playlists;
-  }, [playlists, playlistQuery]);
-
-  const shownArtists = useMemo(() => {
-    const q = artistQuery.trim().toLowerCase();
-    return q ? artists.filter((a) => a.name.toLowerCase().includes(q)) : artists;
-  }, [artists, artistQuery]);
 
   // Tracks by their playlist-file key, for resolving m3u8 entries.
   const tracksByKey = useMemo(() => {
@@ -243,18 +231,12 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
     setAllTracks,
     playlist,
     setPlaylist,
-    sideTab,
-    setSideTab,
     artistView,
     setArtistView,
     plView,
     setPlView,
     playlistFiles,
     setPlaylistFiles,
-    artistQuery,
-    setArtistQuery,
-    playlistQuery,
-    setPlaylistQuery,
     query,
     setQuery,
     sortMode,
@@ -266,8 +248,9 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
     setLastChange,
     refreshLastChange,
     artists,
-    shownPlaylists,
-    shownArtists,
+    /** The storage folders, "(all)" first. */
+    folders: playlists,
+    tracksByKey,
     currentPlaylistFile,
     filteredTracks,
     chooseSort,
