@@ -5,6 +5,11 @@ import { cx } from "../lib/cx";
 
 export type { IconName };
 
+// One markup object per icon, made once. React re-sets innerHTML whenever this object is a new one,
+// which replaced the icon's paths on every re-render: a press on an icon whose list re-rendered
+// between pointer down and up (the row taking the focus) lost its click.
+const MARKUP = Object.fromEntries(Object.entries(ICONS).map(([name, html]) => [name, { __html: html }])) as Record<IconName, { __html: string }>;
+
 /** 20, 24 and 32 are the set's sizes; any other number is allowed for a special case. */
 export type IconSize = 20 | 24 | 32 | (number & {});
 
@@ -33,7 +38,7 @@ export function Icon({ name, size = 24, title, className }: IconProps) {
       aria-label={title}
       aria-hidden={title ? undefined : true}
       // The set is static data from icons.ts, never user input.
-      dangerouslySetInnerHTML={{ __html: ICONS[name] }}
+      dangerouslySetInnerHTML={MARKUP[name]}
     />
   );
 }
