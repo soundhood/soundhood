@@ -1,487 +1,482 @@
 {
-  "about": "Made-up 50-track library for the screenshot harness. Paths are relative to the library root; the mock re-roots them per platform.",
+  "about": "Made-up library for the screenshot harness: core's fixture library (the one the Test library switch installs), exported by `soundhood-tools harness-json`; regenerate it, never edit it by hand. Paths are relative to the library root; the mock re-roots them per platform.",
   "root": "C:/Music",
   "androidRoot": "/storage/emulated/0/Music",
   "tracks": [
     {
-      "folder": "Downloads",
-      "file": "Glass Tides - Neon Harbor.m4a",
-      "title": "Glass Tides",
-      "artist": "Neon Harbor",
-      "duration_secs": 138,
+      "folder": "",
+      "file": "Glass Tide - Orla Paperwind.m4a",
+      "title": "Glass Tide",
+      "artist": "Orla Paperwind",
+      "duration_secs": 3,
       "cover": "aqua-rings"
     },
     {
-      "folder": "Downloads",
-      "file": "Slow Satellites - The Quiet Engines.m4a",
-      "title": "Slow Satellites",
-      "artist": "The Quiet Engines",
-      "duration_secs": 144,
+      "folder": "",
+      "file": "Paper Comets - Neon Pilgrim.mp3",
+      "title": "Paper Comets",
+      "artist": "Neon Pilgrim",
+      "duration_secs": 3,
       "cover": "purple-bands"
     },
     {
       "folder": "Downloads",
-      "file": "Paper Lanterns - Copper Kites.m4a",
-      "title": "Paper Lanterns",
-      "artist": "Copper Kites",
-      "duration_secs": 215,
+      "file": "Velvet Engine - Anouk Lirr.flac",
+      "title": "Velvet Engine",
+      "artist": "Anouk Lirr",
+      "duration_secs": 3,
       "cover": "grey-grid"
     },
     {
-      "folder": "Downloads",
-      "file": "Night Bus Home - Velvet Static.mp3",
-      "title": "Night Bus Home",
-      "artist": "Velvet Static",
-      "duration_secs": 321,
-      "cover": "aqua-bands"
+      "folder": "Evenings",
+      "file": "The Quiet Engines - Neon Harbor (Official Music Video).opus",
+      "title": "Neon Harbor (Official Music Video)",
+      "artist": "The Quiet Engines",
+      "duration_secs": 3,
+      "cover": null
     },
     {
-      "folder": "Downloads",
-      "file": "Static Bloom - Low Orbit Choir.opus",
-      "title": "Static Bloom",
-      "artist": "Low Orbit Choir",
-      "duration_secs": 343,
-      "cover": "purple-rings"
+      "folder": "Studio Takes",
+      "file": "Quiet Orchard - Velvet Ferry.ogg",
+      "title": "Quiet Orchard",
+      "artist": "Velvet Ferry",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
     },
     {
-      "folder": "Downloads",
-      "file": "Harbour Lights - Lumen Fields.flac",
-      "title": "Harbour Lights",
-      "artist": "Lumen Fields",
-      "duration_secs": 304,
+      "folder": "Ambient",
+      "file": "Silver Bloom - Mira Velloux.m4a",
+      "title": "Silver Bloom",
+      "artist": "Mira Velloux",
+      "duration_secs": 3,
+      "cover": "grey-bands"
+    },
+    {
+      "folder": "Archive",
+      "file": "Hollow Signal - Ilse Marrow.mp3",
+      "title": "Hollow Signal",
+      "artist": "Ilse Marrow",
+      "duration_secs": 3,
       "cover": "grey-rings"
     },
     {
       "folder": "Downloads",
-      "file": "Low Tide Signals - Saltwater Radio.m4a",
-      "title": "Low Tide Signals",
-      "artist": "Saltwater Radio",
-      "duration_secs": 234,
-      "cover": null
-    },
-    {
-      "folder": "Downloads",
-      "file": "Cassette Summer - Mira Kade feat. Juno Arcade.m4a",
-      "title": "Cassette Summer",
-      "artist": "Mira Kade feat. Juno Arcade",
-      "duration_secs": 264,
-      "cover": "aqua-grid"
-    },
-    {
-      "folder": "Downloads",
-      "file": "Engine Room - Mira Kade.m4a",
-      "title": "Engine Room",
-      "artist": "Mira Kade",
-      "duration_secs": 192,
-      "cover": "purple-grid"
-    },
-    {
-      "folder": "Downloads",
-      "file": "Silver Thread - Amber Lanes.mp3",
-      "title": "Silver Thread",
-      "artist": "Amber Lanes",
-      "duration_secs": 344,
-      "cover": "grey-bands"
-    },
-    {
-      "folder": "Evening",
-      "file": "Midnight Laundromat - Paper Comets.opus",
-      "title": "Midnight Laundromat",
-      "artist": "Paper Comets",
-      "duration_secs": 189,
+      "file": "Amber Ferry - Glasshouse Tide [Xk3vQ9pLm2A].flac",
+      "title": "Amber Ferry [Xk3vQ9pLm2A]",
+      "artist": "Glasshouse Tide",
+      "duration_secs": 3,
       "cover": "aqua-rings"
     },
     {
-      "folder": "Evening",
-      "file": "Polaroid Rain - Juno Arcade.flac",
-      "title": "Polaroid Rain",
-      "artist": "Juno Arcade",
-      "duration_secs": 164,
+      "folder": "Evenings",
+      "file": "Static Garden - Sola Brakke.opus",
+      "title": "Static Garden",
+      "artist": "Sola Brakke",
+      "duration_secs": 3,
       "cover": "purple-bands"
     },
     {
-      "folder": "Evening",
-      "file": "Northbound - Neon Harbor.m4a",
-      "title": "Northbound",
-      "artist": "Neon Harbor",
-      "duration_secs": 199,
+      "folder": "Studio Takes",
+      "file": "Lunar Lanterns - Mira Velloux feat. Orrin Tal.ogg",
+      "title": "Lunar Lanterns",
+      "artist": "Mira Velloux feat. Orrin Tal",
+      "duration_secs": 3,
       "cover": "grey-grid"
     },
     {
-      "folder": "Evening",
-      "file": "Window Seat - The Quiet Engines.m4a",
-      "title": "Window Seat",
-      "artist": "The Quiet Engines",
-      "duration_secs": 219,
-      "cover": "aqua-bands"
-    },
-    {
-      "folder": "Evening",
-      "file": "Citrus Hour - Copper Kites.m4a",
-      "title": "Citrus Hour",
-      "artist": "Copper Kites",
-      "duration_secs": 216,
-      "cover": "purple-rings"
-    },
-    {
-      "folder": "Evening",
-      "file": "Sleepless Atlas - Velvet Static.mp3",
-      "title": "Sleepless Atlas",
-      "artist": "Velvet Static",
-      "duration_secs": 323,
-      "cover": "grey-rings"
-    },
-    {
-      "folder": "Evening",
-      "file": "Rooftop Weather - Low Orbit Choir.opus",
-      "title": "Rooftop Weather",
-      "artist": "Low Orbit Choir",
-      "duration_secs": 309,
+      "folder": "Ambient",
+      "file": "Glass Comets - Orrin Tal.m4a",
+      "title": "Glass Comets",
+      "artist": "Orrin Tal",
+      "duration_secs": 3,
       "cover": null
     },
     {
-      "folder": "Evening",
-      "file": "Velvet Morning - Lumen Fields.flac",
-      "title": "Velvet Morning",
-      "artist": "Lumen Fields",
-      "duration_secs": 133,
-      "cover": "aqua-grid"
-    },
-    {
-      "folder": "Evening",
-      "file": "Small Hours - Saltwater Radio.m4a",
-      "title": "Small Hours",
-      "artist": "Saltwater Radio",
-      "duration_secs": 185,
-      "cover": "purple-grid"
-    },
-    {
-      "folder": "Evening",
-      "file": "Open Road Hymn - Nova Tamsin.m4a",
-      "title": "Open Road Hymn",
-      "artist": "Nova Tamsin",
-      "duration_secs": 154,
-      "cover": "grey-bands"
-    },
-    {
-      "folder": "Evening",
-      "file": "Long Exposure - Mira Kade.m4a",
-      "title": "Long Exposure",
-      "artist": "Mira Kade",
-      "duration_secs": 211,
+      "folder": "Archive",
+      "file": "PAPER ENGINE - TEODOR FENN.mp3",
+      "title": "PAPER ENGINE",
+      "artist": "TEODOR FENN",
+      "duration_secs": 3,
       "cover": "aqua-rings"
     },
     {
-      "folder": "Evening",
-      "file": "Paper Planes Over Lisbon - Amber Lanes.mp3",
-      "title": "Paper Planes Over Lisbon",
-      "artist": "Amber Lanes",
-      "duration_secs": 353,
-      "cover": "purple-bands"
-    },
-    {
-      "folder": "Focus",
-      "file": "Kitchen Radio - Paper Comets, Nova Tamsin.opus",
-      "title": "Kitchen Radio",
-      "artist": "Paper Comets, Nova Tamsin",
-      "duration_secs": 244,
-      "cover": "grey-grid"
-    },
-    {
-      "folder": "Focus",
-      "file": "Lighthouse Keeper - Juno Arcade.flac",
-      "title": "Lighthouse Keeper",
-      "artist": "Juno Arcade",
-      "duration_secs": 338,
-      "cover": "aqua-bands"
-    },
-    {
-      "folder": "Focus",
-      "file": "Copper Sky - Neon Harbor.m4a",
-      "title": "Copper Sky",
-      "artist": "Neon Harbor",
-      "duration_secs": 173,
-      "cover": "purple-rings"
-    },
-    {
-      "folder": "Focus",
-      "file": "Driftwood - The Quiet Engines.m4a",
-      "title": "Driftwood",
-      "artist": "The Quiet Engines",
-      "duration_secs": 185,
-      "cover": "grey-rings"
-    },
-    {
-      "folder": "Focus",
-      "file": "Second Wind - Copper Kites.m4a",
-      "title": "Second Wind",
-      "artist": "Copper Kites",
-      "duration_secs": 368,
-      "cover": null
-    },
-    {
-      "folder": "Focus",
-      "file": "Echo Valley - Velvet Static.mp3",
-      "title": "Echo Valley",
-      "artist": "Velvet Static",
-      "duration_secs": 313,
-      "cover": "aqua-grid"
-    },
-    {
-      "folder": "Focus",
-      "file": "Starlight Diner - Low Orbit Choir.opus",
-      "title": "Starlight Diner",
-      "artist": "Low Orbit Choir",
-      "duration_secs": 292,
-      "cover": "purple-grid"
-    },
-    {
-      "folder": "Focus",
-      "file": "Afterglow Avenue - Lumen Fields.flac",
-      "title": "Afterglow Avenue",
-      "artist": "Lumen Fields",
-      "duration_secs": 320,
+      "folder": "Downloads",
+      "file": "Velvet Harbor - Orla Paperwind.flac",
+      "title": "Velvet Harbor",
+      "artist": "Orla Paperwind",
+      "duration_secs": 3,
       "cover": "grey-bands"
     },
     {
-      "folder": "Focus",
-      "file": "Moth and Flame - Saltwater Radio.m4a",
-      "title": "Moth and Flame",
-      "artist": "Saltwater Radio",
-      "duration_secs": 201,
-      "cover": "aqua-rings"
-    },
-    {
-      "folder": "Focus",
-      "file": "Tin Roof Rain - Nova Tamsin.m4a",
-      "title": "Tin Roof Rain",
-      "artist": "Nova Tamsin",
-      "duration_secs": 172,
-      "cover": "purple-bands"
-    },
-    {
-      "folder": "Road Trip",
-      "file": "Golden Static - Mira Kade.m4a",
-      "title": "Golden Static",
-      "artist": "Mira Kade",
-      "duration_secs": 265,
-      "cover": "grey-grid"
-    },
-    {
-      "folder": "Road Trip",
-      "file": "Half Moon Harbour - Amber Lanes.mp3",
-      "title": "Half Moon Harbour",
-      "artist": "Amber Lanes",
-      "duration_secs": 279,
-      "cover": "aqua-bands"
-    },
-    {
-      "folder": "Road Trip",
-      "file": "Neon Orchard - Paper Comets.opus",
+      "folder": "Evenings",
+      "file": "Neon Orchard - Sola Brakke, Teodor Fenn.opus",
       "title": "Neon Orchard",
-      "artist": "Paper Comets",
-      "duration_secs": 344,
-      "cover": "purple-rings"
-    },
-    {
-      "folder": "Road Trip",
-      "file": "Quiet Machines - Juno Arcade.flac",
-      "title": "Quiet Machines",
-      "artist": "Juno Arcade",
-      "duration_secs": 182,
+      "artist": "Sola Brakke, Teodor Fenn",
+      "duration_secs": 3,
       "cover": "grey-rings"
     },
     {
-      "folder": "Road Trip",
-      "file": "Weekend Satellite - Neon Harbor.m4a",
-      "title": "Weekend Satellite",
-      "artist": "Neon Harbor",
-      "duration_secs": 269,
-      "cover": null
-    },
-    {
-      "folder": "Road Trip",
-      "file": "Lemon Light - The Quiet Engines.m4a",
-      "title": "Lemon Light",
-      "artist": "The Quiet Engines",
-      "duration_secs": 365,
-      "cover": "aqua-grid"
-    },
-    {
-      "folder": "Road Trip",
-      "file": "Night Ferry - Copper Kites.m4a",
-      "title": "Night Ferry",
-      "artist": "Copper Kites",
-      "duration_secs": 201,
-      "cover": "purple-grid"
-    },
-    {
-      "folder": "Road Trip",
-      "file": "Soft Focus - Velvet Static.mp3",
-      "title": "Soft Focus",
-      "artist": "Velvet Static",
-      "duration_secs": 315,
-      "cover": "grey-bands"
-    },
-    {
-      "folder": "Road Trip",
-      "file": "Postcard Coast - Low Orbit Choir.opus",
-      "title": "Postcard Coast",
-      "artist": "Low Orbit Choir",
-      "duration_secs": 208,
+      "folder": "Studio Takes",
+      "file": "Quiet Bloom - Anouk Lirr.ogg",
+      "title": "Quiet Bloom",
+      "artist": "Anouk Lirr",
+      "duration_secs": 3,
       "cover": "aqua-rings"
     },
     {
-      "folder": "Road Trip",
-      "file": "Marble Sky - Lumen Fields.flac",
-      "title": "Marble Sky",
-      "artist": "Lumen Fields",
-      "duration_secs": 334,
+      "folder": "Ambient",
+      "file": "Silver Signal.m4a",
+      "title": "Silver Signal",
+      "artist": "",
+      "duration_secs": 3,
       "cover": "purple-bands"
     },
     {
-      "folder": "",
-      "file": "Overpass - Saltwater Radio.m4a",
-      "title": "Overpass",
-      "artist": "Saltwater Radio",
-      "duration_secs": 174,
+      "folder": "Archive",
+      "file": "Hollow Ferry - Velvet Ferry.mp3",
+      "title": "Hollow Ferry",
+      "artist": "Velvet Ferry",
+      "duration_secs": 3,
       "cover": "grey-grid"
     },
     {
-      "folder": "",
-      "file": "Field Notes - Nova Tamsin.m4a",
-      "title": "Field Notes",
-      "artist": "Nova Tamsin",
-      "duration_secs": 222,
-      "cover": "aqua-bands"
+      "folder": "Downloads",
+      "file": "Amber Garden - Mira Velloux.flac",
+      "title": "Amber Garden",
+      "artist": "Mira Velloux",
+      "duration_secs": 3,
+      "cover": null
     },
     {
-      "folder": "",
-      "file": "Late Checkout - Mira Kade.m4a",
-      "title": "Late Checkout",
-      "artist": "Mira Kade",
-      "duration_secs": 260,
-      "cover": "purple-rings"
+      "folder": "Evenings",
+      "file": "Static Lanterns - Ilse Marrow.opus",
+      "title": "Static Lanterns",
+      "artist": "Ilse Marrow",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
     },
     {
-      "folder": "",
-      "file": "Signal Fire - Amber Lanes.mp3",
-      "title": "Signal Fire",
-      "artist": "Amber Lanes",
-      "duration_secs": 246,
+      "folder": "Studio Takes",
+      "file": "Café Lumière - Señora Nube.ogg",
+      "title": "Café Lumière",
+      "artist": "Señora Nube",
+      "duration_secs": 3,
+      "cover": "grey-bands"
+    },
+    {
+      "folder": "Ambient",
+      "file": "Glass Engine - Sola Brakke.m4a",
+      "title": "Glass Engine",
+      "artist": "Sola Brakke",
+      "duration_secs": 3,
       "cover": "grey-rings"
     },
     {
-      "folder": "",
-      "file": "Morning Static - Paper Comets.opus",
-      "title": "Morning Static",
-      "artist": "Paper Comets",
-      "duration_secs": 210,
-      "cover": null
+      "folder": "Archive",
+      "file": "Paper Harbor - Kestrel Nine.mp3",
+      "title": "Paper Harbor",
+      "artist": "Kestrel Nine",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
     },
     {
-      "folder": "",
-      "file": "Wide Awake Again - Juno Arcade.flac",
-      "title": "Wide Awake Again",
-      "artist": "Juno Arcade",
-      "duration_secs": 201,
-      "cover": "aqua-grid"
+      "folder": "Downloads",
+      "file": "Velvet Orchard - Orrin Tal.flac",
+      "title": "Velvet Orchard",
+      "artist": "Orrin Tal",
+      "duration_secs": 3,
+      "cover": "purple-bands"
     },
     {
-      "folder": "",
-      "file": "Last Tram - Neon Harbor.m4a",
-      "title": "Last Tram",
-      "artist": "Neon Harbor",
-      "duration_secs": 205,
-      "cover": "purple-grid"
-    },
-    {
-      "folder": "",
-      "file": "Untitled Demo 03.mp3",
+      "folder": "Evenings",
+      "file": "Neon Bloom - Teodor Fenn.opus",
       "title": "",
-      "artist": "",
-      "duration_secs": 344,
+      "artist": "Teodor Fenn",
+      "duration_secs": 3,
       "cover": null
+    },
+    {
+      "folder": "Studio Takes",
+      "file": "Quiet Signal - Orla Paperwind.ogg",
+      "title": "Quiet Signal",
+      "artist": "Orla Paperwind",
+      "duration_secs": 3,
+      "cover": null
+    },
+    {
+      "folder": "Ambient",
+      "file": "Silver Ferry - Neon Pilgrim.m4a",
+      "title": "Silver Ferry",
+      "artist": "Neon Pilgrim",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
+    },
+    {
+      "folder": "Archive",
+      "file": "Hollow Garden - Anouk Lirr.mp3",
+      "title": "Hollow Garden",
+      "artist": "Anouk Lirr",
+      "duration_secs": 3,
+      "cover": "grey-bands"
+    },
+    {
+      "folder": "Downloads",
+      "file": "Hollow Garden - Anouk Lirr.mp3",
+      "title": "Hollow Garden",
+      "artist": "Anouk Lirr",
+      "duration_secs": 3,
+      "cover": "grey-bands"
+    },
+    {
+      "folder": "Evenings",
+      "file": "Static Tide - Velvet Ferry.opus",
+      "title": "Static Tide",
+      "artist": "Velvet Ferry",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
+    },
+    {
+      "folder": "Studio Takes",
+      "file": "Lunar Comets - Mira Velloux.ogg",
+      "title": "Lunar Comets",
+      "artist": "Mira Velloux",
+      "duration_secs": 3,
+      "cover": "purple-bands"
+    },
+    {
+      "folder": "Ambient/Old Tapes",
+      "file": "Glass Harbor - Ilse Marrow.m4a",
+      "title": "Glass Harbor",
+      "artist": "Ilse Marrow",
+      "duration_secs": 3,
+      "cover": "grey-grid"
+    },
+    {
+      "folder": "Archive",
+      "file": "Paper Orchard - Glasshouse Tide.mp3",
+      "title": "Paper Orchard",
+      "artist": "Glasshouse Tide",
+      "duration_secs": 3,
+      "cover": null
+    },
+    {
+      "folder": "Downloads",
+      "file": "Velvet Bloom - Sola Brakke.flac",
+      "title": "Velvet Bloom",
+      "artist": "Sola Brakke",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
+    },
+    {
+      "folder": "Evenings",
+      "file": "Neon Signal - Kestrel Nine.opus",
+      "title": "Neon Signal",
+      "artist": "Kestrel Nine",
+      "duration_secs": 3,
+      "cover": "grey-bands"
+    },
+    {
+      "folder": "Studio Takes",
+      "file": "Quiet Ferry - Orrin Tal.ogg",
+      "title": "Quiet Ferry",
+      "artist": "Orrin Tal",
+      "duration_secs": 3,
+      "cover": "grey-rings"
+    },
+    {
+      "folder": "Ambient",
+      "file": "Silver Garden - Teodor Fenn.m4a",
+      "title": "Silver Garden",
+      "artist": "Teodor Fenn",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
+    },
+    {
+      "folder": "Archive",
+      "file": "Hollow Lanterns - Orla Paperwind.mp3",
+      "title": "Hollow Lanterns",
+      "artist": "Orla Paperwind",
+      "duration_secs": 3,
+      "cover": "purple-bands"
+    },
+    {
+      "folder": "Downloads",
+      "file": "Amber Tide - Neon Pilgrim.flac",
+      "title": "Amber Tide",
+      "artist": "Neon Pilgrim",
+      "duration_secs": 3,
+      "cover": "grey-grid"
+    },
+    {
+      "folder": "Evenings",
+      "file": "Static Comets - Anouk Lirr.opus",
+      "title": "Static Comets",
+      "artist": "Anouk Lirr",
+      "duration_secs": 3,
+      "cover": null
+    },
+    {
+      "folder": "Studio Takes",
+      "file": "Lunar Engine - The Quiet Engines.ogg",
+      "title": "Lunar Engine",
+      "artist": "The Quiet Engines",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
+    },
+    {
+      "folder": "Ambient",
+      "file": "Glass Orchard - Velvet Ferry.m4a",
+      "title": "Glass Orchard",
+      "artist": "Velvet Ferry",
+      "duration_secs": 3,
+      "cover": "grey-bands"
+    },
+    {
+      "folder": "Archive",
+      "file": "Paper Bloom - Mira Velloux.mp3",
+      "title": "Paper Bloom",
+      "artist": "Mira Velloux",
+      "duration_secs": 3,
+      "cover": "grey-rings"
+    },
+    {
+      "folder": "Downloads",
+      "file": "Velvet Signal - Ilse Marrow.flac",
+      "title": "Velvet Signal",
+      "artist": "Ilse Marrow",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
+    },
+    {
+      "folder": "Evenings",
+      "file": "Neon Ferry - Glasshouse Tide.opus",
+      "title": "Neon Ferry",
+      "artist": "Glasshouse Tide",
+      "duration_secs": 3,
+      "cover": "purple-bands"
+    },
+    {
+      "folder": "Studio Takes",
+      "file": "Quiet Garden - Sola Brakke.ogg",
+      "title": "Quiet Garden",
+      "artist": "Sola Brakke",
+      "duration_secs": 3,
+      "cover": "grey-grid"
+    },
+    {
+      "folder": "Ambient",
+      "file": "Silver Lanterns - Kestrel Nine.m4a",
+      "title": "Silver Lanterns",
+      "artist": "Kestrel Nine",
+      "duration_secs": 3,
+      "cover": null
+    },
+    {
+      "folder": "Archive",
+      "file": "Hollow Tide - Orrin Tal.mp3",
+      "title": "Hollow Tide",
+      "artist": "Orrin Tal",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
+    },
+    {
+      "folder": "Downloads",
+      "file": "Amber Comets - Teodor Fenn.flac",
+      "title": "Amber Comets",
+      "artist": "Teodor Fenn",
+      "duration_secs": 3,
+      "cover": "grey-bands"
+    },
+    {
+      "folder": "Evenings",
+      "file": "Static Engine - Orla Paperwind.opus",
+      "title": "Static Engine",
+      "artist": "Orla Paperwind",
+      "duration_secs": 3,
+      "cover": "grey-rings"
+    },
+    {
+      "folder": "Studio Takes",
+      "file": "Lunar Harbor - Neon Pilgrim.ogg",
+      "title": "Lunar Harbor",
+      "artist": "Neon Pilgrim",
+      "duration_secs": 3,
+      "cover": "aqua-rings"
     }
   ],
   "playlists": [
     {
-      "name": "Late Night Drive",
-      "entries": [
-        "Evening/Northbound - Neon Harbor.m4a",
-        "Evening/Window Seat - The Quiet Engines.m4a",
-        "Downloads/Glass Tides - Neon Harbor.m4a",
-        "Focus/Tin Roof Rain - Nova Tamsin.m4a",
-        "Road Trip/Night Ferry - Copper Kites.m4a",
-        "Focus/Moth and Flame - Saltwater Radio.m4a",
-        "Evening/Citrus Hour - Copper Kites.m4a",
-        "Evening/Sleepless Atlas - Velvet Static.mp3",
-        "Downloads/Slow Satellites - The Quiet Engines.m4a",
-        "Road Trip/Golden Static - Mira Kade.m4a",
-        "Evening/Long Exposure - Mira Kade.m4a",
-        "Last Tram - Neon Harbor.m4a"
-      ]
-    },
-    {
-      "name": "Morning Focus",
-      "entries": [
-        "Focus/Kitchen Radio - Paper Comets, Nova Tamsin.opus",
-        "Focus/Lighthouse Keeper - Juno Arcade.flac",
-        "Focus/Copper Sky - Neon Harbor.m4a",
-        "Focus/Driftwood - The Quiet Engines.m4a",
-        "Morning Static - Paper Comets.opus",
-        "Focus/Second Wind - Copper Kites.m4a",
-        "Focus/Echo Valley - Velvet Static.mp3",
-        "Overpass - Saltwater Radio.m4a",
-        "Evening/Velvet Morning - Lumen Fields.flac",
-        "Focus/Starlight Diner - Low Orbit Choir.opus"
-      ]
-    },
-    {
-      "name": "Sunday Kitchen",
-      "entries": [
-        "Overpass - Saltwater Radio.m4a",
-        "Field Notes - Nova Tamsin.m4a",
-        "Downloads/Static Bloom - Low Orbit Choir.opus",
-        "Downloads/Harbour Lights - Lumen Fields.flac",
-        "Evening/Small Hours - Saltwater Radio.m4a",
-        "Late Checkout - Mira Kade.m4a",
-        "Downloads/Low Tide Signals - Saltwater Radio.m4a",
-        "Evening/Paper Planes Over Lisbon - Amber Lanes.mp3"
-      ]
-    },
-    {
-      "name": "Gym Rotation",
-      "entries": [
-        "Road Trip/Half Moon Harbour - Amber Lanes.mp3",
-        "Road Trip/Neon Orchard - Paper Comets.opus",
-        "Road Trip/Quiet Machines - Juno Arcade.flac",
-        "Downloads/Paper Lanterns - Copper Kites.m4a",
-        "Downloads/Night Bus Home - Velvet Static.mp3",
-        "Road Trip/Weekend Satellite - Neon Harbor.m4a",
-        "Road Trip/Lemon Light - The Quiet Engines.m4a",
-        "Wide Awake Again - Juno Arcade.flac",
-        "Evening/Open Road Hymn - Nova Tamsin.m4a"
-      ]
-    },
-    {
       "name": "Favourites",
       "entries": [
-        "Downloads/Glass Tides - Neon Harbor.m4a",
-        "Downloads/Night Bus Home - Velvet Static.mp3",
-        "Downloads/Cassette Summer - Mira Kade feat. Juno Arcade.m4a",
-        "Evening/Northbound - Neon Harbor.m4a",
-        "Evening/Rooftop Weather - Low Orbit Choir.opus",
-        "Evening/Paper Planes Over Lisbon - Amber Lanes.mp3",
-        "Focus/Kitchen Radio - Paper Comets, Nova Tamsin.opus",
-        "Focus/Echo Valley - Velvet Static.mp3",
-        "Focus/Tin Roof Rain - Nova Tamsin.m4a",
-        "Road Trip/Neon Orchard - Paper Comets.opus",
-        "Road Trip/Night Ferry - Copper Kites.m4a",
-        "Road Trip/Marble Sky - Lumen Fields.flac",
-        "Signal Fire - Amber Lanes.mp3",
-        "Wide Awake Again - Juno Arcade.flac"
+        "Glass Tide - Orla Paperwind.m4a",
+        "Studio Takes/Quiet Orchard - Velvet Ferry.ogg",
+        "Evenings/Static Garden - Sola Brakke.opus",
+        "Downloads/Velvet Harbor - Orla Paperwind.flac",
+        "Archive/Hollow Ferry - Velvet Ferry.mp3",
+        "Ambient/Glass Engine - Sola Brakke.m4a",
+        "Studio Takes/Quiet Signal - Orla Paperwind.ogg",
+        "Evenings/Static Tide - Velvet Ferry.opus",
+        "Downloads/Velvet Bloom - Sola Brakke.flac",
+        "Archive/Hollow Lanterns - Orla Paperwind.mp3",
+        "Ambient/Glass Orchard - Velvet Ferry.m4a",
+        "Studio Takes/Quiet Garden - Sola Brakke.ogg",
+        "Evenings/Static Engine - Orla Paperwind.opus"
       ]
+    },
+    {
+      "name": "Focus",
+      "entries": [
+        "Paper Comets - Neon Pilgrim.mp3",
+        "Evenings/Static Garden - Sola Brakke.opus",
+        "Ambient/Silver Signal.m4a",
+        "Downloads/Velvet Orchard - Orrin Tal.flac",
+        "Studio Takes/Lunar Comets - Mira Velloux.ogg",
+        "Archive/Hollow Lanterns - Orla Paperwind.mp3",
+        "Evenings/Neon Ferry - Glasshouse Tide.opus"
+      ]
+    },
+    {
+      "name": "Late Night",
+      "entries": [
+        "Downloads/Amber Comets - Teodor Fenn.flac",
+        "Studio Takes/Quiet Garden - Sola Brakke.ogg",
+        "Archive/Paper Bloom - Mira Velloux.mp3",
+        "Evenings/Static Comets - Anouk Lirr.opus",
+        "Ambient/Silver Garden - Teodor Fenn.m4a",
+        "Downloads/Velvet Bloom - Sola Brakke.flac",
+        "Studio Takes/Lunar Comets - Mira Velloux.ogg",
+        "Archive/Hollow Garden - Anouk Lirr.mp3",
+        "Evenings/Neon Bloom - Teodor Fenn.opus",
+        "Ambient/Glass Engine - Sola Brakke.m4a",
+        "Downloads/Amber Garden - Mira Velloux.flac",
+        "Studio Takes/Quiet Bloom - Anouk Lirr.ogg",
+        "Archive/PAPER ENGINE - TEODOR FENN.mp3",
+        "Evenings/Static Garden - Sola Brakke.opus",
+        "Ambient/Silver Bloom - Mira Velloux.m4a",
+        "Downloads/Velvet Engine - Anouk Lirr.flac"
+      ]
+    },
+    {
+      "name": "Mixed Formats",
+      "entries": [
+        "Glass Tide - Orla Paperwind.m4a",
+        "Paper Comets - Neon Pilgrim.mp3",
+        "Downloads/Velvet Engine - Anouk Lirr.flac",
+        "Evenings/The Quiet Engines - Neon Harbor (Official Music Video).opus",
+        "Studio Takes/Quiet Orchard - Velvet Ferry.ogg",
+        "Downloads/Amber Ferry - Glasshouse Tide [Xk3vQ9pLm2A].flac",
+        "Archive/PAPER ENGINE - TEODOR FENN.mp3",
+        "Ambient/Silver Signal.m4a",
+        "Studio Takes/Café Lumière - Señora Nube.ogg",
+        "Evenings/Neon Bloom - Teodor Fenn.opus",
+        "Archive/Hollow Garden - Anouk Lirr.mp3",
+        "Downloads/Hollow Garden - Anouk Lirr.mp3",
+        "Ambient/Old Tapes/Glass Harbor - Ilse Marrow.m4a"
+      ]
+    },
+    {
+      "name": "Empty",
+      "entries": []
     }
   ]
 }

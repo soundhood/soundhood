@@ -5,6 +5,21 @@ replaced by `@tauri-apps/api/mocks`. Everything the UI asks the host for comes f
 fixture library in `fixture-library.json` (50 tracks, 5 playlists, aqua / purple / grey covers).
 Nothing touches a real library, a phone or the network.
 
+`fixture-library.json` is generated, never edited by hand: it is the core's fixture library, the
+same one the app's Test library switch installs and `soundhood-tools fixture-lib` writes (every
+track a 3-second tone, messy names included), exported in the harness's format. After a change to
+`core/src/fixtures.rs`, regenerate it from the repository root and re-record the baselines:
+
+```
+cargo run -p soundhood-core --features tools --bin soundhood-tools -- harness-json tools/screenshot/fixture-library.json
+cd tools && npm run test:visual:update
+```
+
+The core test `fixtures::tests::committed_harness_json_is_current` (part of `cargo test -p
+soundhood-core`, so the CI `core-test` job) fails when the committed file differs from what
+`harness-json` writes. The harness draws its own covers from the `cover` names (`aqua-rings`,
+`purple-bands`, `grey-grid`, ...), one per colour of the core's embedded covers.
+
 ```
 cd app && npm ci          # the dev server runs from app/node_modules
 cd ../tools && npm ci

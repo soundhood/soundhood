@@ -24,11 +24,11 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       window.__copied = [];
       navigator.clipboard.writeText = async (t) => void window.__copied.push(t);
     });
-    await page.locator(".pill.artistPill", { hasText: "Late Night Drive" }).click();
-    await page.locator(".trackRow", { hasText: "Glass Tides" }).click();
+    await page.locator(".pill.artistPill", { hasText: "Late Night" }).click();
+    await page.locator(".trackRow", { hasText: "Quiet Bloom" }).click();
     await page.locator(".searchRow .ddBtn", { hasText: "Add to playlist" }).click();
-    await page.locator(".ddMenu .ddItem", { hasText: "Morning Focus" }).click();
-    await expect(status(page)).toHaveText("Status: Added to Morning Focus");
+    await page.locator(".ddMenu .ddItem", { hasText: "Focus" }).click();
+    await expect(status(page)).toHaveText("Status: Added to Focus");
     await app.settled();
     await expect(page.locator(".downloadLogs")).toHaveCount(0);
 
@@ -42,7 +42,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect(copied.startsWith("appVersion: 0.1.0\n")).toBe(true);
     const at = (s) => copied.indexOf(s);
     expect(at("[download] Destination")).toBeGreaterThan(at("sidecars:"));
-    expect(at("[change] Added 1 track to Morning Focus")).toBeGreaterThan(at("[download] Destination"));
+    expect(at("[change] Added 1 track to Focus")).toBeGreaterThan(at("[download] Destination"));
 
     await page.evaluate(() => {
       navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
@@ -65,17 +65,17 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
 
   test("a partial undo says how much was left and shows why in the log", async ({ app, page }) => {
     await app.open();
-    await page.locator(".pill.artistPill", { hasText: "Late Night Drive" }).click();
-    await page.locator(".trackRow", { hasText: "Glass Tides" }).click();
+    await page.locator(".pill.artistPill", { hasText: "Late Night" }).click();
+    await page.locator(".trackRow", { hasText: "Quiet Bloom" }).click();
     await page.locator(".searchRow .ddBtn", { hasText: "Add to playlist" }).click();
-    await page.locator(".ddMenu .ddItem", { hasText: "Morning Focus" }).click();
-    await expect(status(page)).toHaveText("Status: Added to Morning Focus");
+    await page.locator(".ddMenu .ddItem", { hasText: "Focus" }).click();
+    await expect(status(page)).toHaveText("Status: Added to Focus");
     await page.evaluate(() => {
-      window.__soundhoodMock.undoSkipped = [{ path: "_Playlists/Morning Focus.m3u8", reason: "changed since, not undone" }];
+      window.__soundhoodMock.undoSkipped = [{ path: "_Playlists/Focus.m3u8", reason: "changed since, not undone" }];
     });
     await page.locator(".topbar .btn", { hasText: /^Undo$/ }).click();
     await expect(status(page)).toHaveText("Status: Undo: 0 restored, 1 left as they are (see the log)");
-    await expect(page.locator(".downloadLogs")).toHaveText("[skipped] _Playlists/Morning Focus.m3u8 - changed since, not undone");
+    await expect(page.locator(".downloadLogs")).toHaveText("[skipped] _Playlists/Focus.m3u8 - changed since, not undone");
   });
 
   test("at 760 px wide the download bar wraps instead of scrolling sideways", async ({ app, page }, testInfo) => {
@@ -321,24 +321,26 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
   // seek bar sat at 0:00 / 0:00 and could not be dragged.
   test("the seek bar has the song's length, moves with the song and seeks where tapped", async ({ app, page }) => {
     await app.open();
-    await page.locator(".pill.artistPill", { hasText: "Late Night Drive" }).tap();
-    await page.locator(".trackRow", { hasText: "Tin Roof Rain" }).tap();
+    await page.locator(".pill.artistPill", { hasText: "Late Night" }).tap();
+    await page.locator(".trackRow", { hasText: "Static Garden" }).tap();
     await expect(status(page)).toHaveText(/^Playing \(/);
     await page.locator(".miniBar").tap();
     const times = page.locator(".mPlayer .timeline .time");
     const bar = page.locator(".mPlayer .timeline input[type=range]");
-    await expect(times.last()).toHaveText("2:52"); // 172 s in the fixture
-    await expect(bar).toHaveAttribute("max", "172");
+    // Every track of the core's fixture library is the same 3-second tone; the bar moves in 0.25 s steps.
+    await expect(times.last()).toHaveText("0:03");
+    await expect(bar).toHaveAttribute("max", "3");
 
-    // The mock's play() makes no sound and does not advance, so the song "plays" 30 s by hand.
-    await page.evaluate(() => { document.querySelector("audio").currentTime = 30; });
-    await expect(times.first()).toHaveText("0:30");
-    await expect(bar).toHaveValue("30");
+    // The mock's play() makes no sound and does not advance, so the song "plays" 2.5 s by hand.
+    await page.evaluate(() => { document.querySelector("audio").currentTime = 2.5; });
+    await expect(times.first()).toHaveText("0:02");
+    await expect(bar).toHaveValue("2.5");
 
+    // A tap in the middle seeks back to about 1.5 s (35 % to 64 % of the bar, as before).
     const box = await bar.boundingBox();
     await bar.tap({ position: { x: box.width / 2, y: box.height / 2 } });
-    await expect.poll(() => page.evaluate(() => document.querySelector("audio").currentTime)).toBeGreaterThan(60);
-    expect(await page.evaluate(() => document.querySelector("audio").currentTime)).toBeLessThan(110);
-    await expect(times.first()).toHaveText(/^1:[2-4]\d$/);
+    await expect.poll(() => page.evaluate(() => document.querySelector("audio").currentTime)).toBeLessThan(1.95);
+    expect(await page.evaluate(() => document.querySelector("audio").currentTime)).toBeGreaterThan(1.05);
+    await expect(times.first()).toHaveText("0:01");
   });
 });

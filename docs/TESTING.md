@@ -68,7 +68,10 @@ own unit tests there, using synthetic values only.
 ## Visual suite
 
 Playwright drives the real UI build with Tauri's IPC mocked (`mockIPC`) over the **fixture library**:
-50 tracks, 5 playlists, covers in aqua, purple and greyscale so colour checks are meaningful.
+50 tracks, 5 playlists, covers in aqua, purple and greyscale so colour checks are meaningful. It is
+the core's generated library, the one the Test library switch installs on a device, exported by
+`soundhood-tools harness-json` into `tools/screenshot/fixture-library.json`; a core test fails when
+that file is out of date ([the harness README](../tools/screenshot/README.md)).
 
 - Viewports 390x844 and 834x1194 (phone layout), 1280x800 and 1920x1080 (PC layout), in the default
   mode only. Reduced motion, `prefers-contrast: more` and 130 % font size join in Phase 1, with the
