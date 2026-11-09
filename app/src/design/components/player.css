@@ -202,6 +202,13 @@
   color: var(--fg-0);
 }
 
+/* Where repeat sits when there is none yet: keeps the play button centred. */
+.Transport-slot {
+  width: var(--hit);
+  height: var(--hit);
+  flex: none;
+}
+
 .Transport .IconButton.is-quiet {
   color: var(--fg-1);
 }

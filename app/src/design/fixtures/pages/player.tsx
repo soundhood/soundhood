@@ -116,13 +116,13 @@ function TransportPage() {
     <Page title="Transport" note="Shuffle, previous, play, next, repeat. Shuffle and repeat are aqua while on; repeat cycles off, all, one.">
       <Demo label="Player bar size: shuffle on, repeat off">
         <Stack>
-          <Transport playing={playing} onPlayPause={() => setPlaying(!playing)} shuffle repeat="off" />
+          <Transport playing={playing} onPlayPause={() => setPlaying(!playing)} shuffle repeat="off" onRepeat={noop} />
         </Stack>
       </Demo>
       <Demo label="Full player size: repeat off, all, one">
         <Stack>
           {repeats.map((r) => (
-            <Transport key={r} large playing={r !== "one"} shuffle={r === "one"} repeat={r} />
+            <Transport key={r} large playing={r !== "one"} shuffle={r === "one"} repeat={r} onRepeat={noop} />
           ))}
         </Stack>
       </Demo>

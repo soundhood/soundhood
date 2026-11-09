@@ -1,6 +1,7 @@
 // Transport: shuffle, previous, the aqua play button, next, repeat. Large in the full player
 // (64 px play, 56 px skip buttons), small in the player bar (40 px play). Shuffle and repeat are
-// toggles (aria-pressed, aqua while on); repeat has three states: off, all, one.
+// toggles (aria-pressed, aqua while on); repeat has three states: off, all, one. Without onRepeat
+// there is no repeat button (no dead control); an empty slot of the same size keeps play centred.
 import { cx } from "../lib/cx";
 import { IconButton } from "./IconButton";
 import { PlayButton } from "./PlayButton";
@@ -47,14 +48,18 @@ export function Transport({
       <IconButton icon="prev" size={skip} label="Previous" className={cx(large && "is-big")} onClick={onPrev} />
       <PlayButton playing={playing} large={large} onClick={onPlayPause} />
       <IconButton icon="next" size={skip} label="Next" className={cx(large && "is-big")} onClick={onNext} />
-      <IconButton
-        icon={repeat === "one" ? "repeatOne" : "repeat"}
-        size={toggle}
-        label={repeat === "one" ? "Repeat one" : "Repeat"}
-        pressed={repeat !== "off"}
-        className={cx(repeat === "off" && "is-quiet")}
-        onClick={onRepeat}
-      />
+      {onRepeat ? (
+        <IconButton
+          icon={repeat === "one" ? "repeatOne" : "repeat"}
+          size={toggle}
+          label={repeat === "one" ? "Repeat one" : "Repeat"}
+          pressed={repeat !== "off"}
+          className={cx(repeat === "off" && "is-quiet")}
+          onClick={onRepeat}
+        />
+      ) : (
+        <span className="Transport-slot" aria-hidden="true" />
+      )}
     </div>
   );
 }

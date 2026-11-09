@@ -174,6 +174,7 @@ export function AppShell({
             onPlayPause={() => setPlaying(!playing)}
             shuffle
             repeat="off"
+            onRepeat={noop}
             position={POSITION}
             duration={NOW.seconds}
             volume={70}
