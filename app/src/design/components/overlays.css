@@ -1,0 +1,301 @@
+/* Overlays: Backdrop, Sheet (a bottom sheet on the phone, a centred modal on wider shells),
+   Queue, Toast, and the settings rows the SettingsSheet is made of. */
+
+.Backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: var(--backdrop);
+  animation: fade-in var(--dur-opacity) var(--ease-standard);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+  .Backdrop {
+    backdrop-filter: var(--backdrop-blur);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+.Sheet {
+  position: absolute;
+  z-index: 31;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 92%;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  background: var(--bg-1);
+  box-shadow: inset 0 1px 0 var(--line-strong);
+  animation: sheet-up var(--dur-l) var(--ease-emph);
+}
+
+.Sheet.is-tall {
+  height: 92%;
+}
+
+.Sheet-grabber {
+  flex: none;
+  width: 32px;
+  height: 4px;
+  margin: var(--sp-2) auto 0;
+  border-radius: var(--r-pill);
+  background: var(--fg-2);
+}
+
+.Sheet-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-2) var(--sp-2) var(--gutter);
+}
+
+.Sheet-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: var(--t-h2);
+  letter-spacing: -0.01em;
+}
+
+.Sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: calc(var(--sp-6) + var(--inset-bottom, 0px));
+}
+
+.Sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--gutter) calc(var(--sp-4) + var(--inset-bottom, 0px));
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+@container shell (min-width: 720px) {
+  .Sheet {
+    left: 50%;
+    right: auto;
+    top: 50%;
+    bottom: auto;
+    width: min(640px, calc(100% - 2 * var(--sp-8)));
+    max-height: min(720px, 84%);
+    border-radius: var(--r-xl);
+    transform: translate(-50%, -50%);
+    box-shadow:
+      var(--shadow-float),
+      inset 0 0 0 1px var(--line-strong);
+    animation: modal-in var(--dur-m) var(--ease-decel);
+  }
+
+  .Sheet.is-tall {
+    height: min(720px, 84%);
+  }
+
+  .Sheet-grabber {
+    display: none;
+  }
+
+  .Sheet-head {
+    padding-top: var(--sp-5);
+  }
+
+  .Sheet-foot {
+    padding-bottom: var(--sp-4);
+  }
+}
+
+/* Queue: the sticky now-playing row on top, then what comes next. In a sheet on the phone, in
+   the right pane on the desktop. */
+.Queue {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.Queue-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-5) var(--sp-2) var(--sp-2) var(--sp-4);
+}
+
+.Queue-head h2 {
+  flex: 1;
+  margin: 0;
+  font: var(--t-h3);
+}
+
+.Queue-now {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.Queue-label {
+  padding: var(--sp-4) var(--sp-4) var(--sp-1);
+  color: var(--fg-1);
+}
+
+.Queue-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.Queue .TrackRow {
+  --gutter: var(--sp-4);
+}
+
+.Queue-foot {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+/* Toast: bottom centre, above the player, 4 s, at most two stacked. */
+.Toasts {
+  position: absolute;
+  z-index: 50;
+  left: 50%;
+  bottom: calc(var(--mini-h) + var(--tabbar-h) + var(--inset-bottom, 0px) + var(--sp-3));
+  display: grid;
+  gap: var(--sp-2);
+  width: min(420px, calc(100% - 2 * var(--sp-4)));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+@container shell (min-width: 720px) {
+  .Toasts {
+    bottom: calc(var(--playerbar-h) + var(--sp-4));
+  }
+}
+
+.Toast {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 48px;
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border-radius: var(--r-md);
+  background: var(--bg-3);
+  color: var(--fg-0);
+  box-shadow: var(--shadow-float);
+  font: var(--t-body-sm);
+  overflow: hidden;
+  pointer-events: auto;
+  animation: modal-in var(--dur-m) var(--ease-decel);
+}
+
+.Toast > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.Toast .Button.is-link {
+  height: 32px;
+  font: var(--t-body-sm);
+  font-weight: 600;
+}
+
+.Toast-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--hairline);
+  background: var(--line);
+}
+
+.Toast-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--purple);
+  transform-origin: left;
+  transform: scaleX(var(--progress, 0));
+}
+
+/* Settings: overline group headings, rows with a label, a line of help and one control. */
+.SettingGroup {
+  padding-top: var(--sp-4);
+}
+
+.SettingGroup > h3 {
+  margin: 0;
+  padding: var(--sp-3) var(--gutter) var(--sp-1);
+  font: var(--t-overline);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--fg-1);
+}
+
+.SettingRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-4);
+  min-height: var(--row-h);
+  padding: var(--sp-2) var(--gutter);
+}
+
+.SettingRow + .SettingRow {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.SettingRow.is-stacked {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: var(--sp-2);
+}
+
+.SettingRow-label {
+  font: var(--t-body);
+}
+
+.SettingRow-help {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+.SettingRow-value {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.SettingRow-inline {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.SettingRow-inline .TextField {
+  flex: 1;
+  min-width: 0;
+}

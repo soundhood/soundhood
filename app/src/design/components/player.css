@@ -1,0 +1,345 @@
+/* Player surfaces: MiniPlayer (phone), FullPlayer (phone sheet, desktop main pane), PlayerBar
+   (tablet and desktop). The artwork tint (--tint, set from the cover by the tint worker) appears
+   only here: the full player's background, the right pane's top and the mini player's glow. */
+
+/* The progress hairline: 2 px of aqua scaled by --progress (0..1), moved by rAF, no transition. */
+.Hairline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--hairline);
+  background: var(--line);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.Hairline::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--aqua);
+  transform-origin: left;
+  transform: scaleX(var(--progress, 0));
+}
+
+/* MiniPlayer: 56 px, hairline on its top edge, tap or swipe up opens the full player. */
+.MiniPlayer {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+  height: var(--mini-h);
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  background: var(--bg-1);
+  cursor: pointer;
+}
+
+.MiniPlayer .Thumb {
+  box-shadow: 0 0 18px 2px var(--tint);
+}
+
+.MiniPlayer-text {
+  display: grid;
+  min-width: 0;
+}
+
+.MiniPlayer-title {
+  font: var(--t-body-strong);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.MiniPlayer-artist {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.MiniPlayer .IconButton {
+  color: var(--fg-0);
+}
+
+/* FullPlayer. */
+.FullPlayer {
+  container: fullplayer / inline-size;
+  position: relative;
+  min-height: 100%;
+  background: linear-gradient(180deg, var(--tint) 0%, var(--bg-0) 72%);
+  transition: background var(--dur-xl) var(--ease-standard);
+}
+
+.FullPlayer-inner {
+  display: grid;
+  grid-template-rows: auto auto auto auto auto auto;
+  align-content: start;
+  gap: var(--sp-5);
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--sp-2) var(--gutter) calc(var(--sp-5) + var(--inset-bottom, 0px));
+}
+
+.FullPlayer-top {
+  display: grid;
+  grid-template-columns: var(--hit) minmax(0, 1fr) var(--hit);
+  align-items: center;
+  margin: 0 calc(var(--sp-2) * -1);
+}
+
+.FullPlayer-source {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+  text-align: center;
+}
+
+.FullPlayer-source .t-overline {
+  color: var(--fg-1);
+}
+
+.FullPlayer-source strong {
+  max-width: 100%;
+  font: var(--t-body-sm);
+  font-weight: 550;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.FullPlayer-art {
+  width: min(80vw, 100%, 440px);
+  max-width: 100%;
+  aspect-ratio: 1;
+  justify-self: center;
+  border-radius: var(--r-xl);
+  object-fit: cover;
+  box-shadow: var(--shadow-art);
+}
+
+.FullPlayer-meta {
+  display: grid;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.FullPlayer-title {
+  margin: 0;
+  font: var(--t-h2);
+  letter-spacing: -0.01em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: balance;
+}
+
+.FullPlayer-artist {
+  font: var(--t-body);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.Transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.Transport .IconButton {
+  color: var(--fg-0);
+}
+
+.Transport .IconButton.is-quiet {
+  color: var(--fg-1);
+}
+
+.Transport .IconButton.is-on {
+  color: var(--aqua);
+}
+
+.FullPlayer .Transport .IconButton.is-big {
+  width: 56px;
+  height: 56px;
+}
+
+.FullPlayer-actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 var(--sp-2);
+}
+
+.FullPlayer-actions .IconButton {
+  color: var(--fg-1);
+}
+
+.FullPlayer-desk {
+  display: none;
+}
+
+/* On a wide surface (the desktop's main pane) the player lays out in two columns and leaves the
+   transport to the player bar. */
+@container fullplayer (min-width: 600px) {
+  .FullPlayer {
+    background: linear-gradient(180deg, var(--tint) 0%, var(--bg-0) 60%);
+  }
+
+  .FullPlayer-inner {
+    max-width: 1080px;
+    grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+    grid-template-rows: auto;
+    align-items: end;
+    column-gap: var(--sp-8);
+    padding: var(--sp-9) var(--gutter) var(--sp-8);
+  }
+
+  .FullPlayer-top,
+  .FullPlayer .SliderRow,
+  .FullPlayer .Transport {
+    display: none;
+  }
+
+  .FullPlayer-art {
+    width: 100%;
+    grid-row: span 2;
+  }
+
+  .FullPlayer-desk {
+    display: grid;
+    gap: var(--sp-6);
+    align-content: end;
+    min-width: 0;
+  }
+
+  .FullPlayer-desk .t-overline {
+    color: var(--fg-1);
+  }
+
+  .FullPlayer-desk h1 {
+    margin: var(--sp-2) 0 0;
+    font: var(--t-display);
+    letter-spacing: var(--tracking-tight);
+    text-wrap: balance;
+  }
+
+  .FullPlayer-desk .FullPlayer-artist {
+    font: var(--t-h3);
+    color: var(--fg-1);
+  }
+
+  .FullPlayer-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-4);
+    font: var(--t-body-sm);
+    color: var(--fg-1);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .FullPlayer-meta {
+    display: none;
+  }
+
+  .FullPlayer-actions {
+    justify-content: flex-start;
+    gap: var(--sp-2);
+    padding: 0;
+    margin-left: calc(var(--sp-2) * -1);
+  }
+}
+
+/* PlayerBar: left (now playing), centre (transport over the time line), right (queue, lyrics,
+   volume, open the player). 80 px on the desktop, 72 on a tablet. */
+.PlayerBar {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-4);
+  height: var(--playerbar-h);
+  padding: 0 var(--sp-4);
+  background: var(--bg-1);
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.PlayerBar-now {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.PlayerBar-now .Thumb {
+  width: var(--thumb-lg);
+  height: var(--thumb-lg);
+  box-shadow: 0 0 18px 2px var(--tint);
+}
+
+.PlayerBar-text {
+  display: grid;
+  min-width: 0;
+}
+
+.PlayerBar-title {
+  font: var(--t-body-strong);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.PlayerBar-artist {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.PlayerBar-centre {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+}
+
+.PlayerBar-centre .Transport {
+  gap: var(--sp-3);
+  justify-content: center;
+}
+
+.PlayerBar-centre .SliderRow {
+  width: 100%;
+  max-width: 560px;
+}
+
+.PlayerBar-centre .Slider {
+  height: 16px;
+}
+
+.PlayerBar-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+}
+
+.PlayerBar-volume {
+  width: 96px;
+}
+
+.PlayerBar-volume .Slider {
+  height: 24px;
+}
+
+@container shell (max-width: 1079px) {
+  .PlayerBar-tools .is-wide-only,
+  .PlayerBar-centre .SliderRow > span {
+    display: none;
+  }
+
+  .PlayerBar-centre .SliderRow {
+    grid-template-columns: 1fr;
+  }
+}

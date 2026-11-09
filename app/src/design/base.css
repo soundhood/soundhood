@@ -1,0 +1,168 @@
+/* Base element styles. Colours, sizes and motion come from tokens.css only. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font: var(--t-body);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* Focus: 2 px aqua outline on keyboard focus, everywhere, never removed. */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--aqua-dim);
+  color: var(--fg-0);
+}
+
+/* Scrollbars: thin, dark, on a transparent track; hidden on touch. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: var(--r-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+@media (pointer: coarse) {
+  * {
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Type roles, for places that are not a component. */
+.t-display {
+  font: var(--t-display);
+  letter-spacing: var(--tracking-tight);
+}
+
+.t-h1 {
+  font: var(--t-h1);
+  letter-spacing: var(--tracking-tight);
+}
+
+.t-h2 {
+  font: var(--t-h2);
+  letter-spacing: -0.01em;
+}
+
+.t-h3 {
+  font: var(--t-h3);
+}
+
+.t-body {
+  font: var(--t-body);
+}
+
+.t-body-sm {
+  font: var(--t-body-sm);
+}
+
+.t-caption {
+  font: var(--t-caption);
+}
+
+.t-overline {
+  font: var(--t-overline);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.fg-1 {
+  color: var(--fg-1);
+}
+
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.Icon {
+  display: block;
+  flex: none;
+}
