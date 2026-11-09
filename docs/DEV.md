@@ -289,6 +289,7 @@ agent runs the same list locally before any merge. Nothing merges while one is r
 | Tooling: types, lint, unit tests | in `app/`: `npm ci` first (the typecheck reads `app/`), then in `tools/`: `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test` | `web` |
 | UI builds | in `app/`: `npm run build` | `web` |
 | Design tokens | `node tools/token-lint.mjs` | `web` |
+| Token colour contrast (WCAG) | `node tools/contrast-lint.mjs` | `web` |
 | Repository hygiene | `node tools/hygiene-lint.mjs` | `web` |
 | Documentation links resolve | `node .github/scripts/md-links.mjs` | `web` |
 | Visual suite | in `tools/`: `npm run test:visual` (the failing screenshots are uploaded when it fails) | `visual` |

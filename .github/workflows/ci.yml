@@ -154,6 +154,9 @@ jobs:
         run: npm run build
       - name: Token lint
         run: node tools/token-lint.mjs
+      # WCAG contrast of the design token pairs; passes with a skip line until tokens.css exists.
+      - name: Contrast lint
+        run: node tools/contrast-lint.mjs
       - name: Markdown links resolve
         run: node .github/scripts/md-links.mjs
       # Owner-specific deny terms live outside the repository (a CI secret); empty on forks.
