@@ -68,7 +68,10 @@ own unit tests there, using synthetic values only.
 ## Visual suite
 
 Playwright drives the real UI build with Tauri's IPC mocked (`mockIPC`) over the **fixture library**:
-50 tracks, 5 playlists, covers in aqua, purple and greyscale so colour checks are meaningful.
+50 tracks, 5 playlists, covers in aqua, purple and greyscale so colour checks are meaningful. It is
+the core's generated library, the one the Test library switch installs on a device, exported by
+`soundhood-tools harness-json` into `tools/screenshot/fixture-library.json`; a core test fails when
+that file is out of date ([the harness README](../tools/screenshot/README.md)).
 
 - Viewports 390x844 and 834x1194 (phone layout), 1280x800 and 1920x1080 (PC layout), in the default
   mode only. Reduced motion, `prefers-contrast: more` and 130 % font size join in Phase 1, with the
@@ -86,6 +89,7 @@ Playwright drives the real UI build with Tauri's IPC mocked (`mockIPC`) over the
 | Lint | Fails on |
 |---|---|
 | `node tools/token-lint.mjs` | a raw hex colour outside `app/src/design/tokens.css`; `appearance` changed on an input without custom styling; any character in U+1F000 to U+1FAFF, U+2600 to U+27BF or U+2B00 to U+2BFF in TSX (emoji as icons) |
+| `node tools/contrast-lint.mjs` | a pair of design tokens below its WCAG 2.x contrast minimum, in the default values or in the `prefers-contrast: more` values of `app/src/design/tokens.css`: 4.5:1 for text (fg-0, fg-1, aqua, lilac, danger and warn on bg-0, bg-1 and bg-2; aqua-ink on aqua and on danger; fg-0 on purple), 3:1 for the slider knob (lilac on bg-3 and bg-1); a token of the rule list that is missing or not a colour it can read. fg-2, fg-disabled and the purple slider fill are reported, never failed. `var()` and `color-mix(in oklab, ...)` are resolved, and a translucent colour is laid over its background (a translucent background over bg-0). The pairs, their minimums and the reason for each are the table at the top of `tools/lint/contrast.mjs`. Without a tokens.css it prints that it skipped and passes |
 | `node tools/blue-scan.mjs` | more than 0.1 % of pixels with hue 200 to 250 degrees and saturation above 0.5. It scans only the visual suite's screenshots of the fixture library (controlled covers) and device screenshots with the artwork areas masked; artwork and the colour tint taken from it are exempt by design, not by loosening the threshold |
 | `node tools/hygiene-lint.mjs` | in the text of every tracked file (binary contents and files over 8 MB are skipped): the words of the deny list (below), matched per word, also inside camelCase names; a path inside a Proton Drive folder, in any slash style or URL-encoded; private LAN addresses (10/8, 172.16/12, 192.168/16); e-mail addresses other than GitHub noreply, the commit trailer and example domains; Windows user-profile paths with a real account name; a device serial written next to `adb -s`, `adb --serial`, `ANDROID_SERIAL`, `serialno`, `serial number` or `serial:`, or as a line of `adb devices` output (6 to 20 letters and digits with at least one digit), and a 15-digit number after "IMEI"; an en or em dash (U+2013, U+2014), as a character or as an HTML entity (named, decimal or hex), except in vendored `third_party/` code; the text terms of the deny list (below). In every tracked path, binaries included: the same rules, plus file names that hold keys or secrets (`*.jks`, `*.keystore`, `*.p12`, `keystore.properties`, `key.properties`, `cookies.txt`, `.env`, `.env.*`). Names, terms and serials are never printed. It does not see inside images, so a real path in a screenshot is caught only by the evidence rules ([DEV](DEV.md#public-repository-hygiene)) |
 
@@ -143,6 +147,50 @@ Committed screenshots and gate runs on real devices use the fixture library, nev
   localabstract:webview_devtools_remote_<pid>`) is not yet verified against Tauri's WebView; the
   fallback is deep-link commands ([OPEN](OPEN.md)).
 
+## Per-release net-log check (PC, by hand)
+
+Proves that the PC app makes no network connection by itself on the WebView2 runtime installed today.
+The Evergreen runtime updates on its own, so the zero-traffic result is re-checked before every
+release ([OPEN](OPEN.md)). It is not a CI gate: the hosted runner has no desktop session to open the
+window in. On the PC, after the [fresh-clone preparation](DEV.md#after-a-fresh-clone):
+
+```powershell
+cd app
+npm run tauri build -- --no-bundle --config ../tools/netlog/test-identity.conf.json
+cd ..
+node tools/netlog-check.mjs
+```
+
+- **The test identity.** The check runs a build whose only difference is the identifier in
+  `tools/netlog/test-identity.conf.json`, so its settings, index and journal live in folders of their
+  own and the installed app's data is never touched. A built exe cannot take `--config`, and Tauri
+  finds its data folders through Windows' known-folder lookup with the identifier compiled in, so no
+  argument or environment variable can move them. The script refuses an exe that does not carry the
+  test identifier. That build replaces `target/release/soundhood.exe`; the next `npm run tauri build`
+  without the overlay builds the real one again.
+- **What it does.** It seeds the test identity with the fixture library (`soundhood-tools fixture-lib`
+  from next to the exe, so the app scans a library as it starts), starts the app with
+  `--log-net-log=<file>` in `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (merged with the app's own browser
+  arguments; never a `--disable-features` there) and WebView2's data in a scratch folder
+  (`WEBVIEW2_USER_DATA_FOLDER`), polls `Get-NetTCPConnection` every second, waits 120 s, then closes
+  the window as a user would. A killed WebView2 leaves a cut-off log, so the window is never killed
+  unless it fails to close within 30 s. Afterwards it removes the scratch folder and the test
+  identity's folders.
+- **It fails on** a host other than `tauri.localhost`, `ipc.localhost` and `asset.localhost` anywhere
+  in the net log (URLs, host lookups, socket pools); a TCP connect or a UDP exchange with a
+  non-loopback address in the net log; a TCP connection with a non-loopback address owned by the app
+  or any process started under it (found by parent id and creation time, so a reused process id
+  does not count); a net log that is cut off or missing; a window that does not close. A UDP connect
+  that sends no packet (the IPv6 reachability probe) is printed as a note, not a failure.
+- **Options:** the exe as the first argument (default `target/release/soundhood.exe`), `--seconds N`
+  (default 120), `--keep` (keep the net log and the test data, and print where), `--no-library`
+  (start without a library). While it waits, the window can be used (play a track, open settings,
+  run the self-test) to cover more of the app; what it does then is checked the same way.
+- **What it does not see:** UDP outside WebView2 (`Get-NetTCPConnection` lists TCP only), a TCP
+  connection of the Rust side that opens and closes between two polls, and the crash handler
+  ([OPEN](OPEN.md)). The parser's rules are unit-tested on synthetic logs in
+  `tools/netlog/netlog.test.mjs` (`npm run test`).
+
 ## Library safety checks
 
 A manifest lists every audio file and playlist with its size and hash
@@ -160,6 +208,16 @@ The owner runs the same comparison with two copy-paste blocks
 
 - Every phase commits screenshots under `docs/evidence/<phase>/`: the Windows app at 1280x800 and
   1920x1080 and the phone, side by side per screen, all taken with the **fixture library**.
+- The side-by-side images come from the parity grid. In `tools/`:
+  `npm run evidence:parity -- --in <folder of screenshots> --out <folder>` (optional `--phone 390x844`
+  and `--desktop 1280x800`, the defaults). It reads screenshots named as the visual suite names them,
+  `<width>x<height>-<screen>.png`, and for every screen that exists at both sizes writes
+  `parity-<screen>.png`: the phone on the left and the desktop on the right, both scaled to the
+  smaller of the two heights (never enlarged), on the canvas colour `#0f0f0f` with a 16 px gap
+  between and around them, no text. `parity-all.png` stacks every screen in name order. It lists the
+  screens found at only one of the two sizes (each one a parity exception until it exists at both)
+  and fails when no screen pairs up. Phase 1 closes with Playlists, Artists, Folders, Playing, Queue,
+  Search and Settings at both sizes and nothing listed as one-sided.
 - Never commit a screenshot, log or trace that shows a real library, a real path or a device
   identifier. Screenshots of a real library go only into the private owner report.
 - Every acceptance item is either **agent-verified** (proved by a test, a log line or a screenshot;

@@ -289,12 +289,16 @@ agent runs the same list locally before any merge. Nothing merges while one is r
 | Tooling: types, lint, unit tests | in `app/`: `npm ci` first (the typecheck reads `app/`), then in `tools/`: `npm ci`, `npm run typecheck`, `npm run lint`, `npm run test` | `web` |
 | UI builds | in `app/`: `npm run build` | `web` |
 | Design tokens | `node tools/token-lint.mjs` | `web` |
+| Token colour contrast (WCAG) | `node tools/contrast-lint.mjs` | `web` |
 | Repository hygiene | `node tools/hygiene-lint.mjs` | `web` |
 | Documentation links resolve | `node .github/scripts/md-links.mjs` | `web` |
 | Visual suite | in `tools/`: `npm run test:visual` (the failing screenshots are uploaded when it fails) | `visual` |
 | No blue | `node tools/blue-scan.mjs` (after the visual suite) | `visual` |
 | Desktop installer builds | in `app/`: `npm run tauri build` | `desktop-build` |
 | Phone app builds | in `app/`: `npm run tauri android build -- --debug --apk --target aarch64` | `android-build` |
+
+Not in CI, by hand before every release on the PC: the net-log check of the desktop app,
+`node tools/netlog-check.mjs` on a build with the test identity ([TESTING](TESTING.md#per-release-net-log-check-pc-by-hand)).
 
 The core tests include the fault-injection kill tests and, as later phases land, the yt-dlp
 output, LRCLIB and Proton HTTP fixtures; none of them touches the network ([TESTING](TESTING.md)).

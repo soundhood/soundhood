@@ -14,6 +14,7 @@
     "test:visual": "playwright test --config screenshot/playwright.config.mjs",
     "test:visual:update": "playwright test --config screenshot/playwright.config.mjs --update-snapshots=all",
     "evidence:after": "node screenshot/copy-evidence.mjs",
+    "evidence:parity": "node screenshot/parity-grid.mjs",
     "lint:tokens": "node token-lint.mjs",
     "lint:blue": "node blue-scan.mjs",
     "lint:hygiene": "node hygiene-lint.mjs"

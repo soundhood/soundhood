@@ -16,18 +16,23 @@ import { WAV_RATE, silentWav } from "./wav.mjs";
 const fixture = loadFixture();
 
 describe("fixture library", () => {
-  it("has 50 tracks in 5 playlists under a neutral root", () => {
+  it("is the core's generated library: 50 tracks in 5 playlists under a neutral root", () => {
+    expect(fixture.about).toContain("soundhood-tools harness-json");
     expect(fixture.tracks).toHaveLength(50);
     expect(fixture.playlists).toHaveLength(5);
     expect(fixture.root).toBe("C:/Music");
+    expect(fixture.androidRoot).toBe("/storage/emulated/0/Music");
   });
 
-  it("names files Title - Artist.ext and keeps them unique", () => {
+  it("keeps library paths unique and every file an audio format the core writes", () => {
     const rels = fixture.tracks.map(relPathOf);
     expect(new Set(rels.map((r) => r.toLowerCase())).size).toBe(rels.length);
-    for (const t of fixture.tracks.filter((x) => x.artist)) {
-      expect(t.file).toMatch(new RegExp(`^${t.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} - .+\\.(m4a|mp3|opus|flac)$`));
-    }
+    for (const t of fixture.tracks) expect(t.file, relPathOf(t)).toMatch(/\.(m4a|mp3|flac|opus|ogg)$/);
+  });
+
+  it("has covers in aqua, purple and grey, and tracks without art", () => {
+    const families = new Set(fixture.tracks.map((t) => (t.cover ? t.cover.split("-")[0] : "none")));
+    expect([...families].sort()).toEqual(["aqua", "grey", "none", "purple"]);
   });
 
   it("only lists playlist entries that exist in the library", () => {
@@ -35,23 +40,21 @@ describe("fixture library", () => {
     for (const p of fixture.playlists) for (const e of p.entries) expect(rels.has(e), `${p.name}: ${e}`).toBe(true);
   });
 
-  it("returns scan results like the host: absolute paths, (root) bucket, byte-wise order", () => {
+  it("returns scan results like the host: absolute paths, top-folder buckets, byte-wise order", () => {
     const tracks = scanResult(fixture, "C:/Music");
     expect(tracks[0].playlist).toBe("(root)");
     expect(tracks.every((t) => t.path.startsWith("C:/Music/") && t.path.endsWith(t.name))).toBe(true);
+    // A track in a nested folder is listed under its first-level folder, as the core's scan does.
+    const nested = fixture.tracks.find((t) => t.folder.includes("/"));
+    const scanned = tracks.find((t) => t.path === `C:/Music/${relPathOf(nested)}`);
+    expect(scanned.playlist).toBe(nested.folder.split("/")[0]);
     const keys = tracks.map((t) => `${t.playlist}\0${t.name}`);
     expect([...keys].sort()).toEqual(keys);
     expect(Object.keys(tracks[0]).sort()).toEqual(["artist", "duration_secs", "name", "path", "playlist", "title"]);
   });
 
   it("returns playlists sorted by lower-cased name", () => {
-    expect(playlistResult(fixture).map((p) => p.name)).toEqual([
-      "Favourites",
-      "Gym Rotation",
-      "Late Night Drive",
-      "Morning Focus",
-      "Sunday Kitchen",
-    ]);
+    expect(playlistResult(fixture).map((p) => p.name)).toEqual(["Empty", "Favourites", "Focus", "Late Night", "Mixed Formats"]);
   });
 });
 

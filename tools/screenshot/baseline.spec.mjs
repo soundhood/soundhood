@@ -2,7 +2,7 @@
 // rebuilds these screens; until then a diff here means the old UI changed by accident.
 import { expect, test } from "./harness.mjs";
 
-const PLAYLIST = "Late Night Drive";
+const PLAYLIST = "Late Night";
 
 // Tags pick the projects: @desktop runs at the desktop viewports, @phone at the phone and tablet ones.
 test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
@@ -12,12 +12,12 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await page.locator(".pill.artistPill", { hasText: PLAYLIST }).click();
     await expect(page.locator(".headerTitle")).toContainText(PLAYLIST);
 
-    await page.locator(".trackRow", { hasText: "Glass Tides" }).dblclick();
-    await expect(page.locator(".trackRow.active")).toHaveText(/Glass Tides/);
+    await page.locator(".trackRow", { hasText: "Quiet Bloom" }).dblclick();
+    await expect(page.locator(".trackRow.active")).toHaveText(/Quiet Bloom/);
     await app.settled("cover_art");
-    await expect(page.locator(".player .npTitle")).toHaveText("Glass Tides - Neon Harbor");
+    await expect(page.locator(".player .npTitle")).toHaveText("Quiet Bloom - Anouk Lirr");
     await expect(page.locator(".npArt img")).toBeVisible();
-    await expect(page.locator(".player .timeline .time").last()).toHaveText("2:18"); // duration from the audio metadata
+    await expect(page.locator(".player .timeline .time").last()).toHaveText("0:03"); // duration from the audio metadata: the core fixture's 3-second tone
     await page.keyboard.press("Escape"); // drop the click selection, keep the playing state
     await expect(page.locator(".trackRow.selected")).toHaveCount(0);
     await page.mouse.move(0, 0);
@@ -31,7 +31,7 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
   async function playFromPlaylist(app, page) {
     await page.locator(".pill.artistPill", { hasText: PLAYLIST }).tap();
     await expect(page.locator(".headerTitle")).toContainText(PLAYLIST);
-    await page.locator(".trackRow", { hasText: "Tin Roof Rain" }).tap();
+    await page.locator(".trackRow", { hasText: "Static Garden" }).tap();
     await expect(page.locator(".topbar .status")).toHaveText(/^Playing \(/);
     await app.settled("cover_art");
   }
@@ -48,8 +48,8 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
   test("tracks screen with a track playing", async ({ app, page }) => {
     await app.open();
     await playFromPlaylist(app, page);
-    await expect(page.locator(".trackRow.active")).toHaveText(/Tin Roof Rain/);
-    await expect(page.locator(".miniBar .npTitle")).toHaveText("Tin Roof Rain - Nova Tamsin");
+    await expect(page.locator(".trackRow.active")).toHaveText(/Static Garden/);
+    await expect(page.locator(".miniBar .npTitle")).toHaveText("Static Garden - Sola Brakke");
     await expect(page.locator(".miniArt img")).toBeVisible();
 
     await expect(page).toHaveScreenshot(app.shot("tracks"));
@@ -71,9 +71,9 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await playFromPlaylist(app, page);
     await page.locator(".miniBar").tap();
     await expect(page.locator(".mPlayer")).toBeVisible();
-    await expect(page.locator(".mPlayerTitle")).toHaveText("Tin Roof Rain - Nova Tamsin");
+    await expect(page.locator(".mPlayerTitle")).toHaveText("Static Garden - Sola Brakke");
     await expect(page.locator(".mPlayerArt img")).toBeVisible();
-    await expect(page.locator(".mPlayer .timeline .time").last()).toHaveText("2:52"); // duration from the audio metadata
+    await expect(page.locator(".mPlayer .timeline .time").last()).toHaveText("0:03"); // duration from the audio metadata
 
     await expect(page).toHaveScreenshot(app.shot("player"));
   });

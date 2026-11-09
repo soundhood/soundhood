@@ -5,12 +5,28 @@ replaced by `@tauri-apps/api/mocks`. Everything the UI asks the host for comes f
 fixture library in `fixture-library.json` (50 tracks, 5 playlists, aqua / purple / grey covers).
 Nothing touches a real library, a phone or the network.
 
+`fixture-library.json` is generated, never edited by hand: it is the core's fixture library, the
+same one the app's Test library switch installs and `soundhood-tools fixture-lib` writes (every
+track a 3-second tone, messy names included), exported in the harness's format. After a change to
+`core/src/fixtures.rs`, regenerate it from the repository root and re-record the baselines:
+
+```
+cargo run -p soundhood-core --features tools --bin soundhood-tools -- harness-json tools/screenshot/fixture-library.json
+cd tools && npm run test:visual:update
+```
+
+The core test `fixtures::tests::committed_harness_json_is_current` (part of `cargo test -p
+soundhood-core`, so the CI `core-test` job) fails when the committed file differs from what
+`harness-json` writes. The harness draws its own covers from the `cover` names (`aqua-rings`,
+`purple-bands`, `grey-grid`, ...), one per colour of the core's embedded covers.
+
 ```
 cd app && npm ci          # the dev server runs from app/node_modules
 cd ../tools && npm ci
 npm run test:visual           # every spec: compare with the committed baselines, run the flow checks
 npm run test:visual:update    # rewrite the baselines after an intended UI change
 npm run evidence:after        # copy them to docs/evidence/phase-0/after/
+npm run evidence:parity -- --in <dir> --out <dir>   # phone and desktop side by side per screen
 npm test                      # unit tests, including ui-logic.test.mjs and pixels.test.mjs
 ```
 
@@ -23,6 +39,7 @@ npm test                      # unit tests, including ui-logic.test.mjs and pixe
 | `baseline.spec.mjs` | the screens of the old UI: desktop library with a playlist open and a track playing; phone browse, tracks, settings sheet, full player |
 | `undo.spec.mjs` | what Phase 0 adds: Undo enabled after a tag edit (desktop) and in the settings sheet (phone), then undone; the developer section open on both; the desktop after a playlist add, checked pixel for pixel against the screen before it (only the Undo button, the status and that playlist's count may change) |
 | `flows.spec.mjs` | behaviour without screenshots: change lines stay out of the visible log and travel with Copy log, the desktop copy-failure text, no sideways scroll at 760 px, the test library switch (folder line, top-bar note, sync off), the queue stopping after a refused download, channel links refused |
+| `parity.mjs`, `parity-grid.mjs` | the parity grid (`npm run evidence:parity`): pairs `390x844-<screen>.png` with `1280x800-<screen>.png`, draws each pair side by side at one height on `#0f0f0f` with a 16 px gap (`parity-<screen>.png`) and stacks them (`parity-all.png`); lists screens found at one size only ([TESTING](../../docs/TESTING.md#evidence-rules)) |
 | `pixels.mjs` | counts the pixels that changed between two screenshots outside the regions a flow may change |
 | `ui-logic.test.mjs` | unit tests of the UI's pure helpers in `app/src` (links, download output, test library, Copy log text, undo wording, folder names) |
 | `__screenshots__/<os>/` | committed baselines, one set per OS (fonts differ); only `win32` exists so far |

@@ -7,7 +7,7 @@
 import { changedPixelsOutside } from "./pixels.mjs";
 import { expect, test } from "./harness.mjs";
 
-const PLAYLIST = "Late Night Drive";
+const PLAYLIST = "Late Night";
 
 test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
   const undoButton = (page) => page.locator(".topbar .btn", { hasText: /^Undo$/ });
@@ -17,9 +17,9 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
   async function libraryPlaying(app, page) {
     await app.open();
     await page.locator(".pill.artistPill", { hasText: PLAYLIST }).click();
-    await page.locator(".trackRow", { hasText: "Glass Tides" }).dblclick();
+    await page.locator(".trackRow", { hasText: "Quiet Bloom" }).dblclick();
     await app.settled("cover_art");
-    await expect(page.locator(".player .npTitle")).toHaveText("Glass Tides - Neon Harbor");
+    await expect(page.locator(".player .npTitle")).toHaveText("Quiet Bloom - Anouk Lirr");
     await page.keyboard.press("Escape");
     await page.mouse.move(0, 0);
   }
@@ -32,7 +32,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
   }
 
   test("a playlist add: only the Undo button, the status and the playlist count change", async ({ app, page }) => {
-    const target = "Morning Focus";
+    const target = "Focus";
     await libraryPlaying(app, page);
     await expect(undoButton(page)).toBeDisabled();
     await expect(undoButton(page)).toHaveAttribute("title", "Nothing to undo");
@@ -47,7 +47,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(status(page)).toHaveText(`Status: Added to ${target}`);
     await expect(undoButton(page)).toBeEnabled();
     await expect(undoButton(page)).toHaveAttribute("title", `Undo: Added 1 track to ${target}`);
-    await expect(count).toHaveText("11");
+    await expect(count).toHaveText("8");
     // The change goes to the lines "Copy log" carries, not to a log panel on screen.
     await expect(page.locator(".downloadLogs")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Copy log" })).toHaveCount(0);
@@ -64,16 +64,16 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
   test("Undo enabled after a tag edit, then the edit undone", async ({ app, page }) => {
     await app.open();
     await page.locator(".pill.artistPill", { hasText: PLAYLIST }).click();
-    await page.locator(".trackRow", { hasText: "Glass Tides" }).click();
+    await page.locator(".trackRow", { hasText: "Quiet Bloom" }).click();
     await page.locator('.iconBtn[title^="Edit the tags of"]').click();
     const title = page.locator(".modal input").first();
-    await expect(title).toHaveValue("Glass Tides");
-    await title.fill("Glass Tides (Night Edit)");
+    await expect(title).toHaveValue("Quiet Bloom");
+    await title.fill("Quiet Bloom (Night Edit)");
     await page.locator(".modal .primaryBtn", { hasText: "Save" }).click();
     await expect(page.locator(".modal")).toHaveCount(0);
-    await expect(status(page)).toHaveText("Status: Tags saved: Glass Tides - Neon Harbor");
+    await expect(status(page)).toHaveText("Status: Tags saved: Quiet Bloom - Anouk Lirr");
     await expect(undoButton(page)).toBeEnabled();
-    await expect(undoButton(page)).toHaveAttribute("title", "Undo: Edited tags of Glass Tides - Neon Harbor.m4a");
+    await expect(undoButton(page)).toHaveAttribute("title", "Undo: Edited tags of Quiet Bloom - Anouk Lirr.ogg");
     await expect(page.locator(".downloadLogs")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await rest(app, page);
@@ -81,13 +81,13 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(page).toHaveScreenshot(app.shot("undo"));
 
     await undoButton(page).click();
-    await expect(status(page)).toHaveText("Status: Undone: Edited tags of Glass Tides - Neon Harbor.m4a");
+    await expect(status(page)).toHaveText("Status: Undone: Edited tags of Quiet Bloom - Anouk Lirr.ogg");
     await expect(undoButton(page)).toBeDisabled();
     await expect(page.locator(".downloadLogs")).toHaveCount(0);
     // The tags are back: the editor reads the old title again.
-    await page.locator(".trackRow", { hasText: "Glass Tides" }).click();
+    await page.locator(".trackRow", { hasText: "Quiet Bloom" }).click();
     await page.locator('.iconBtn[title^="Edit the tags of"]').click();
-    await expect(page.locator(".modal input").first()).toHaveValue("Glass Tides");
+    await expect(page.locator(".modal input").first()).toHaveValue("Quiet Bloom");
     await page.locator(".modal .btn", { hasText: "Cancel" }).click();
   });
 
@@ -119,24 +119,24 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await app.open();
     await page.locator(".pill.artistPill", { hasText: PLAYLIST }).tap();
     await page.getByRole("button", { name: "Select", exact: true }).tap();
-    await page.locator(".trackRow", { hasText: "Tin Roof Rain" }).tap();
+    await page.locator(".trackRow", { hasText: "Static Garden" }).tap();
     await page.locator('.iconBtn[title^="Edit the tags of"]').tap();
-    await page.locator(".modal input").first().fill("Tin Roof Rain (Live)");
+    await page.locator(".modal input").first().fill("Static Garden (Live)");
     await page.locator(".modal .primaryBtn", { hasText: "Save" }).tap();
     await expect(page.locator(".modal")).toHaveCount(0);
-    await expect(status(page)).toHaveText("Tags saved: Tin Roof Rain - Nova Tamsin");
+    await expect(status(page)).toHaveText("Tags saved: Static Garden - Sola Brakke");
     await page.getByRole("button", { name: "Done", exact: true }).tap();
 
     await openSettings(app, page);
     await expect(undoRow(page)).toBeEnabled();
-    await expect(page.locator(".mSettings")).toContainText("Edited tags of Tin Roof Rain - Nova Tamsin.m4a");
+    await expect(page.locator(".mSettings")).toContainText("Edited tags of Static Garden - Sola Brakke.opus");
     // No change lines in the settings log, as before the rebuild.
     await expect(page.locator(".mSettings .downloadLogs")).toHaveCount(0);
 
     await expect(page).toHaveScreenshot(app.shot("settings-undo"));
 
     await undoRow(page).tap();
-    await expect(status(page)).toHaveText("Undone: Edited tags of Tin Roof Rain - Nova Tamsin.m4a");
+    await expect(status(page)).toHaveText("Undone: Edited tags of Static Garden - Sola Brakke.opus");
     await expect(undoRow(page)).toBeDisabled();
     await expect(page.locator(".mSettings")).toContainText("Nothing to undo");
     await expect(page.locator(".mSettings .downloadLogs")).toHaveCount(0);
