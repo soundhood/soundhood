@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["lint/**/*.test.mjs", "screenshot/**/*.test.mjs"],
+    include: ["lint/**/*.test.mjs", "screenshot/**/*.test.mjs", "netlog/**/*.test.mjs"],
     environment: "node",
   },
 });

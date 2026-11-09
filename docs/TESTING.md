@@ -147,6 +147,50 @@ Committed screenshots and gate runs on real devices use the fixture library, nev
   localabstract:webview_devtools_remote_<pid>`) is not yet verified against Tauri's WebView; the
   fallback is deep-link commands ([OPEN](OPEN.md)).
 
+## Per-release net-log check (PC, by hand)
+
+Proves that the PC app makes no network connection by itself on the WebView2 runtime installed today.
+The Evergreen runtime updates on its own, so the zero-traffic result is re-checked before every
+release ([OPEN](OPEN.md)). It is not a CI gate: the hosted runner has no desktop session to open the
+window in. On the PC, after the [fresh-clone preparation](DEV.md#after-a-fresh-clone):
+
+```powershell
+cd app
+npm run tauri build -- --no-bundle --config ../tools/netlog/test-identity.conf.json
+cd ..
+node tools/netlog-check.mjs
+```
+
+- **The test identity.** The check runs a build whose only difference is the identifier in
+  `tools/netlog/test-identity.conf.json`, so its settings, index and journal live in folders of their
+  own and the installed app's data is never touched. A built exe cannot take `--config`, and Tauri
+  finds its data folders through Windows' known-folder lookup with the identifier compiled in, so no
+  argument or environment variable can move them. The script refuses an exe that does not carry the
+  test identifier. That build replaces `target/release/soundhood.exe`; the next `npm run tauri build`
+  without the overlay builds the real one again.
+- **What it does.** It seeds the test identity with the fixture library (`soundhood-tools fixture-lib`
+  from next to the exe, so the app scans a library as it starts), starts the app with
+  `--log-net-log=<file>` in `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (merged with the app's own browser
+  arguments; never a `--disable-features` there) and WebView2's data in a scratch folder
+  (`WEBVIEW2_USER_DATA_FOLDER`), polls `Get-NetTCPConnection` every second, waits 120 s, then closes
+  the window as a user would. A killed WebView2 leaves a cut-off log, so the window is never killed
+  unless it fails to close within 30 s. Afterwards it removes the scratch folder and the test
+  identity's folders.
+- **It fails on** a host other than `tauri.localhost`, `ipc.localhost` and `asset.localhost` anywhere
+  in the net log (URLs, host lookups, socket pools); a TCP connect or a UDP exchange with a
+  non-loopback address in the net log; a TCP connection with a non-loopback address owned by the app
+  or any process started under it (found by parent id and creation time, so a reused process id
+  does not count); a net log that is cut off or missing; a window that does not close. A UDP connect
+  that sends no packet (the IPv6 reachability probe) is printed as a note, not a failure.
+- **Options:** the exe as the first argument (default `target/release/soundhood.exe`), `--seconds N`
+  (default 120), `--keep` (keep the net log and the test data, and print where), `--no-library`
+  (start without a library). While it waits, the window can be used (play a track, open settings,
+  run the self-test) to cover more of the app; what it does then is checked the same way.
+- **What it does not see:** UDP outside WebView2 (`Get-NetTCPConnection` lists TCP only), a TCP
+  connection of the Rust side that opens and closes between two polls, and the crash handler
+  ([OPEN](OPEN.md)). The parser's rules are unit-tested on synthetic logs in
+  `tools/netlog/netlog.test.mjs` (`npm run test`).
+
 ## Library safety checks
 
 A manifest lists every audio file and playlist with its size and hash

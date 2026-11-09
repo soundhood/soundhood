@@ -297,6 +297,9 @@ agent runs the same list locally before any merge. Nothing merges while one is r
 | Desktop installer builds | in `app/`: `npm run tauri build` | `desktop-build` |
 | Phone app builds | in `app/`: `npm run tauri android build -- --debug --apk --target aarch64` | `android-build` |
 
+Not in CI, by hand before every release on the PC: the net-log check of the desktop app,
+`node tools/netlog-check.mjs` on a build with the test identity ([TESTING](TESTING.md#per-release-net-log-check-pc-by-hand)).
+
 The core tests include the fault-injection kill tests and, as later phases land, the yt-dlp
 output, LRCLIB and Proton HTTP fixtures; none of them touches the network ([TESTING](TESTING.md)).
 
