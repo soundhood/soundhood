@@ -161,6 +161,16 @@ The owner runs the same comparison with two copy-paste blocks
 
 - Every phase commits screenshots under `docs/evidence/<phase>/`: the Windows app at 1280x800 and
   1920x1080 and the phone, side by side per screen, all taken with the **fixture library**.
+- The side-by-side images come from the parity grid. In `tools/`:
+  `npm run evidence:parity -- --in <folder of screenshots> --out <folder>` (optional `--phone 390x844`
+  and `--desktop 1280x800`, the defaults). It reads screenshots named as the visual suite names them,
+  `<width>x<height>-<screen>.png`, and for every screen that exists at both sizes writes
+  `parity-<screen>.png`: the phone on the left and the desktop on the right, both scaled to the
+  smaller of the two heights (never enlarged), on the canvas colour `#0f0f0f` with a 16 px gap
+  between and around them, no text. `parity-all.png` stacks every screen in name order. It lists the
+  screens found at only one of the two sizes (each one a parity exception until it exists at both)
+  and fails when no screen pairs up. Phase 1 closes with Playlists, Artists, Folders, Playing, Queue,
+  Search and Settings at both sizes and nothing listed as one-sided.
 - Never commit a screenshot, log or trace that shows a real library, a real path or a device
   identifier. Screenshots of a real library go only into the private owner report.
 - Every acceptance item is either **agent-verified** (proved by a test, a log line or a screenshot;

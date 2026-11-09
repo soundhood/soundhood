@@ -11,6 +11,7 @@ cd ../tools && npm ci
 npm run test:visual           # every spec: compare with the committed baselines, run the flow checks
 npm run test:visual:update    # rewrite the baselines after an intended UI change
 npm run evidence:after        # copy them to docs/evidence/phase-0/after/
+npm run evidence:parity -- --in <dir> --out <dir>   # phone and desktop side by side per screen
 npm test                      # unit tests, including ui-logic.test.mjs and pixels.test.mjs
 ```
 
@@ -23,6 +24,7 @@ npm test                      # unit tests, including ui-logic.test.mjs and pixe
 | `baseline.spec.mjs` | the screens of the old UI: desktop library with a playlist open and a track playing; phone browse, tracks, settings sheet, full player |
 | `undo.spec.mjs` | what Phase 0 adds: Undo enabled after a tag edit (desktop) and in the settings sheet (phone), then undone; the developer section open on both; the desktop after a playlist add, checked pixel for pixel against the screen before it (only the Undo button, the status and that playlist's count may change) |
 | `flows.spec.mjs` | behaviour without screenshots: change lines stay out of the visible log and travel with Copy log, the desktop copy-failure text, no sideways scroll at 760 px, the test library switch (folder line, top-bar note, sync off), the queue stopping after a refused download, channel links refused |
+| `parity.mjs`, `parity-grid.mjs` | the parity grid (`npm run evidence:parity`): pairs `390x844-<screen>.png` with `1280x800-<screen>.png`, draws each pair side by side at one height on `#0f0f0f` with a 16 px gap (`parity-<screen>.png`) and stacks them (`parity-all.png`); lists screens found at one size only ([TESTING](../../docs/TESTING.md#evidence-rules)) |
 | `pixels.mjs` | counts the pixels that changed between two screenshots outside the regions a flow may change |
 | `ui-logic.test.mjs` | unit tests of the UI's pure helpers in `app/src` (links, download output, test library, Copy log text, undo wording, folder names) |
 | `__screenshots__/<os>/` | committed baselines, one set per OS (fonts differ); only `win32` exists so far |
