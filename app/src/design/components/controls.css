@@ -1,0 +1,455 @@
+/* Controls: Button, IconButton, Switch, Checkbox, Slider, Chip, Badge, SearchField, Dropdown.
+   No native control keeps its native look: inputs are drawn here with appearance: none. */
+
+/* Button. Primary is the aqua-filled pill (counts toward the one aqua fill per screen). */
+.Button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  height: 40px;
+  min-width: 40px;
+  padding: 0 var(--sp-5);
+  border-radius: var(--r-pill);
+  font: var(--t-body-strong);
+  white-space: nowrap;
+  background: var(--bg-2);
+  color: var(--fg-0);
+  transition:
+    background-color var(--dur-s) var(--ease-standard),
+    transform var(--dur-xs) var(--ease-standard);
+}
+
+.Button:hover {
+  background: var(--bg-3);
+}
+
+.Button:active {
+  transform: scale(0.97);
+}
+
+.Button.is-primary {
+  background: var(--aqua);
+  color: var(--aqua-ink);
+}
+
+.Button.is-danger {
+  background: var(--danger);
+  color: var(--aqua-ink);
+}
+
+.Button.is-text {
+  background: transparent;
+  color: var(--fg-0);
+  padding: 0 var(--sp-3);
+}
+
+.Button.is-text:hover {
+  background: var(--hover);
+}
+
+.Button.is-link {
+  background: transparent;
+  color: var(--aqua);
+  padding: 0 var(--sp-2);
+  height: var(--hit);
+}
+
+.Button.is-small {
+  height: 32px;
+  padding: 0 var(--sp-4);
+  font: var(--t-body-sm);
+  font-weight: 550;
+}
+
+.Button:disabled {
+  background: var(--bg-2);
+  color: var(--fg-disabled);
+  transform: none;
+}
+
+/* IconButton: an icon in a square hit target; aria-label is required (Icon.tsx refuses none). */
+.IconButton {
+  display: inline-grid;
+  place-items: center;
+  width: var(--hit);
+  height: var(--hit);
+  flex: none;
+  border-radius: var(--r-pill);
+  color: var(--fg-1);
+  transition:
+    color var(--dur-s) var(--ease-standard),
+    background-color var(--dur-s) var(--ease-standard),
+    transform var(--dur-xs) var(--ease-standard);
+}
+
+.IconButton:hover {
+  color: var(--fg-0);
+  background: var(--hover);
+}
+
+.IconButton:active {
+  transform: scale(0.92);
+}
+
+.IconButton.is-on {
+  color: var(--aqua);
+}
+
+.IconButton.is-strong {
+  color: var(--fg-0);
+}
+
+.IconButton:disabled {
+  color: var(--fg-disabled);
+  background: none;
+  transform: none;
+}
+
+/* The round play button: aqua fill, ink glyph. 64 px in the full player, 40 px in the bar. */
+.PlayButton {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-pill);
+  background: var(--aqua);
+  color: var(--aqua-ink);
+  transition: transform var(--dur-xs) var(--ease-standard);
+}
+
+.PlayButton:active {
+  transform: scale(0.94);
+}
+
+.PlayButton.is-large {
+  width: 64px;
+  height: 64px;
+}
+
+/* Switch: track 32 x 18, purple when on, lilac knob. */
+.Switch {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 32px;
+  height: 18px;
+  border-radius: var(--r-pill);
+  background: var(--bg-3);
+  box-shadow: inset 0 0 0 1px var(--track-edge);
+  transition: background-color var(--dur-s) var(--ease-standard);
+}
+
+.Switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-pill);
+  background: var(--fg-1);
+  transition:
+    transform var(--dur-s) var(--ease-standard),
+    background-color var(--dur-s) var(--ease-standard);
+}
+
+.Switch[aria-checked="true"] {
+  background: var(--purple);
+}
+
+.Switch[aria-checked="true"]::after {
+  transform: translateX(14px);
+  background: var(--lilac);
+}
+
+/* Checkbox (Select mode): a rounded square, aqua when ticked. */
+.Checkbox {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  box-shadow: inset 0 0 0 1.5px var(--fg-1);
+  color: var(--aqua-ink);
+}
+
+.Checkbox[aria-checked="true"] {
+  background: var(--aqua);
+  box-shadow: none;
+}
+
+.Checkbox[aria-checked="false"] .Icon {
+  visibility: hidden;
+}
+
+/* Slider: a range input drawn from scratch. --percent is set by the component. */
+.Slider {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: var(--hit);
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  --percent: 0%;
+}
+
+.Slider::-webkit-slider-runnable-track {
+  height: var(--track-h);
+  border-radius: var(--r-pill);
+  background: linear-gradient(to right, var(--purple) var(--percent), var(--bg-3) var(--percent));
+  box-shadow: inset 0 0 0 1px var(--track-edge);
+}
+
+.Slider::-moz-range-track {
+  height: var(--track-h);
+  border-radius: var(--r-pill);
+  background: var(--bg-3);
+  box-shadow: inset 0 0 0 1px var(--track-edge);
+}
+
+.Slider::-moz-range-progress {
+  height: var(--track-h);
+  border-radius: var(--r-pill);
+  background: var(--purple);
+}
+
+.Slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--knob);
+  height: var(--knob);
+  margin-top: calc((var(--track-h) - var(--knob)) / 2);
+  border-radius: var(--r-pill);
+  background: var(--lilac);
+  border: 0;
+  transition: transform var(--dur-xs) var(--ease-standard);
+}
+
+.Slider::-moz-range-thumb {
+  width: var(--knob);
+  height: var(--knob);
+  border-radius: var(--r-pill);
+  background: var(--lilac);
+  border: 0;
+}
+
+.Slider:active::-webkit-slider-thumb {
+  transform: scale(1.25);
+}
+
+.Slider:focus-visible {
+  outline-offset: -4px;
+  border-radius: var(--r-sm);
+}
+
+.SliderRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  font: var(--t-caption);
+  color: var(--fg-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.SliderRow.is-stacked {
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas: "slider slider" "start end";
+  row-gap: 0;
+}
+
+.SliderRow.is-stacked .Slider {
+  grid-area: slider;
+}
+
+.SliderRow.is-stacked .SliderRow-end {
+  grid-area: end;
+  justify-self: end;
+}
+
+/* Chip: filter chips under a search field. Selected chips step up a surface; no aqua fill. */
+.ChipRow {
+  display: flex;
+  gap: var(--sp-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-block: var(--sp-1);
+}
+
+.ChipRow::-webkit-scrollbar {
+  display: none;
+}
+
+.Chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+  height: 32px;
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-pill);
+  font: var(--t-body-sm);
+  font-weight: 500;
+  color: var(--fg-1);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition:
+    background-color var(--dur-s) var(--ease-standard),
+    color var(--dur-s) var(--ease-standard);
+}
+
+.Chip[aria-pressed="true"],
+.Chip[aria-selected="true"] {
+  background: var(--bg-3);
+  color: var(--fg-0);
+  box-shadow: none;
+}
+
+/* Badge: purple fill under light text, or lilac outline text. */
+.Badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-pill);
+  background: var(--purple);
+  color: var(--fg-0);
+  font: var(--t-overline);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+}
+
+.Badge.is-outline {
+  background: transparent;
+  color: var(--lilac);
+  box-shadow: inset 0 0 0 1px var(--lilac-dim);
+}
+
+/* SearchField. */
+.SearchField {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 40px;
+  min-width: 0;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: box-shadow var(--dur-s) var(--ease-standard);
+}
+
+.SearchField:focus-within {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.SearchField input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg-0);
+  font: var(--t-body);
+  outline: none;
+}
+
+.SearchField input::placeholder {
+  color: var(--fg-1);
+}
+
+.SearchField .IconButton {
+  width: 28px;
+  height: 28px;
+}
+
+/* Text field (settings, dialogs). */
+.TextField {
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--fg-0);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: var(--t-body);
+}
+
+.TextField::placeholder {
+  color: var(--fg-1);
+}
+
+.TextField:focus-visible {
+  outline-offset: 0;
+}
+
+/* Dropdown: a button that opens a listbox popover (never a native select). */
+.Dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.Dropdown-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 36px;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--fg-0);
+  font: var(--t-body-sm);
+  font-weight: 500;
+  max-width: 100%;
+}
+
+.Dropdown-button .Icon {
+  color: var(--fg-1);
+}
+
+.Popover {
+  position: absolute;
+  z-index: 40;
+  min-width: 200px;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--sp-1);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  box-shadow:
+    var(--shadow-float),
+    inset 0 0 0 1px var(--line);
+}
+
+.Option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: 36px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-sm);
+  font: var(--t-body-sm);
+  color: var(--fg-0);
+  cursor: pointer;
+}
+
+.Option[aria-selected="true"] .Icon {
+  color: var(--aqua);
+}
+
+.Option .Icon {
+  color: transparent;
+}
+
+.Option.is-active,
+.Option:hover {
+  background: var(--bg-3);
+}

@@ -1,0 +1,169 @@
+/* Soundhood design tokens.
+   This is the only file under app/src allowed to hold raw colour values (tools/token-lint.mjs).
+   Every value comes from the build brief, section 6; docs/DESIGN.md says where each one is used.
+   Nothing here styles an element: base element styles live in base.css, components in components/. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url("./fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: block;
+  src: url("./fonts/InterVariable-Italic.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces. bg-0 is the canvas; bg-1 sheets, cards and bars; bg-2 inputs, chips, hover;
+     bg-3 pressed and selected. Elevation is a surface step plus a 1 px line, never a shadow. */
+  --bg-0: #0f0f0f;
+  --bg-1: #212121;
+  --bg-2: #2a2a2a;
+  --bg-3: #333333;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+
+  /* Text. Only fg-0, fg-1, aqua and lilac are text colours (4.5:1 or better on bg-0, bg-1, bg-2).
+     fg-2 measures 3.8:1 on bg-0, so it is used for non-text only (inactive handles, separators). */
+  --fg-0: #ededed;
+  --fg-1: #a3a3a3;
+  --fg-2: #707070;
+  --fg-disabled: #4d4d4d;
+
+  /* Brand. Aqua is the single primary: play state, active tab, progress hairline, focus ring,
+     now-playing marker; at most one aqua-filled element per screen. Purple is a non-text fill
+     (slider fill, badge backgrounds under white text) and never carries meaning alone. Lilac is
+     purple-family text and the slider knob. */
+  --aqua: #00ffbf;
+  --aqua-ink: #0f0f0f;
+  --aqua-dim: color-mix(in oklab, var(--aqua) 18%, transparent);
+  --purple: #8c19ff;
+  --lilac: #c9a3ff;
+  --lilac-dim: #b388ff;
+
+  /* Status. */
+  --danger: #ff5c7a;
+  --warn: #ffb454;
+  --ok: var(--aqua);
+  --danger-dim: color-mix(in oklab, var(--danger) 14%, transparent);
+
+  /* Effects. Shadows only on floating menus and toasts. Overlays: bg-1 over a dimmed, blurred
+     backdrop (solid fallback where backdrop-filter is missing). */
+  --scrollbar: #3a3a3a;
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-art: 0 24px 48px rgba(0, 0, 0, 0.35);
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --backdrop-blur: blur(16px);
+  --track-edge: rgba(255, 255, 255, 0.2);
+  --press: rgba(255, 255, 255, 0.06);
+  --hover: rgba(255, 255, 255, 0.04);
+
+  /* Type. Inter 4.1 variable, bundled (never a CDN). The optical-size axis follows the font size. */
+  --font-sans: "Inter", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --t-display: 700 40px / 44px var(--font-sans);
+  --t-h1: 700 28px / 34px var(--font-sans);
+  --t-h2: 600 22px / 28px var(--font-sans);
+  --t-h3: 600 17px / 22px var(--font-sans);
+  --t-body: 450 15px / 20px var(--font-sans);
+  --t-body-strong: 550 15px / 20px var(--font-sans);
+  --t-body-sm: 400 13px / 18px var(--font-sans);
+  --t-caption: 500 12px / 16px var(--font-sans);
+  --t-overline: 600 11px / 14px var(--font-sans);
+  --tracking-tight: -0.02em;
+  --tracking-overline: 0.06em;
+
+  /* Spacing, a 4-point scale. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --sp-9: 48px;
+  --sp-10: 64px;
+  --sp-11: 80px;
+  --sp-12: 96px;
+
+  /* Radii. */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* Sizes. Phone values here; the shell overrides the desktop ones by container size, and
+     pointer: coarse below raises hit targets. */
+  --gutter: 16px;
+  --row-h: 56px;
+  --thumb-sm: 40px;
+  --thumb-md: 48px;
+  --thumb-lg: 56px;
+  --tabbar-h: 56px;
+  --mini-h: 56px;
+  --playerbar-h: 80px;
+  --sidebar-w: 240px;
+  --sidebar-min: 200px;
+  --sidebar-max: 320px;
+  --rail-w: 72px;
+  --rightpane-w: 320px;
+  --hit: 32px;
+  --hit-gap: 8px;
+  --icon-sm: 20px;
+  --icon-md: 24px;
+  --icon-lg: 32px;
+  --icon-stroke: 1.5;
+  --hairline: 2px;
+  --knob: 12px;
+  --track-h: 3px;
+
+  /* Motion. Animate transform, opacity and colour only. */
+  --dur-xs: 100ms;
+  --dur-s: 150ms;
+  --dur-m: 250ms;
+  --dur-l: 400ms;
+  --dur-xl: 500ms;
+  --dur-opacity: var(--dur-s);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decel: cubic-bezier(0, 0, 0, 1);
+  --ease-accel: cubic-bezier(0.3, 0, 1, 1);
+  --ease-emph: cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+
+@media (pointer: coarse) {
+  :root {
+    --hit: 44px;
+    --knob: 16px;
+  }
+}
+
+/* Reduced motion: every duration is zero except opacity fades, which stay at most 120 ms. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-xs: 0ms;
+    --dur-s: 0ms;
+    --dur-m: 0ms;
+    --dur-l: 0ms;
+    --dur-xl: 0ms;
+    --dur-opacity: 120ms;
+  }
+}
+
+/* More contrast: secondary text and every line lift. */
+@media (prefers-contrast: more) {
+  :root {
+    --fg-1: #c0c0c0;
+    --line: rgba(255, 255, 255, 0.24);
+    --line-strong: rgba(255, 255, 255, 0.32);
+  }
+}
