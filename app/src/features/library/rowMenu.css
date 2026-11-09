@@ -1,0 +1,13 @@
+/* A song row's menu (RowMenu.tsx): the MenuButton's popover, placed in the shell's overlay layer
+   against the row's more button or the pointer (left and top are set when it opens). */
+.Menu.RowMenu {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  top: 0;
+}
+
+.Menu.RowMenu .Popover {
+  top: 0;
+  left: 0;
+}

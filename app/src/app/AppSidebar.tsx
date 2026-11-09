@@ -1,17 +1,25 @@
 // The sidebar (desktop; the rail on a tablet): the wordmark, the search field, Playlists, Artists,
 // Folders and Playing with their counts, the playlists (the playing one marked), Settings, and the
-// collapse button and the resizable edge, both remembered (useShellPrefs).
+// collapse button and the resizable edge, both remembered (useShellPrefs). Songs dragged from a list
+// onto a playlist are added to it (journaled, with Undo in the toast); songs it already holds are
+// left out, and a drop that adds nothing says so without an Undo.
 import { SearchField, Sidebar, type NavEntry } from "../design";
 import { useMosaics } from "../hooks/useCovers";
 import type { ShellPrefs } from "../hooks/useShellPrefs";
 import type { TopTab } from "../hooks/useNavigation";
+import { droppedPaths } from "../features/library/songDrag";
 import { detailTitle } from "../features/library/TrackListScreen";
+import { trackTitle } from "../features/library/trackInfo";
+import { usePlaylistEdits } from "../features/playlists/usePlaylistEdits";
+import { useToast } from "../design";
 import { useApp } from "./context";
 
 type NavId = TopTab | "playing";
 
 export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
   const { lib, nav, player, actions } = useApp();
+  const playlistEdits = usePlaylistEdits();
+  const toast = useToast();
   const lists = lib.playlistFiles.map((p) => (lib.tracksOfPlaylist.get(p.name) ?? []).map((t) => t.path));
   const covers = useMosaics(lists);
   const folderCount = lib.folders.filter((f) => f !== "(all)").length;
@@ -44,6 +52,14 @@ export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
       currentPlaylist={openPlaylist}
       onOpenPlaylist={(name) => nav.openDetail({ kind: "playlist", name })}
       onNewPlaylist={lib.folder ? () => actions.newPlaylist() : undefined}
+      onDropOnPlaylist={(name, e) => {
+        const pl = lib.playlistFiles.find((p) => p.name === name);
+        const songs = droppedPaths(e.dataTransfer).flatMap((p) => player.trackByPath.get(p) ?? []);
+        if (!pl || songs.length === 0) return;
+        const fresh = songs.filter((t) => !lib.inPlaylist(pl, t));
+        if (fresh.length > 0) void playlistEdits.add(name, fresh);
+        else toast.show({ text: songs.length === 1 ? `${trackTitle(songs[0])} is already in ${name}` : `These songs are already in ${name}` });
+      }}
       onSettings={actions.openSettings}
       width={prefs.sidebarWidth}
       onWidthChange={prefs.setSidebarWidth}
