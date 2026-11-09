@@ -268,6 +268,7 @@ touch that file.
 | The All-files permission screen left the page blank (a backgrounded WebView is throttled mid-load) | the request is delayed 2.5 s | `MainActivity.kt` |
 | An APK signed with another key will not install, and uninstalling wipes app data | one key for every APK on the phone | [Signing](#signing) |
 | `cargo check --target aarch64-linux-android` fails in SQLite's build script | use cargo-ndk | [The Cargo workspace](#the-cargo-workspace) |
+| `tauri android init` puts the template's launcher icon back | regenerate every icon from the brand sources: from `app/`, `npx tauri icon ../app/src/design/brand/icon-manifest.json`, then delete the `icons/ios/` folder it also writes (iOS is deferred) | `app/src/design/brand/` ([DESIGN](DESIGN.md#app-icon)) |
 | Renaming the settings store loses every saved setting | the store file keeps its old name, `music-hood.json` | `app/src/App.tsx` (`Store.load`) |
 
 Kotlin files named without a folder live under `app/src-tauri/plugins/soundhood-ytdl/android/src/main/java/`
