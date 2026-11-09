@@ -1,14 +1,23 @@
 {
   "_about": "Grandfathered lint violations: tool -> file -> rule -> count. Written by `--write-baseline`; never raise a count by hand. Lower it (re-run --write-baseline) whenever code gets cleaner.",
   "token-lint": {
-    "app/src/app/App.tsx": {
-      "emoji-glyph": 7
-    },
     "app/src/app/legacy/Dropdown.tsx": {
       "emoji-glyph": 1
     },
     "app/src/app/legacyStyles.ts": {
       "raw-hex": 15
+    },
+    "app/src/features/library/TrackList.tsx": {
+      "emoji-glyph": 1
+    },
+    "app/src/features/player/PhoneBottom.tsx": {
+      "emoji-glyph": 1
+    },
+    "app/src/features/player/PhonePlayer.tsx": {
+      "emoji-glyph": 1
+    },
+    "app/src/features/player/PlayerBar.tsx": {
+      "emoji-glyph": 4
     }
   }
 }
