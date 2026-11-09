@@ -13,8 +13,8 @@ do (Proton sync, the app's own bin, the old phone settings).
 |---|---|---|
 | `sidebar` | `AppSidebar.tsx` | wordmark, search field, Playlists / Artists / Folders / Playing with counts, the playlists, Settings, fold and resize. Width and fold are remembered (`useShellPrefs`, store keys `sidebar_width` and `sidebar_collapsed`). A rail on tablets. |
 | `main` | `MainArea.tsx` | the screen `useNavigation` names; scrolls; each screen gets its scroll position back. Lists scroll with it (`scroller`). |
-| `right` | `AppShell`'s `rightPane` prop | **the Queue plugs in here.** Closed (no pane) until the queue exists: pass a node to `<AppShell rightPane={...} />` and the Shell lays it out (desktop only, hidden under 600 px tall). Keep its open or closed state where the queue lives and remember it. |
-| `bar` | `NowBar` (features/player) | tablet and desktop. Repeat and the queue button are left out until they work (`Transport` hides repeat without `onRepeat`; `PlayerBar` hides the queue without `onQueue`). |
+| `right` | the Queue (`features/queue`) | on a shell at least 1080 px wide and 600 px tall; otherwise the queue opens as a 92 % sheet in `overlays`. Opened by the player bar's queue button, the full player, the mini player or Q; open or closed is remembered (store key `queue_pane_open`). |
+| `bar` | `NowBar` (features/player) | tablet and desktop: transport with Repeat, the time line, the queue button, volume. |
 | `bottom` | `NowMini` and `BottomTabs` | phone; hidden under the Playing screen (Shell `view="playing"`). |
 | `overlays` | `Overlays.tsx` | in stacking order: the **settings sheet** (see below), the old dialogs, the screens' sheets (`AddToPlaylistSheet`, `NewPlaylistSheet`, `MoveToFolderSheet`), then `ToastViewport`. New dialogs go here. |
 
@@ -49,12 +49,8 @@ layout despite the name).
 - **Dialogs** (next): `Overlays.tsx` mounts the old ones inside a `.legacy` box. The old stylesheet
   (`legacyStyles.ts`) is confined to `.legacy` by `legacy/scopeCss.ts`; delete both once nothing
   old is left.
-- **Queue** (next): the `rightPane` prop above; a phone sheet goes in `overlays`; the Queue and
-  lyrics buttons appear when `onQueue` / `onLyrics` are passed to `PlayerBar` and `FullPlayer`
-  (`features/player/PlayerSurfaces.tsx`), repeat when `onRepeat` is.
-- **Keyboard**: `TrackList` handles Enter on a row; Esc leaves Select mode, clears the search and
-  closes the Playing screen; 1 to 4 switch tabs (BottomTabs); Ctrl+K and `/` focus the search field.
-  The rest of SHORTCUTS.md is not wired yet.
+- **Queue**: mounted. The model is `features/queue/queueModel.ts` (pure, unit-tested); the player hook owns one queue; position and length live in `features/player/playbackClock.ts`, read only by the surfaces that show them, so lists do not re-render on every tick.
+- **Keyboard**: one map, `app/keyboard.ts`, run by `KeyboardShortcuts.ts`; the list is [SHORTCUTS](../../../docs/SHORTCUTS.md). Ctrl+comma (settings) and Ctrl+V (paste a link) belong to the settings and ingest features.
 
 ## Files
 

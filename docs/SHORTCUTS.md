@@ -1,17 +1,23 @@
 # Keyboard shortcuts (PC)
 
-The decided list. Shortcuts are discoverable here only: the app shows no on-screen legend. There are
-no J/K shortcuts. Single keys do nothing while you type in a text field (Esc still works there). On
-the phone there is no keyboard layer: a tap plays, and there is no double-tap.
+The decided list, all working from Phase 1 (0.3.0) unless marked. Shortcuts are discoverable here
+only: the app shows no on-screen legend. There are no J/K shortcuts. Single keys do nothing while you
+type in a text field (Esc still works there), and while a sheet or dialog is open only the playback
+keys answer. On the phone there is no keyboard layer: a tap plays, and there is no double-tap.
+
+"The selection" means the songs you have chosen (Ctrl+click, Shift+click, or Select mode), or else
+the row that has the keyboard focus.
 
 ## Playback
 
 | Keys | Action |
 |---|---|
-| Space | Play / pause |
-| Ctrl+Right, Ctrl+Left | Next track, previous track |
-| Ctrl+Up, Ctrl+Down | Volume up, volume down |
+| Space | Play / pause (with nothing loaded: start the queue, or the list on screen) |
+| Ctrl+Right, Ctrl+Left | Next song, previous song (past 3 seconds into a song, Previous starts it again) |
+| Ctrl+Up, Ctrl+Down | Volume up, volume down, by 5 % |
 | M | Mute |
+
+Ctrl+arrows also work while a slider has the focus.
 
 ## Navigation
 
@@ -23,45 +29,45 @@ the phone there is no keyboard layer: a tap plays, and there is no double-tap.
 | Ctrl+, | Settings |
 | Q | Show or hide the queue |
 
-## Selection and lists
+## Songs in a list
 
 | Keys | Action |
 |---|---|
+| Up, Down, Home, End, Page Up, Page Down | Move through the list |
+| Click | Play the song |
+| Ctrl+click, Shift+click | Choose a song without playing it, choose a range |
+| Ctrl+A | Choose every listed song |
 | Enter | Play the selection |
-| A | Add the selection to the queue |
+| A | Add the selection to the queue (after the songs already added) |
 | Shift+A | Play the selection next |
-| Del | Remove from the queue or the playlist being shown |
-| Ctrl+E | Edit tags of the selection |
+| Del | Remove from the playlist being shown; elsewhere, from the queue (a toast offers Undo) |
+| Ctrl+E | Edit tags (one song; with nothing chosen, the playing song) |
 | Ctrl+S | Save the selection as a playlist |
+| Context menu key, Shift+F10 | The song's menu (also a right click) |
 
 ## Queue
 
 | Keys | Action |
 |---|---|
-| X | Remove from the queue |
-| Ctrl+L | Clear the queue (asks first) |
+| Enter | Play the focused song |
+| X, Del | Remove it from the queue (a toast offers Undo) |
+| Alt+Up, Alt+Down | Move it up or down |
+| Ctrl+L | Clear the queue (asks first; the playing song stays) |
 
-Reordering the queue is done by dragging; Ctrl+Up and Ctrl+Down always mean volume.
+Ctrl+Up and Ctrl+Down always mean volume. Songs can also be dragged in the queue, and dragged from a
+list onto a playlist in the sidebar.
 
 ## Downloads
 
 | Keys | Action |
 |---|---|
-| Ctrl+V | Paste a link (opens "Where should this go?") |
-| Ctrl+Shift+D | Global: download the link on the clipboard, even with Soundhood in the background (configurable; the default on Linux and macOS, where this one collides, is recorded in [DECISIONS](DECISIONS.md)) |
+| Ctrl+V | Paste a link (opens "Where should this go?"), when no text field has the focus |
+| Ctrl+Shift+D | **Phase 3**: global, download the link on the clipboard even with Soundhood in the background (configurable; the default on Linux and macOS, where this one collides, will be recorded in [DECISIONS](DECISIONS.md)) |
 
-## What works today
-
-The list above arrives with the rebuilt PC interface (the global hotkey with the tray, in Phase 3).
-Until then the PC app has:
+## Developer
 
 | Keys | Action |
 |---|---|
-| Click, Ctrl+click, Shift+click | Select one track, add or remove one, select a range |
-| Double-click | Play a track; on a playlist, artist or folder, shuffle-play it |
-| Ctrl+A | Select every listed track |
-| Esc | Clear the selection; close the edit and delete dialogs |
-| Enter | Confirm the field you are typing in (link, folder name, playlist name, tags) |
-| Ctrl+Alt+Shift+D | Show or hide the developer section (test switches; new in Phase 0) |
+| Ctrl+Alt+Shift+D | Show or hide the developer section at the bottom of Settings (Test library, self-test, Rebuild index; [TESTING](TESTING.md#device-runs-with-the-fixture-root)) |
 
 See [SCREENS](SCREENS.md) for where each action lives.
