@@ -1,4 +1,8 @@
 // Shapes the UI shares between its hooks and views.
+import type { Dispatch, SetStateAction } from "react";
+
+/** A React state setter, as hooks receive each other's. */
+export type Setter<T> = Dispatch<SetStateAction<T>>;
 
 /** One audio file as the host's scan returns it. */
 export type Track = {
