@@ -31,6 +31,27 @@ const phone = (kind, width, height) => ({
   use: { viewport: { width, height }, soundhoodPlatform: "android", isMobile: true, hasTouch: true },
 });
 
+// The design system's fixture pages (components.spec.mjs). There the layout follows the width only,
+// as in the rebuilt app; the two narrow sizes are touch devices, the two wide ones use a mouse.
+// Every size in the default mode; 390x844 and 1280x800 also with reduced motion, more contrast and
+// 130 % text (the spec sets --text-scale for that mode).
+const component = (width, height, mode = "default", contextOptions = {}) => ({
+  name: `components-${width}x${height}${mode === "default" ? "" : `-${mode}`}`,
+  testMatch: "components.spec.mjs",
+  grep: /@component/,
+  metadata: { mode },
+  use: {
+    viewport: { width, height },
+    ...(width < 1000 ? { isMobile: true, hasTouch: true } : {}),
+    contextOptions,
+  },
+});
+const componentModes = (width, height) => [
+  component(width, height, "reduced-motion", { reducedMotion: "reduce" }),
+  component(width, height, "more-contrast", { contrast: "more" }),
+  component(width, height, "text-130"),
+];
+
 export default defineConfig({
   testDir: HERE,
   testMatch: "*.spec.mjs",
@@ -52,7 +73,18 @@ export default defineConfig({
     // blue-scan and differ between machines. Phones render grayscale text anyway.
     launchOptions: { args: ["--disable-lcd-text"] },
   },
-  projects: [desktop(1280, 800), desktop(1920, 1080), phone("phone", 390, 844), phone("tablet", 834, 1194)],
+  projects: [
+    desktop(1280, 800),
+    desktop(1920, 1080),
+    phone("phone", 390, 844),
+    phone("tablet", 834, 1194),
+    component(390, 844),
+    component(834, 1194),
+    component(1280, 800),
+    component(1920, 1080),
+    ...componentModes(390, 844),
+    ...componentModes(1280, 800),
+  ],
   webServer: {
     // Needs app/node_modules (`npm ci` in app/). --strictPort: a taken port must fail, not drift.
     command: `npx vite --port ${port} --strictPort --host 127.0.0.1`,

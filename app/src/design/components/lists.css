@@ -1,5 +1,6 @@
-/* Lists: Thumb, Mosaic, TrackRow, ListRow, PlaylistCard, SectionHeader, Equaliser, Skeleton,
-   ErrorRow, EmptyState. Rows are 56 px on the phone and 48 px on the desktop (--row-h). */
+/* Lists: Thumb, Mosaic, Equaliser, TrackRow, ListRow, PlaylistCard, SectionHeader, VirtualList.
+   Rows are 56 px on the phone and 48 px on the desktop (--row-h). Skeleton, ErrorRow and
+   EmptyState are in states.css. */
 
 .Thumb {
   flex: none;
@@ -15,7 +16,8 @@
   border-radius: var(--r-pill);
 }
 
-.Thumb.is-folder {
+/* No artwork (a folder, an artist without a picture, a song without a cover): an icon on --bg-2. */
+.Thumb.is-icon {
   display: grid;
   place-items: center;
   color: var(--fg-1);
@@ -40,6 +42,12 @@
 
 .Mosaic.is-single {
   grid-template-columns: 1fr;
+}
+
+.Mosaic.is-empty {
+  grid-template-columns: 1fr;
+  place-items: center;
+  color: var(--fg-1);
 }
 
 .Mosaic.is-small {
@@ -127,6 +135,12 @@
   background: var(--press);
 }
 
+/* Rows sit inside scrolling lists: draw the focus ring inside the row so it is never clipped. */
+.TrackRow:focus-visible,
+.ListRow:focus-visible {
+  outline-offset: -2px;
+}
+
 .TrackRow-text {
   display: grid;
   min-width: 0;
@@ -197,23 +211,36 @@
   margin-right: calc(var(--sp-1) * -1);
 }
 
-.TrackRow.has-check {
+.TrackRow.has-check,
+.TrackRow.has-handle {
   grid-template-columns: auto auto minmax(0, 1fr) auto auto;
 }
 
-.TrackRow.has-handle {
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
-}
-
+/* The drag handle: the whole row height, no scrolling from it on touch (it drags). */
 .TrackRow-handle {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 100%;
+  margin: 0 calc(var(--sp-1) * -1) 0 calc(var(--sp-2) * -1);
   color: var(--fg-2);
   cursor: grab;
+  touch-action: none;
+}
+
+.TrackRow-handle:active {
+  cursor: grabbing;
 }
 
 /* On a desktop shell the row adds the folder the file sits in (storage only, shown as a hint). */
 @container shell (min-width: 1080px) {
   .TrackRow {
     grid-template-columns: auto minmax(0, 1.6fr) minmax(0, 1fr) auto auto;
+  }
+
+  .TrackRow.has-check,
+  .TrackRow.has-handle {
+    grid-template-columns: auto auto minmax(0, 1.6fr) minmax(0, 1fr) auto auto;
   }
 
   .TrackRow-folder {
@@ -232,6 +259,10 @@
 
   .Queue .TrackRow {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .Queue .TrackRow.has-handle {
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   }
 
   .Queue .TrackRow-folder {
@@ -258,6 +289,21 @@
 
 .ListRow:hover {
   background: var(--hover);
+}
+
+.ListRow:active {
+  background: var(--press);
+}
+
+.ListRow-text {
+  display: grid;
+  min-width: 0;
+}
+
+.ListRow-chevron {
+  display: grid;
+  padding-right: var(--sp-2);
+  color: var(--fg-1);
 }
 
 .ListRow-name {
@@ -290,14 +336,15 @@
   padding: 0 var(--gutter);
 }
 
+/* The name is the card's button; its ::after covers the whole card, so a tap anywhere opens the
+   playlist while the "more" button stays a separate target above it. */
 .PlaylistCard {
+  position: relative;
   display: grid;
   gap: var(--sp-2);
   align-content: start;
   min-width: 0;
-  padding: 0;
   border-radius: var(--r-lg);
-  text-align: left;
   transition: transform var(--dur-xs) var(--ease-standard);
 }
 
@@ -305,25 +352,87 @@
   transform: scale(0.98);
 }
 
-.PlaylistCard-name {
+.PlaylistCard-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--sp-1);
+}
+
+.PlaylistCard-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.PlaylistCard-open {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  min-width: 0;
   font: var(--t-body-strong);
+  text-align: left;
+}
+
+.PlaylistCard-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-lg);
+}
+
+/* The focus ring moves from the name to the whole card (the ::after), it is not removed. */
+.PlaylistCard-open:focus-visible {
+  outline: none;
+}
+
+.PlaylistCard-open:focus-visible::after {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
+}
+
+.PlaylistCard-name {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .PlaylistCard-meta {
-  margin-top: -6px;
   font: var(--t-body-sm);
   color: var(--fg-1);
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.PlaylistCard.is-playing .PlaylistCard-name {
+.PlaylistCard.is-playing .PlaylistCard-open {
   color: var(--aqua);
+}
+
+.PlaylistCard-more {
+  position: relative;
+  z-index: 1;
+  margin: calc(var(--sp-1) * -1) calc(var(--sp-2) * -1) 0 0;
+}
+
+@container shell (min-width: 1080px) {
+  .PlaylistCard-more {
+    opacity: 0;
+    transition: opacity var(--dur-opacity) var(--ease-standard);
+  }
+
+  .PlaylistCard:hover .PlaylistCard-more,
+  .PlaylistCard:focus-within .PlaylistCard-more {
+    opacity: 1;
+  }
+}
+
+@media (pointer: coarse) {
+  .PlaylistCard-more {
+    opacity: 1;
+  }
 }
 
 /* SectionHeader. */
@@ -345,133 +454,30 @@
   color: var(--fg-1);
 }
 
-/* Skeleton rows while the index builds: a soft pulse, no shimmer sweep. */
-.Skeleton {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  column-gap: var(--sp-3);
-  height: var(--row-h);
-  padding: 0 var(--gutter);
-}
-
-.Skeleton-thumb,
-.Skeleton-line {
-  background: var(--bg-2);
-  border-radius: var(--r-xs);
-  animation: skeleton-pulse 1400ms var(--ease-standard) infinite alternate;
-}
-
-.Skeleton-thumb {
-  width: var(--thumb-sm);
-  height: var(--thumb-sm);
-}
-
-.Skeleton-lines {
-  display: grid;
-  gap: 6px;
-}
-
-.Skeleton-line {
-  height: 10px;
-  width: 60%;
-}
-
-.Skeleton-line + .Skeleton-line {
-  width: 36%;
-}
-
-@keyframes skeleton-pulse {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0.45;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .Skeleton-thumb,
-  .Skeleton-line {
-    animation: none;
-  }
-}
-
-/* ErrorRow: a danger bar on the left, the reason, Copy log and Retry. */
-.ErrorRow {
+/* VirtualList: rows placed by index (--vl-i) at the row height (--row-h), so only the rows in view
+   exist and none of them animates in. The body is as tall as every row together. */
+.VirtualList {
   position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: var(--sp-3);
-  min-height: var(--row-h);
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--gutter);
-  background: var(--danger-dim);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
 }
 
-.ErrorRow::before {
-  content: "";
+.VirtualList.is-inline {
+  overflow: visible;
+}
+
+.VirtualList-body {
+  position: relative;
+  height: calc(var(--vl-count, 0) * var(--row-h));
+  overflow-anchor: none;
+}
+
+.VirtualList-body > [data-index] {
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--danger);
-}
-
-.ErrorRow > .Icon {
-  color: var(--danger);
-}
-
-.ErrorRow-text {
-  display: grid;
-  min-width: 0;
-}
-
-.ErrorRow-title {
-  font: var(--t-body);
-}
-
-.ErrorRow-detail {
-  font: var(--t-body-sm);
-  color: var(--fg-1);
-}
-
-.ErrorRow-actions {
-  display: flex;
-  gap: var(--sp-1);
-}
-
-/* EmptyState: a 48 px line icon, a heading, one line, one aqua text action. No illustrations. */
-.EmptyState {
-  display: grid;
-  justify-items: center;
-  gap: var(--sp-2);
-  max-width: 320px;
-  margin: 0 auto;
-  padding: var(--sp-9) var(--gutter);
-  text-align: center;
-}
-
-.EmptyState > .Icon {
-  color: var(--fg-1);
-  margin-bottom: var(--sp-2);
-}
-
-.EmptyState h2 {
-  margin: 0;
-  font: var(--t-h2);
-  letter-spacing: -0.01em;
-  text-wrap: balance;
-}
-
-.EmptyState p {
-  margin: 0;
-  font: var(--t-body-sm);
-  color: var(--fg-1);
-  text-wrap: pretty;
-}
-
-.EmptyState .Button {
-  margin-top: var(--sp-2);
+  right: 0;
+  top: calc(var(--vl-i, 0) * var(--row-h));
+  height: var(--row-h);
 }

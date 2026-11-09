@@ -1,6 +1,12 @@
 /* Overlays: Backdrop, Sheet (a bottom sheet on the phone, a centred modal on wider shells),
    Queue, Toast, and the settings rows the SettingsSheet is made of. */
 
+/* The Shell's overlay slot: no box of its own (sheets and toasts place themselves against the
+   shell), but it carries the shell's size tokens (.Shell-scope). */
+.Shell-overlays {
+  display: contents;
+}
+
 .Backdrop {
   position: absolute;
   inset: 0;
@@ -51,6 +57,29 @@
 
 .Sheet.is-tall {
   height: 92%;
+}
+
+/* The dialog itself takes focus on open so its title is read out; the ring belongs to the
+   controls inside, not to the whole panel. */
+.Sheet:focus-visible {
+  outline: none;
+}
+
+/* The grabber and the title: where a touch swipe down starts (useSwipe). */
+.Sheet-top {
+  flex: none;
+  touch-action: none;
+}
+
+/* While a swipe drags the sheet it follows the finger (the translate property, so it never fights
+   the entrance animation's transform); let go short of closing and it eases back. */
+.Sheet {
+  translate: 0 var(--drag-y, 0px);
+  transition: translate var(--dur-m) var(--ease-decel);
+}
+
+.Sheet.is-dragging {
+  transition: none;
 }
 
 .Sheet-grabber {
@@ -150,7 +179,8 @@
 .Queue-now {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 3;
+  background: var(--bg-1);
 }
 
 .Queue-label {
@@ -161,7 +191,56 @@
 .Queue-list {
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+}
+
+.Queue-empty {
+  margin: 0;
+  padding: var(--sp-4);
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+/* Reordering: the dragged row follows the pointer above the others, which make room for it. */
+.Queue .TrackRow {
+  touch-action: pan-y;
+  transition:
+    background-color var(--dur-xs) var(--ease-standard),
+    transform var(--dur-s) var(--ease-standard);
+}
+
+.Queue .TrackRow.is-dragging {
+  z-index: 2;
+  background: var(--bg-2);
+  box-shadow: var(--shadow-float);
+  transform: translateY(var(--drag-y, 0px));
+  transition: none;
+}
+
+.Queue .TrackRow.is-shift-up {
+  transform: translateY(calc(var(--row-h) * -1));
+}
+
+.Queue .TrackRow.is-shift-down {
+  transform: translateY(var(--row-h));
+}
+
+/* Removing: the row follows the finger to the left over a danger wash. */
+.Queue .TrackRow.is-swiping {
+  background: var(--bg-1);
+  transform: translateX(var(--swipe-x, 0px));
+  transition: none;
+}
+
+.Queue .TrackRow.is-swiping::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 100%;
+  background: var(--danger-dim);
 }
 
 .Queue .TrackRow {
@@ -170,9 +249,17 @@
 
 .Queue-foot {
   display: flex;
+  align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4);
   box-shadow: inset 0 1px 0 var(--line);
+}
+
+.Queue-confirm {
+  flex: 1;
+  min-width: 0;
+  font: var(--t-body-sm);
+  color: var(--fg-1);
 }
 
 /* Toast: bottom centre, above the player, 4 s, at most two stacked. */
@@ -265,6 +352,43 @@
 
 .SettingRow + .SettingRow {
   box-shadow: inset 0 1px 0 var(--line);
+}
+
+.SettingRow-text {
+  display: grid;
+  min-width: 0;
+}
+
+.SettingRow-label,
+.SettingRow-help {
+  display: block;
+}
+
+/* A row that is one target (a switch row, a value with a chevron). */
+.SettingRow.is-clickable {
+  cursor: pointer;
+  transition: background-color var(--dur-xs) var(--ease-standard);
+}
+
+.SettingRow.is-clickable:hover {
+  background-color: var(--hover);
+}
+
+button.SettingRow {
+  width: 100%;
+  text-align: left;
+}
+
+.SettingRow:focus-visible {
+  outline-offset: -2px;
+}
+
+.SettingRow.is-disabled {
+  cursor: default;
+}
+
+.SettingRow.is-disabled .SettingRow-label {
+  color: var(--fg-disabled);
 }
 
 .SettingRow.is-stacked {

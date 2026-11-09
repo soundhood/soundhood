@@ -27,13 +27,29 @@
 .MiniPlayer {
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  column-gap: var(--sp-3);
+  column-gap: var(--sp-1);
   height: var(--mini-h);
   padding: 0 var(--sp-2) 0 var(--sp-3);
   background: var(--bg-1);
   cursor: pointer;
+  touch-action: none;
+}
+
+/* Cover and text are one button (open the full player). */
+.MiniPlayer-open {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--sp-3);
+  min-width: 0;
+  height: 100%;
+  text-align: left;
+}
+
+.MiniPlayer-open:focus-visible {
+  outline-offset: -2px;
 }
 
 .MiniPlayer .Thumb {
@@ -70,7 +86,31 @@
   position: relative;
   min-height: 100%;
   background: linear-gradient(180deg, var(--tint) 0%, var(--bg-0) 72%);
-  transition: background var(--dur-xl) var(--ease-standard);
+}
+
+/* The phone's full player rises from the bottom; a touch swipe down drags it (useSwipe). */
+@container shell (max-width: 719px) {
+  .FullPlayer {
+    animation: sheet-up var(--dur-l) var(--ease-emph);
+    translate: 0 var(--drag-y, 0px);
+    transition: translate var(--dur-m) var(--ease-decel);
+  }
+
+  .FullPlayer[data-dragging] {
+    transition: none;
+  }
+}
+
+/* Wider shells: the gradient ends higher (the player is a pane, not a screen). */
+@container shell (min-width: 720px) {
+  .FullPlayer {
+    background: linear-gradient(180deg, var(--tint) 0%, var(--bg-0) 60%);
+  }
+}
+
+.FullPlayer-top,
+.FullPlayer-art {
+  touch-action: none;
 }
 
 .FullPlayer-inner {
@@ -111,13 +151,20 @@
 }
 
 .FullPlayer-art {
-  width: min(80vw, 100%, 440px);
+  width: min(80cqi, 100%, 440px);
   max-width: 100%;
   aspect-ratio: 1;
   justify-self: center;
   border-radius: var(--r-xl);
   object-fit: cover;
   box-shadow: var(--shadow-art);
+}
+
+.FullPlayer-art.is-empty {
+  display: grid;
+  place-items: center;
+  background: var(--bg-2);
+  color: var(--fg-1);
 }
 
 .FullPlayer-meta {
@@ -185,10 +232,6 @@
 /* On a wide surface (the desktop's main pane) the player lays out in two columns and leaves the
    transport to the player bar. */
 @container fullplayer (min-width: 600px) {
-  .FullPlayer {
-    background: linear-gradient(180deg, var(--tint) 0%, var(--bg-0) 60%);
-  }
-
   .FullPlayer-inner {
     max-width: 1080px;
     grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
@@ -256,6 +299,7 @@
 /* PlayerBar: left (now playing), centre (transport over the time line), right (queue, lyrics,
    volume, open the player). 80 px on the desktop, 72 on a tablet. */
 .PlayerBar {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
   align-items: center;
   gap: var(--sp-4);
@@ -342,4 +386,59 @@
   .PlayerBar-centre .SliderRow {
     grid-template-columns: 1fr;
   }
+}
+
+/* LyricsPane: every line at h3; timed lines are buttons, the current one --fg-0 and the rest
+   --fg-1. Room under the last line so it can still sit a third from the top. */
+.LyricsPane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.LyricsPane.is-empty {
+  justify-content: center;
+}
+
+/* The badge stays put; only the lines scroll. */
+.LyricsPane-head {
+  flex: none;
+  padding: var(--sp-4) var(--gutter) 0;
+}
+
+.LyricsPane-lines {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--gutter) var(--sp-12);
+}
+
+.LyricsLine {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: var(--sp-1) 0;
+  border-radius: var(--r-sm);
+  font: var(--t-h3);
+  text-align: left;
+  color: var(--fg-0);
+  transition: color var(--dur-s) var(--ease-standard);
+}
+
+.LyricsPane.is-timed .LyricsLine {
+  color: var(--fg-1);
+}
+
+.LyricsPane.is-timed .LyricsLine:hover,
+.LyricsPane.is-timed .LyricsLine.is-current {
+  color: var(--fg-0);
+}
+
+.LyricsLine.is-break {
+  min-height: var(--sp-6);
 }

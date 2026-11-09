@@ -108,7 +108,8 @@
   /* Sizes. Phone values here; the shell overrides the desktop ones by container size, and
      pointer: coarse below raises hit targets. */
   --gutter: 16px;
-  --row-h: 56px;
+  /* 56 px at the default text size; grows with --text-scale by the two text lines it holds. */
+  --row-h: calc(56px + 38px * (var(--text-scale) - 1));
   --thumb-sm: 40px;
   --thumb-md: 48px;
   --thumb-lg: 56px;
@@ -141,6 +142,22 @@
   --ease-decel: cubic-bezier(0, 0, 0, 1);
   --ease-accel: cubic-bezier(0.3, 0, 1, 1);
   --ease-emph: cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+
+/* The artwork tint (docs/DESIGN.md, Artwork tint): computed at runtime from the playing cover and
+   set on the shell. Registered as a colour so a change can fade over --dur-xl (shell.css); the
+   initial value is --bg-1, the tint of no cover. */
+@property --tint {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #212121;
+}
+
+/* The row height, registered as a length so it computes to px (VirtualList reads it). */
+@property --row-h {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 56px;
 }
 
 @media (pointer: coarse) {

@@ -1,0 +1,230 @@
+/* Fixture pages only (app/fixtures.html): the frames the components are photographed in. Tokens
+   only, like the components. A page is a shell-named container, so the components' container
+   queries see the viewport width as a shell width. */
+
+.Fx-page {
+  container: shell / inline-size;
+  min-height: 100%;
+  background: var(--bg-0);
+}
+
+.Fx-scope {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--sp-7);
+  padding: var(--sp-6) 0 var(--sp-9);
+}
+
+.Fx-title {
+  display: grid;
+  gap: var(--sp-1);
+  padding: 0 var(--gutter);
+}
+
+.Fx-title h1 {
+  margin: 0;
+  font: var(--t-h2);
+  letter-spacing: -0.01em;
+}
+
+.Fx-title p {
+  margin: 0;
+  max-width: 72ch;
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+.Fx-demo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.Fx-label {
+  margin: 0;
+  padding: 0 var(--gutter);
+  font: var(--t-overline);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--fg-1);
+}
+
+.Fx-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--gutter);
+}
+
+.Fx-pad {
+  padding-inline: var(--gutter);
+}
+
+.Fx-stack {
+  display: grid;
+  gap: var(--sp-3);
+  padding: 0 var(--gutter);
+}
+
+/* A --bg-1 surface for parts that live on one (the mini player, sheets, settings). */
+.Fx-surface {
+  position: relative;
+  margin: 0 var(--gutter);
+  border-radius: var(--r-lg);
+  background: var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+  --gutter: var(--sp-4);
+}
+
+.Fx-surface.is-flush {
+  margin: 0;
+  border-radius: 0;
+}
+
+/* Columns of demos that stack on the phone. */
+.Fx-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: var(--sp-6) var(--sp-4);
+}
+
+/* A box of a fixed height for scrolling parts (virtual lists, lyrics, the queue). */
+.Fx-box {
+  display: flex;
+  flex-direction: column;
+  height: 420px;
+  min-height: 0;
+}
+
+.Fx-box > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* A strip for a hairline; the queue's box. */
+.Fx-strip {
+  height: var(--sp-6);
+}
+
+.Fx-box.Fx-queue {
+  height: 560px;
+}
+
+/* Pages photographed as a whole app shell fill the viewport. */
+.Fx-full {
+  height: 100vh;
+}
+
+/* A shell of a fixed height, for pages that stack several. */
+.Fx-shell {
+  height: 640px;
+  box-shadow: 0 1px 0 var(--line);
+}
+
+/* A popover needs room under its button. */
+.Fx-room {
+  min-height: 280px;
+}
+
+.Fx-swatch {
+  display: grid;
+  gap: var(--sp-2);
+  justify-items: start;
+  font: var(--t-caption);
+  color: var(--fg-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.Fx-swatch img,
+.Fx-swatch span {
+  display: block;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--r-md);
+}
+
+.Fx-swatch span {
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.Fx-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: var(--sp-2);
+  padding: 0 var(--gutter);
+}
+
+.Fx-icons > div {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-1);
+  border-radius: var(--r-md);
+  background: var(--bg-1);
+  color: var(--fg-0);
+  font: var(--t-caption);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.Fx-icons span {
+  color: var(--fg-1);
+}
+
+.Fx-index {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--sp-2);
+  padding: 0 var(--gutter);
+}
+
+.Fx-index a {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--bg-1);
+  color: var(--fg-0);
+  text-decoration: none;
+}
+
+/* Shell-level pages: two shells stacked, a pane on its own, an onboarding screen. */
+.Fx-stackshells {
+  display: grid;
+}
+
+.Fx-pane {
+  width: min(320px, calc(100% - 2 * var(--gutter)));
+  height: 600px;
+  margin: 0 var(--gutter);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.Fx-fill {
+  height: 100%;
+}
+
+.Fx-note {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+.Fx-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  width: 100%;
+  max-width: 300px;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  background: var(--bg-1);
+  font: var(--t-body);
+}
+
+.Fx-tint {
+  background: var(--tint);
+}
