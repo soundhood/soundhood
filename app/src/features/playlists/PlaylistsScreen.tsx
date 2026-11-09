@@ -5,7 +5,7 @@ import { CardGrid, EmptyState, MenuButton, PlaylistCard } from "../../design";
 import { useApp } from "../../app/context";
 import { useMosaics } from "../../hooks/useCovers";
 import { usePlayActions } from "../player/usePlayActions";
-import { playlistTracks, songsMeta } from "../library/trackInfo";
+import { songsMeta } from "../library/trackInfo";
 
 export function playlistsMeta(n: number): string {
   return `${n} ${n === 1 ? "playlist" : "playlists"}`;
@@ -14,7 +14,7 @@ export function playlistsMeta(n: number): string {
 export function PlaylistsBody() {
   const { lib, nav, player, playlists, dialogs, actions } = useApp();
   const play = usePlayActions();
-  const lists = lib.playlistFiles.map((p) => ({ file: p, tracks: playlistTracks(p, lib.tracksByKey) }));
+  const lists = lib.playlistFiles.map((p) => ({ file: p, tracks: lib.tracksOfPlaylist.get(p.name) ?? [] }));
   const covers = useMosaics(lists.map((l) => l.tracks.map((t) => t.path)));
 
   if (!lib.folder) {

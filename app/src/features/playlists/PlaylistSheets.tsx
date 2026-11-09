@@ -6,7 +6,7 @@ import { Button, Icon, ListRow, Mosaic, Sheet, TextField, Thumb } from "../../de
 import { useApp } from "../../app/context";
 import { useMosaics } from "../../hooks/useCovers";
 import type { Track } from "../../lib/types";
-import { folderLabel, playlistTracks, songCount, songsMeta } from "../library/trackInfo";
+import { folderLabel, songCount, songsMeta } from "../library/trackInfo";
 import { usePlaylistEdits } from "./usePlaylistEdits";
 
 interface PickItem {
@@ -53,13 +53,14 @@ export function AddToPlaylistSheet({ tracks, onClose }: { tracks: Track[]; onClo
   const edits = usePlaylistEdits();
   // Playlists that already hold every one of the songs are not offered (as before).
   const shown = lib.playlistFiles.filter((p) => !tracks.every((t) => lib.inPlaylist(p, t)));
-  const covers = useMosaics(shown.map((p) => playlistTracks(p, lib.tracksByKey).map((t) => t.path)));
+  const tracksOf = (name: string) => lib.tracksOfPlaylist.get(name) ?? [];
+  const covers = useMosaics(shown.map((p) => tracksOf(p.name).map((t) => t.path)));
   const items: PickItem[] = [
     { id: "\u0000new", name: "New playlist", thumb: plusThumb, onPick: () => actions.newPlaylist(tracks) },
     ...shown.map((p, i) => ({
       id: p.name,
       name: p.name,
-      meta: songsMeta(playlistTracks(p, lib.tracksByKey)),
+      meta: songsMeta(tracksOf(p.name)),
       thumb: <Mosaic covers={covers[i]} small />,
       onPick: () => {
         onClose();

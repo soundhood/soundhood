@@ -6,14 +6,13 @@ import { useMosaics } from "../hooks/useCovers";
 import type { ShellPrefs } from "../hooks/useShellPrefs";
 import type { TopTab } from "../hooks/useNavigation";
 import { detailTitle } from "../features/library/TrackListScreen";
-import { playlistTracks } from "../features/library/trackInfo";
 import { useApp } from "./context";
 
 type NavId = TopTab | "playing";
 
 export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
   const { lib, nav, player, actions } = useApp();
-  const lists = lib.playlistFiles.map((p) => playlistTracks(p, lib.tracksByKey).map((t) => t.path));
+  const lists = lib.playlistFiles.map((p) => (lib.tracksOfPlaylist.get(p.name) ?? []).map((t) => t.path));
   const covers = useMosaics(lists);
   const folderCount = lib.folders.filter((f) => f !== "(all)").length;
 

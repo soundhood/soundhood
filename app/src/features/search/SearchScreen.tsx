@@ -9,7 +9,7 @@ import type { Detail } from "../../hooks/useNavigation";
 import { ArtistRow, useFirstSongsOfArtist } from "../artists/ArtistsScreen";
 import { folderDetail, useFolderCounts } from "../folders/FoldersScreen";
 import { TrackList } from "../library/TrackList";
-import { folderLabel, playlistTracks, songCount, songsMeta } from "../library/trackInfo";
+import { folderLabel, songCount, songsMeta } from "../library/trackInfo";
 import { usePlayActions } from "../player/usePlayActions";
 import { searchLibrary, type SearchKind, type SearchResults } from "./searchModel";
 
@@ -80,7 +80,7 @@ export function SearchBody({ chip, onChip, scroller }: { chip: SearchKind; onChi
   const results = useSearchResults();
   const first = useFirstSongsOfArtist();
   const counts = useFolderCounts();
-  const plTracks = results.playlists.map((p) => playlistTracks(p, lib.tracksByKey));
+  const plTracks = results.playlists.map((p) => lib.tracksOfPlaylist.get(p.name) ?? []);
   const covers = useMosaics(plTracks.map((ts) => ts.map((t) => t.path)));
 
   const inChip = chip === "all" ? results.total : results[chip].length;

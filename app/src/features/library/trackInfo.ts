@@ -1,6 +1,6 @@
 // How songs, lists and their sizes read on screen. Pure helpers, no React.
 import { SORT_MODES, displayName, titleArtistFromName, type SortMode } from "../../lib/tracks";
-import type { PlaylistFile, Track } from "../../lib/types";
+import type { Track } from "../../lib/types";
 
 /** The title a row shows: the tag, else the "Title - Artist" file name's title. */
 export function trackTitle(t: Track): string {
@@ -47,16 +47,6 @@ export function songCount(n: number): string {
 export function songsMeta(tracks: readonly Track[]): string {
   const secs = tracks.reduce((sum, t) => sum + (t.duration_secs || 0), 0);
   return tracks.length ? `${songCount(tracks.length)}, ${totalLength(secs)}` : songCount(0);
-}
-
-/** A playlist's songs in its own order; lines whose file is gone are left out (as before). */
-export function playlistTracks(pl: PlaylistFile, tracksByKey: ReadonlyMap<string, Track>): Track[] {
-  const out: Track[] = [];
-  for (const e of pl.entries) {
-    const t = tracksByKey.get(e.toLowerCase());
-    if (t) out.push(t);
-  }
-  return out;
 }
 
 /** The sort orders in plain words (the stored values stay as they were). */

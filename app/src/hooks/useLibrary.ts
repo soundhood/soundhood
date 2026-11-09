@@ -87,6 +87,20 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
     return m;
   }, [allTracks, folder]);
 
+  // Each playlist file's songs in its own order (lines whose file is gone are left out, as in the list).
+  const tracksOfPlaylist = useMemo(() => {
+    const m = new Map<string, Track[]>();
+    for (const pl of playlistFiles) {
+      const out: Track[] = [];
+      for (const e of pl.entries) {
+        const t = tracksByKey.get(e.toLowerCase());
+        if (t) out.push(t);
+      }
+      m.set(pl.name, out);
+    }
+    return m;
+  }, [playlistFiles, tracksByKey]);
+
   const currentPlaylistFile = useMemo(
     () => (plView ? playlistFiles.find((p) => p.name === plView) ?? null : null),
     [playlistFiles, plView]
@@ -251,6 +265,7 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
     /** The storage folders, "(all)" first. */
     folders: playlists,
     tracksByKey,
+    tracksOfPlaylist,
     currentPlaylistFile,
     filteredTracks,
     chooseSort,
