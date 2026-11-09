@@ -4,7 +4,7 @@
 // position follow the audio element. Repeat and the queue are not here yet (no dead controls).
 import { FullPlayer, MiniPlayer, PlayerBar } from "../../design";
 import { useApp } from "../../app/context";
-import type { Detail } from "../../hooks/useNavigation";
+import { libraryView, type Detail } from "../../hooks/useNavigation";
 import { folderLabel, songCount, trackArtist, trackFormat, trackLength, trackTitle } from "../library/trackInfo";
 
 /** What the player surfaces show for the song that is loaded. */
@@ -44,9 +44,16 @@ export function NowMini() {
 }
 
 export function NowBar() {
-  const { player, nav, actions } = useApp();
+  const { player, nav, lib, actions } = useApp();
   const now = useNowPlaying();
   const t = player.currentTrack;
+  // With nothing loaded yet, Play starts the list on screen (every song at first) from the top.
+  const playPause = player.currentPath
+    ? player.togglePlay
+    : () => {
+        nav.setSource(libraryView(lib));
+        player.playFrom(lib.filteredTracks, player.shuffle);
+      };
   return (
     <PlayerBar
       title={now.title}
@@ -65,7 +72,7 @@ export function NowBar() {
         if (player.muted && v > 0) player.setMuted(false);
       }}
       onMute={() => player.setMuted((m) => !m)}
-      onPlayPause={player.togglePlay}
+      onPlayPause={playPause}
       onPrev={player.playPrev}
       onNext={player.playNext}
       onShuffle={() => player.setShuffle((s) => !s)}

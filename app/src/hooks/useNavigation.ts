@@ -28,6 +28,13 @@ export type Navigation = ReturnType<typeof useNavigation>;
 
 const TAB_OF: Record<DetailKind, TopTab> = { playlist: "playlists", artist: "artists", folder: "folders", all: "folders" };
 
+/** The list the library's view shows now (what Next and Previous step through). */
+export function libraryView(lib: Pick<Library, "plView" | "artistView" | "playlist">): Detail {
+  if (lib.plView) return { kind: "playlist", name: lib.plView };
+  if (lib.artistView) return { kind: "artist", name: lib.artistView };
+  return lib.playlist === "(all)" ? { kind: "all", name: "(all)" } : { kind: "folder", name: lib.playlist };
+}
+
 /** True while the library's view is `d`. */
 function libraryShows(d: Detail, lib: Pick<Library, "plView" | "artistView" | "playlist">): boolean {
   switch (d.kind) {

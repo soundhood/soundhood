@@ -39,6 +39,7 @@ export interface PlayerBarProps {
   onQueue?: () => void;
   /** The queue pane is open: the queue button is on. */
   queueOpen?: boolean;
+  /** Leave out while there is nothing to open (no song loaded): the button is not shown without it. */
   onToggleFull?: () => void;
   /** The full player is open: the button closes it. */
   fullOpen?: boolean;
@@ -108,12 +109,14 @@ export function PlayerBar(p: PlayerBarProps) {
             onCommit={p.onVolumeCommit}
           />
         </div>
-        <IconButton
-          icon="expand"
-          size={20}
-          label={p.fullOpen ? "Close the player" : "Open the player"}
-          onClick={p.onToggleFull}
-        />
+        {p.onToggleFull && (
+          <IconButton
+            icon="expand"
+            size={20}
+            label={p.fullOpen ? "Close the player" : "Open the player"}
+            onClick={p.onToggleFull}
+          />
+        )}
       </div>
     </div>
   );
