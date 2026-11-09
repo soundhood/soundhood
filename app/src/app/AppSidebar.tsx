@@ -1,6 +1,7 @@
 // The sidebar (desktop; the rail on a tablet): the wordmark, the search field, Playlists, Artists,
-// Folders and Playing with their counts, the playlists (the playing one marked), Settings, and the
-// collapse button and the resizable edge, both remembered (useShellPrefs).
+// Folders and Playing with their counts, Download (while the downloader is on: "Where should this
+// go?" with an empty link), the playlists (the playing one marked), Settings, and the collapse
+// button and the resizable edge, both remembered (useShellPrefs).
 import { SearchField, Sidebar, type NavEntry } from "../design";
 import { useMosaics } from "../hooks/useCovers";
 import type { ShellPrefs } from "../hooks/useShellPrefs";
@@ -8,10 +9,10 @@ import type { TopTab } from "../hooks/useNavigation";
 import { detailTitle } from "../features/library/TrackListScreen";
 import { useApp } from "./context";
 
-type NavId = TopTab | "playing";
+type NavId = TopTab | "playing" | "download";
 
 export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
-  const { lib, nav, player, actions } = useApp();
+  const { lib, nav, player, actions, dl, prefs: settings } = useApp();
   const lists = lib.playlistFiles.map((p) => (lib.tracksOfPlaylist.get(p.name) ?? []).map((t) => t.path));
   const covers = useMosaics(lists);
   const folderCount = lib.folders.filter((f) => f !== "(all)").length;
@@ -21,6 +22,7 @@ export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
     { id: "artists", label: "Artists", icon: "artists", count: lib.artists.length },
     { id: "folders", label: "Folders", icon: "folders", count: folderCount },
     { id: "playing", label: "Playing", icon: "playing", disabled: !player.currentPath },
+    ...(settings.downloader ? [{ id: "download" as const, label: "Download", icon: "download" as const }] : []),
   ];
   // A playlist open from the sidebar is marked there, not under Playlists.
   const openPlaylist = nav.screen === "detail" && nav.detail?.kind === "playlist" ? nav.detail.name : null;
@@ -32,7 +34,7 @@ export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
     <Sidebar<NavId>
       nav={entries}
       current={current}
-      onNavigate={nav.goTo}
+      onNavigate={(id) => (id === "download" ? dl.openDraft() : nav.goTo(id))}
       search={<SearchField value={nav.query} onChange={nav.setQuery} placeholder={placeholder} shortcut />}
       playlists={lib.playlistFiles.map((p, i) => ({
         id: p.name,

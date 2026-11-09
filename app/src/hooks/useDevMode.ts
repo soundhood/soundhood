@@ -1,5 +1,7 @@
 // Hidden developer section (brief §5.9 Tools): "Test library", "Run self-test", "Rebuild
-// index". Shown after 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop); remembered.
+// index", at the bottom of the settings sheet. Shown after 7 taps on the version row in Settings,
+// About (phone; each tap within 1.5 s of the last) or Ctrl+Alt+Shift+D (desktop); the same gesture
+// hides it again; remembered. Results are toasts, and the self-test and rebuild also log their lines.
 import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -7,12 +9,13 @@ import type { ChangeSummary, RefreshReport, SelfTestReport } from "../coreIpc";
 import { isTestLibrary } from "../testLibrary";
 import { KEY_DEV_MODE, KEY_FIXTURE_ROOT, KEY_LIBRARY_DIR, KEY_REAL_LIBRARY_DIR, storePromise } from "../lib/store";
 import type { DevBusy, PlaylistFile, Setter, Track } from "../lib/types";
+import type { Notices } from "./useNotices";
 
 export type DevMode = ReturnType<typeof useDevMode>;
 
 type DevModeArgs = {
   isMobile: boolean;
-  setStatus: Setter<string>;
+  notices: Notices;
   folderRef: MutableRefObject<string>;
   fixtureRoot: string;
   setFixtureRoot: Setter<string>;
@@ -34,7 +37,7 @@ type DevModeArgs = {
 
 export function useDevMode({
   isMobile,
-  setStatus,
+  notices,
   folderRef,
   fixtureRoot,
   setFixtureRoot,
@@ -56,13 +59,14 @@ export function useDevMode({
   const devModeRef = useRef<boolean>(false);
   devModeRef.current = devMode;
   const [devBusy, setDevBusy] = useState<DevBusy>("");
-  const statusTapsRef = useRef<{ n: number; at: number }>({ n: 0, at: 0 });
+  const versionTapsRef = useRef<{ n: number; at: number }>({ n: 0, at: 0 });
+  const notify = notices.notify;
 
   async function toggleDevMode() {
     const next = !devModeRef.current;
     devModeRef.current = next;
     setDevMode(next);
-    setStatus(next ? "Developer tools on" : "Developer tools off");
+    notify({ text: next ? "Developer tools on: at the bottom of Settings" : "Developer tools off" });
     try {
       const store = await storePromise;
       await store.set(KEY_DEV_MODE, next);
@@ -70,11 +74,12 @@ export function useDevMode({
     } catch { /* non-fatal: it still applies for this session */ }
   }
 
-  // Seven taps in a row on the phone's status pill, each within 1.5 s of the previous one.
-  function onStatusTap() {
+  // Seven taps in a row on the version row (Settings, About) on the phone, each within 1.5 s of the
+  // previous one.
+  function onVersionTap() {
     if (!isMobile) return;
     const now = Date.now();
-    const taps = statusTapsRef.current;
+    const taps = versionTapsRef.current;
     taps.n = now - taps.at < 1500 ? taps.n + 1 : 1;
     taps.at = now;
     if (taps.n >= 7) {
@@ -115,7 +120,7 @@ export function useDevMode({
         else await closeLibrary("Test library off: choose your library folder again");
       }
     } catch (e) {
-      setStatus(`Test library: ${String(e).slice(0, 120)}`);
+      notify({ text: `Test library: ${String(e).slice(0, 120)}` });
     }
     setDevBusy("");
   }
@@ -131,7 +136,7 @@ export function useDevMode({
     setPlView("");
     setArtistView("");
     setLastChange(null);
-    setStatus(message);
+    notify({ text: message });
     try {
       const store = await storePromise;
       await store.set(KEY_LIBRARY_DIR, "");
@@ -142,15 +147,14 @@ export function useDevMode({
   async function runSelfTest() {
     if (devBusy) return;
     setDevBusy("selftest");
-    setStatus("Running the self-test…");
     try {
       const r = await invoke<SelfTestReport>("self_test");
       const summary = `Self-test: ${r.passed} passed, ${r.failed} failed`;
       appendLog([...(r.lines ?? []), summary]);
-      setStatus(summary);
+      notify({ text: summary });
     } catch (e) {
       appendLog([`[error] self-test: ${String(e)}`]);
-      setStatus(`Self-test failed: ${String(e).slice(0, 120)}`);
+      notify({ text: `Self-test failed: ${String(e).slice(0, 120)}` });
     }
     setDevBusy("");
   }
@@ -159,15 +163,14 @@ export function useDevMode({
     const lib = folderRef.current;
     if (devBusy || !lib) return;
     setDevBusy("rebuild");
-    setStatus("Rebuilding the index…");
     try {
       const r = await invoke<RefreshReport>("rebuild_index", { libraryDir: lib });
       const line = `Index rebuilt: ${r.total} tracks in ${(r.millis / 1000).toFixed(1)} s`;
       appendLog([`[index] ${line}`]);
-      setStatus(line);
+      notify({ text: line });
     } catch (e) {
       appendLog([`[error] rebuild index: ${String(e)}`]);
-      setStatus(`Rebuild failed: ${String(e).slice(0, 120)}`);
+      notify({ text: `Rebuild failed: ${String(e).slice(0, 120)}` });
     }
     setDevBusy("");
   }
@@ -187,5 +190,5 @@ export function useDevMode({
     return () => document.removeEventListener("keydown", onKey);
   }, [isMobile]);
 
-  return { devMode, setDevMode, devBusy, onStatusTap, switchFixtureRoot, runSelfTest, rebuildIndex };
+  return { devMode, setDevMode, devBusy, onVersionTap, switchFixtureRoot, runSelfTest, rebuildIndex };
 }

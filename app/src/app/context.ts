@@ -8,9 +8,11 @@ import type { Downloads } from "../hooks/useDownloads";
 import type { Library } from "../hooks/useLibrary";
 import type { Log } from "../hooks/useLog";
 import type { Navigation } from "../hooks/useNavigation";
+import type { Notices } from "../hooks/useNotices";
 import type { PhoneLayout } from "../hooks/usePhoneLayout";
 import type { Player } from "../hooks/usePlayer";
 import type { Playlists } from "../hooks/usePlaylists";
+import type { Prefs } from "../hooks/usePrefs";
 import type { Proton } from "../hooks/useProton";
 import type { Selection } from "../hooks/useSelection";
 import type { TrackEdits } from "../hooks/useTrackEdits";
@@ -29,7 +31,7 @@ export interface AppActions {
   newPlaylist: (tracks?: Track[]) => void;
   /** "Move to folder": the folders sheet for these files. */
   moveToFolder: (tracks: Track[]) => void;
-  /** Opens the settings sheet (the old settings and tools until Settings is rebuilt). */
+  /** Opens the settings sheet. */
   openSettings: () => void;
   /** Undoes the newest change in the journal (the Undo of a toast). */
   undoLast: () => void;
@@ -38,7 +40,6 @@ export interface AppActions {
 export interface AppContextValue {
   /** The host is a phone (Proton sync, the app's own bin). Never used to pick a layout. */
   isMobile: boolean;
-  status: string;
   lib: Library;
   player: Player;
   sel: Selection;
@@ -52,6 +53,10 @@ export interface AppContextValue {
   phone: PhoneLayout;
   nav: Navigation;
   actions: AppActions;
+  /** Toasts and the log, where messages go (there is no status line). */
+  notices: Notices;
+  /** Text size, the downloader switch, the first-launch setup. */
+  prefs: Prefs;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);
