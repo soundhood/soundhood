@@ -4,18 +4,23 @@
      720-1079    tablet: 72 px rail, a 72 px player bar replaces the mini player
      >= 1080     desktop: sidebar + main + optional right pane (320), 80 px player bar
      >= 1440     main content at most 1200 px wide, centred
-     height < 600 hides the right pane. */
+     height < 600 hides the right pane.
+   The size tokens that change with the layout (--gutter, --row-h, the body type, the bar height)
+   are set on .Shell-scope: the frame, the overlay slot, and any panel that sits in a shell-named
+   container (the fixture pages). */
 
 .Shell {
   container: shell / size;
+  --tint: var(--bg-1);
   position: relative;
   height: 100%;
   overflow: hidden;
   background: var(--bg-0);
+  /* --tint is a registered colour (tokens.css), so a new cover's tint fades in. */
+  transition: --tint var(--dur-xl) var(--ease-standard);
 }
 
 .Shell-frame {
-  --tint: var(--bg-1);
   display: grid;
   height: 100%;
   grid-template-columns: minmax(0, 1fr);
@@ -30,6 +35,15 @@
 .Shell-right,
 .Shell-bar {
   display: none;
+  min-width: 0;
+  min-height: 0;
+}
+
+.Shell-sidebar > *,
+.Shell-right > *,
+.Shell-bar > * {
+  flex: 1;
+  min-width: 0;
 }
 
 .Shell-main {
@@ -62,9 +76,12 @@
 }
 
 @container shell (min-width: 720px) {
-  .Shell-frame {
+  .Shell-scope {
     --gutter: 24px;
     --playerbar-h: 72px;
+  }
+
+  .Shell-frame {
     grid-template-columns: var(--rail-w) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) var(--playerbar-h);
     grid-template-areas:
@@ -78,7 +95,7 @@
   }
 
   .Shell-bar {
-    display: grid;
+    display: flex;
     grid-area: bar;
   }
 
@@ -92,12 +109,15 @@
 }
 
 @container shell (min-width: 1080px) {
-  .Shell-frame {
+  .Shell-scope {
     --gutter: 32px;
-    --row-h: 48px;
+    --row-h: calc(48px + 38px * (var(--text-scale) - 1));
     --playerbar-h: 80px;
     --t-body: 450 calc(14px * var(--text-scale)) / calc(20px * var(--text-scale)) var(--font-sans);
     --t-body-strong: 550 calc(14px * var(--text-scale)) / calc(20px * var(--text-scale)) var(--font-sans);
+  }
+
+  .Shell-frame {
     grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
     grid-template-areas:
       "side main"
@@ -153,6 +173,7 @@
 /* ScreenHeader: the title of a list screen, its actions, and on the phone the search field. */
 .ScreenHeader {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-3);
   padding: var(--sp-4) var(--gutter) var(--sp-2);
 }
@@ -176,6 +197,7 @@
 }
 
 .ScreenHeader-meta {
+  flex: none;
   font: var(--t-body-sm);
   color: var(--fg-1);
   font-variant-numeric: tabular-nums;
@@ -264,6 +286,10 @@
   transition: transform var(--dur-m) var(--ease-emph);
 }
 
+.BottomTabs.is-none .BottomTabs-indicator {
+  opacity: 0;
+}
+
 .BottomTabs-indicator::after {
   content: "";
   width: 24px;
@@ -274,7 +300,10 @@
 
 /* DesktopSidebar (a 72 px rail on tablets). */
 .Sidebar {
+  position: relative;
+  display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
   background: var(--bg-0);
   box-shadow: inset -1px 0 0 var(--line);
@@ -370,6 +399,40 @@
   color: var(--aqua);
 }
 
+/* A playlist under songs being dragged onto it. */
+.Sidebar-list .NavItem.is-drop {
+  background: var(--aqua-dim);
+  color: var(--fg-0);
+}
+
+/* The right edge: drag (or Left and Right) to set the width. */
+.Sidebar-resize {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.Sidebar-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--dur-s) var(--ease-standard);
+}
+
+.Sidebar-resize:hover::after,
+.Sidebar-resize:active::after {
+  background: var(--line-strong);
+}
+
 .Sidebar-foot {
   display: flex;
   align-items: center;
@@ -408,9 +471,40 @@
   }
 }
 
+/* The desktop sidebar collapsed to the rail (the same rules, kept in step with the ones above;
+   the collapse button stays, to expand it again). */
+.Sidebar.is-collapsed .Wordmark span,
+.Sidebar.is-collapsed .NavItem span,
+.Sidebar.is-collapsed .NavItem-count,
+.Sidebar.is-collapsed .SearchField,
+.Sidebar.is-collapsed .Sidebar-section,
+.Sidebar.is-collapsed .Sidebar-list,
+.Sidebar.is-collapsed .Sidebar-resize {
+  display: none;
+}
+
+.Sidebar.is-collapsed .Sidebar-top {
+  justify-items: center;
+  padding-inline: var(--sp-2);
+}
+
+.Sidebar.is-collapsed .Sidebar-nav .NavItem {
+  justify-content: center;
+  padding: 0;
+  height: 48px;
+}
+
+.Sidebar.is-collapsed .Sidebar-foot {
+  flex-direction: column;
+  margin-top: auto;
+  box-shadow: none;
+}
+
 /* Right pane: the queue, under an artwork tint across its top 40 %. */
 .RightPane {
+  display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
   background: linear-gradient(180deg, var(--tint) 0%, var(--bg-0) 40%);
   box-shadow: inset 1px 0 0 var(--line);
