@@ -12,6 +12,8 @@ AndroidManifest.xml and merges into the app by itself. What is left is app-level
   3. strings.xml          the app name
   4. app/build.gradle.kts SDK levels, useLegacyPackaging, release signing
   5. gradle-wrapper.properties  the pinned Gradle zip's SHA-256 (distributionSha256Sum)
+  6. colors.xml, themes.xml     the window background in the canvas colour (day and night themes), so
+                          the app opens dark before the web UI paints, never on a white frame
 
 Idempotent: files are written only when their content changes, so a second run reports "ok" for
 every step. Line endings of each file are kept. Run from anywhere:
@@ -32,6 +34,10 @@ MAIN = os.path.join(ANDROID, "app", "src", "main")
 # the phone, not whenever the Tauri template moves.
 COMPILE_SDK = 36
 TARGET_SDK = 36
+
+# The canvas colour, --bg-0 in app/src/design/tokens.css: the window and the decor view behind the web
+# UI, so nothing white shows while it loads.
+CANVAS = "#0f0f0f"
 
 
 class TemplateChanged(Exception):
@@ -152,7 +158,7 @@ class MainActivity : TauriActivity() {{
     // Edge-to-edge is forced on Android 15+, which draws the web UI under the status bar and the
     // gesture bar. Pad the content by the system bars instead, on a dark background, light icons.
     val root = findViewById<View>(android.R.id.content)
-    window.decorView.setBackgroundColor(Color.parseColor("#0f0f0f"))
+    window.decorView.setBackgroundColor(Color.parseColor("{canvas}"))
     WindowCompat.getInsetsController(window, root).isAppearanceLightStatusBars = false
     WindowCompat.getInsetsController(window, root).isAppearanceLightNavigationBars = false
     ViewCompat.setOnApplyWindowInsetsListener(root) {{ v, insets ->
@@ -356,6 +362,33 @@ def gradle_checksum(s):
     return s.replace(m.group(0), m.group(0) + "\n" + line, 1)
 
 
+# 6. Window background ------------------------------------------------------------------------------
+
+CANVAS_COLOR_RE = re.compile(r'(<color name="soundhood_canvas">)[^<]*(</color>)')
+WINDOW_BACKGROUND = '<item name="android:windowBackground">@color/soundhood_canvas</item>'
+WINDOW_BACKGROUND_RE = re.compile(r'<item name="android:windowBackground">[^<]*</item>')
+
+
+def canvas_color(s):
+    """colors.xml: soundhood_canvas, the colour the themes' window background names."""
+    if CANVAS_COLOR_RE.search(s):
+        return CANVAS_COLOR_RE.sub(rf"\g<1>{CANVAS}\g<2>", s, count=1)
+    return insert_before(s, "</resources>", f'    <color name="soundhood_canvas">{CANVAS}</color>\n', "the </resources> end tag")
+
+
+def window_background(s):
+    """themes.xml (day and night): the window background in the canvas colour. Android also draws the
+    launch screen from it (Android 12+ splash), before MainActivity runs."""
+    if WINDOW_BACKGROUND_RE.search(s):
+        return WINDOW_BACKGROUND_RE.sub(WINDOW_BACKGROUND, s, count=1)
+    m = re.search(r'([ \t]*)<style name="Theme\.[^"]*"[^>]*>\n', s)
+    if not m:
+        raise TemplateChanged("the app theme's <style> element")
+    i = m.group(1) + "    "
+    block = f"{i}<!-- Soundhood: the canvas colour until the web UI paints (no white frame at start) -->\n{i}{WINDOW_BACKGROUND}\n"
+    return s[: m.end()] + block + s[m.end() :]
+
+
 def main():
     if not os.path.isdir(MAIN):
         sys.exit("gen/android not found: run `npm run tauri android init` in app/ first")
@@ -372,7 +405,7 @@ def main():
 
         path, pkg = find_main_activity()
         text, newline = read(path)
-        wanted = MAIN_ACTIVITY.format(pkg=pkg)
+        wanted = MAIN_ACTIVITY.format(pkg=pkg, canvas=CANVAS)
         print(f"MainActivity ({pkg}): {'written' if text != wanted else 'ok'}")
         if text != wanted:
             with open(path, "wb") as f:
@@ -393,6 +426,11 @@ def main():
             os.path.join(ANDROID, "gradle", "wrapper", "gradle-wrapper.properties"),
             [(f"gradle wrapper: distributionSha256Sum for Gradle {GRADLE_VERSION}", gradle_checksum)],
         )
+
+        res = os.path.join(MAIN, "res")
+        patch_file(os.path.join(res, "values", "colors.xml"), [("colors: soundhood_canvas", canvas_color)])
+        for theme in ("values", "values-night"):
+            patch_file(os.path.join(res, theme, "themes.xml"), [(f"{theme}/themes.xml: window background", window_background)])
     except TemplateChanged as e:
         print(f"anchor not found ({e}): the Tauri template changed; patch that step by hand", file=sys.stderr)
         sys.exit(1)
