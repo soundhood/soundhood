@@ -384,6 +384,9 @@
   color: var(--fg-0);
   font: var(--t-body);
   outline: none;
+  /* A hint or a link longer than the field (large text, a narrow sidebar) ends in an ellipsis
+     instead of being cut through a letter. */
+  text-overflow: ellipsis;
 }
 
 .SearchField input::placeholder {
@@ -406,6 +409,7 @@
   color: var(--fg-0);
   box-shadow: inset 0 0 0 1px var(--line);
   font: var(--t-body);
+  text-overflow: ellipsis;
 }
 
 .TextField::placeholder {

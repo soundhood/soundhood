@@ -291,15 +291,18 @@ one is open and holds the songs), and Delete as a danger item. It is the MenuBut
 same look and keys: Up, Down, Home, End, Enter or Space, typed letters, Esc and Tab close), drawn in
 the shell's overlay layer against the button or at the pointer, kept inside the shell, because a row
 of a virtual list cannot hold a popover. It closes when the list scrolls or the window changes size,
-and the focus returns to the row.
+and the focus returns to the row. The full player's "more" offers the same items for the playing song
+(FullPlayer, below).
 
 **ListRow.** The row for artists, folders, playlists and search results: thumb, name over a meta line
 (song count, "Artist", "Playlist"), a count or a chevron on the right.
 
-**PlaylistCard.** A mosaic with the playlist's name under it (body-strong) and "N songs, duration"
-(body-sm). The playing playlist's name is aqua with the equaliser. Cards fill a grid of columns at
-least 150 px wide (two on the phone, four to six on the desktop). Tap opens the playlist; the "more"
-menu holds Play, Shuffle, Rename and Delete.
+**PlaylistCard.** A mosaic with the playlist's name under it (body-strong, one line, an ellipsis when
+too long) and "N songs, duration" (body-sm, wrapping balanced onto a second line rather than losing
+the duration at a large text size). The playing playlist's name is aqua with the equaliser. Cards
+fill a grid of columns at least 150 px wide (two on the phone, four to six on the desktop). Tap opens
+the playlist; the "more" menu holds Play, Shuffle (both off for an empty playlist) and Delete
+playlist. There is no Rename: the host has no command to rename a playlist yet.
 
 **SectionHeader.** An h3 heading with an optional text action on the right ("Show all 5").
 
@@ -330,6 +333,10 @@ sheet). Tap or swipe up opens the full player.
 and where the music is playing from; the artwork (at most 80 % of the width, `--r-xl`); the title (h2,
 two lines at most) and the artist; the position slider with times; the transport row (shuffle, previous,
 the 64 px aqua play button, next, repeat); a bottom row of queue, lyrics, add to playlist and more.
+"More" is a MenuButton with the row menu's items for the playing song alone: Add to playlist, Go to
+artist (which closes the player), Edit tags and Delete; Play next, Add to queue and Remove from a
+playlist make no sense for the song already playing and are left out. Its keys and ARIA are the
+MenuButton's, as the row menu's.
 The background is a gradient from the artwork tint into `--bg-0`. Swipe down or Esc closes it. On a
 shell wide enough for the player bar the same component lays out in two columns (artwork; then where it
 plays from, the title in display size, the artist, facts such as length and format, and the action row)
@@ -361,7 +368,9 @@ block); overlays (sheets, popovers, toasts) are inside it so they follow the sam
 
 **ScreenHeader.** The title (h1 on the phone, display on the desktop) with a meta line (counts) and up
 to two icon actions; below the desktop width (the phone, and the tablet, whose rail has no room for
-it) the search field and, while searching, the chips under it.
+it) the search field and, while searching, the chips under it. Below the desktop width the title
+wraps onto a second line rather than give way to the counts and actions (at 130 % text a short name
+does not fit beside them), and ends in an ellipsis only past two lines.
 
 **BottomTabs** (phone). Four tabs: Playlists, Artists, Folders, Playing; 56 px plus the bottom inset on
 `--bg-0` with a 1 px line on top. Icon over a caption label; the active tab aqua, with a short aqua bar
@@ -425,10 +434,14 @@ left out when nothing was applied and on the report of an undo.
 **TidyRow.** A proposed change waiting for a tick in Tidy (Phase 2): a checkbox, before and after
 (changed parts in `--fg-0`, unchanged in `--fg-1`), a confidence hint, and the reason.
 
-**SelectModeBar.** While Select mode is on: the count chosen, select all, and the actions for the
-selection (play, add to queue, add to playlist, move, edit tags, delete) with the rarer ones in a "more"
-menu. On the phone it replaces the screen header; on the desktop it sits above the list. Esc leaves
-Select mode.
+**SelectModeBar.** While songs are chosen (Select mode, or Ctrl+click and Shift+click with a mouse):
+Leave Select mode, "N chosen", Select all or Select none (words where there is room, an icon on
+narrower shells), then the actions as icon buttons: Add to playlist, Remove from the open playlist
+(only while one is open and holds some of them) and Edit tags (one song only); the rarer ones in a
+"More actions" menu: Move to folder (only on a folder's list or All songs, the storage views) and
+Delete as a danger item. Play and Add to queue are not on it; the rows' menu has them for a
+selection. It stays in view at the top of the list; below the desktop width it takes the screen
+header's place, on the desktop it sits above the list. Esc leaves Select mode.
 
 **Where should this go? sheet.** After a link is shared or pasted, or from the sidebar's Download item
 with an empty link: the link, the folder it lands in (a Dropdown with "New folder"), the playlists it
@@ -464,13 +477,14 @@ WebKitGTK on Linux. `linear()` easing, view transitions, scroll-driven animation
 ## Verification
 
 - **Visual suite** (Playwright, [TESTING](TESTING.md#visual-suite)): every screen and every component
-  fixture page at 390 x 844, 834 x 1194, 1280 x 800 and 1920 x 1080 in the default mode, and every
+  fixture page at 390 x 844, 834 x 1194, 1280 x 800 and 1920 x 1080 in the default mode, and the
+  screens (Playlists, Artists, Folders, an open playlist, Playing, Queue, Search, Settings) and every
   component fixture page at 390 x 844 and 1280 x 800 with reduced motion, more contrast and 130 %
   text, against committed baselines (0.2 % tolerance). The settings sheet is photographed over
   Folders, not over the Playlists cover grid: the backdrop's blur mixes aqua and purple covers into
   pixels the blue scan counts as blue chrome.
-- **Parity grid**: the phone and desktop screenshots of Playlists, Artists, Folders, Playing, Queue,
-  Search and Settings side by side ([TESTING](TESTING.md#evidence-rules)); every difference must come
+- **Parity grid**: the phone and desktop screenshots of the parity screens (Playlists, Artists,
+  Folders, an open playlist, Playing, Queue, Search and Settings, default mode) side by side ([TESTING](TESTING.md#evidence-rules)); every difference must come
   from the container size, the pointer, or what the host can do (as [SCREENS](SCREENS.md) lists it).
 - **Lints**: token lint, contrast lint, blue scan, hygiene lint.
 - **Real devices**: the Windows WebView2 window and the phone, with the Test library, committed under

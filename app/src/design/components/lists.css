@@ -398,13 +398,13 @@
   text-overflow: ellipsis;
 }
 
+/* The counts wrap (balanced, so "13 songs," over "39 sec") rather than lose the duration when the
+   text is large; the name keeps one line. */
 .PlaylistCard-meta {
   font: var(--t-body-sm);
   color: var(--fg-1);
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  text-wrap: balance;
 }
 
 .PlaylistCard.is-playing .PlaylistCard-open {

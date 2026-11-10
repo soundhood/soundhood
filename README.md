@@ -23,10 +23,12 @@ circumvention, no telemetry; the only sync is your own Proton Drive.
 
 ## Status
 
-Version 0.1.0 runs on Windows and Android. A rebuild is in progress: Phase 0 (foundation, planned
-0.2.0) moves the logic into a shared Rust core with one undoable write path, a SQLite index and CI.
-Linux packages come from the release workflow; a macOS build is planned (unsigned, not tested on
-hardware); iOS is deferred. What changed: [CHANGELOG](CHANGELOG.md). What is not verified yet: [OPEN](docs/OPEN.md).
+Version 0.3.0 runs on Windows and Android. The rebuild is under way: Phase 0 (0.2.0) moved the logic
+into a shared Rust core with one undoable write path, a SQLite index and CI; Phase 1 (0.3.0), one
+design system on the PC and the phone laid out by the window's width, is done and waits on the
+owner's hand tests ([OWNER_TESTS](docs/OWNER_TESTS.md)). Linux packages come from the release
+workflow; a macOS build is planned (unsigned, not tested on hardware); iOS is deferred. What changed:
+[CHANGELOG](CHANGELOG.md). What is not verified yet: [OPEN](docs/OPEN.md).
 
 ## Documentation
 

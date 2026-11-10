@@ -215,6 +215,20 @@
   padding-inline: var(--gutter);
 }
 
+/* Below the desktop width the title shares its row with the counts and the actions: at a large text
+   size it wraps onto a second line instead of giving way to them, and ends in an ellipsis only past
+   two lines. */
+@container shell (max-width: 1079px) {
+  .ScreenHeader h1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-wrap: balance;
+  }
+}
+
 @container shell (min-width: 1080px) {
   .ScreenHeader {
     padding-top: var(--sp-7);

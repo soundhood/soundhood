@@ -1,7 +1,8 @@
 // SelectModeBar: shown while Select mode is on. Leave Select mode, the count chosen, Select all (or
-// none), the actions for the selection as icon buttons (play, add to queue, add to playlist...) and
-// the rarer ones (move, edit tags, delete) in a "more" menu. On the phone it replaces the screen
-// header; on the desktop it sits above the list (the owner places it). Esc leaves Select mode.
+// none), the actions for the selection as icon buttons (the app's: add to playlist, remove from the
+// open playlist, edit tags) and the rarer ones (the app's: move, delete) in a "more" menu. On the
+// phone it replaces the screen header; on the desktop it sits above the list (the owner places it).
+// Esc leaves Select mode.
 import { useEffect, useEffectEvent } from "react";
 import { cx } from "../lib/cx";
 import { Button } from "./Button";

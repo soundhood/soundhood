@@ -1,8 +1,9 @@
 // The play queue on the mocked UI: the queue photographed at every size (the sheet on the phone and
-// the tablet, the right pane on the desktop) under one name, so the parity grid pairs them; then
-// what it does: Next follows Play next, Add to queue and the rest of the list; Previous; Repeat;
-// a row played, moved, taken out and put back; Clear asks first; Save as playlist; the pane
-// remembered; the row menus; songs dragged onto a playlist in the sidebar.
+// the tablet, the right pane on the desktop) under one name, so the parity grid pairs them, and in
+// the three other modes at 390x844 and 1280x800 (@modes); then what it does: Next follows Play
+// next, Add to queue and the rest of the list; Previous; Repeat; a row played, moved, taken out and
+// put back; Clear asks first; Save as playlist; the pane remembered; the row menus; songs dragged
+// onto a playlist in the sidebar.
 import { expect, test } from "./harness.mjs";
 import { goTo, openPlayer, openPlaylist, playSong, row, settle } from "./ui.mjs";
 
@@ -55,7 +56,7 @@ async function queued(app, page) {
 }
 
 test.describe("queue", { tag: ["@desktop", "@phone"] }, () => {
-  test("queue", async ({ app, page }) => {
+  test("queue", { tag: "@modes" }, async ({ app, page }) => {
     await queued(app, page);
     await page.mouse.move(0, 0);
     await expect(toast(page)).toHaveCount(0, { timeout: 10_000 });

@@ -1,6 +1,7 @@
 // MenuButton: an IconButton ("more" by default) that opens a popover menu of actions, styled like
 // the Dropdown's options. Used by SelectModeBar for the rarer actions, and by any "more" button
-// that holds a short list (Play, Shuffle, Rename, Delete).
+// that holds a short list (a playlist card's Play, Shuffle, Delete playlist; the full player's song
+// menu).
 // ARIA menu button: the button has aria-haspopup="menu" and aria-expanded; opening moves focus to
 // the menu, which tracks the active item with aria-activedescendant. Up and Down move, Home and
 // End, Enter or Space runs the item, typed letters jump, Esc and Tab close; focus returns to the

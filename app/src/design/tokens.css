@@ -67,8 +67,9 @@
   --hover: rgba(255, 255, 255, 0.04);
 
   /* Type. Inter 4.1 variable, bundled (never a CDN). The optical-size axis follows the font size.
-     --text-scale is the app's text size (Settings, Appearance; on the phone it starts from the
-     system font scale); it is set on the root element only, where these tokens resolve. */
+     --text-scale is the app's Text size setting (Settings, Appearance), 1, 1.15 or 1.3 (nothing
+     reads the system font scale yet); it is set on the root element only, where these tokens
+     resolve. */
   --text-scale: 1;
   --font-sans: "Inter", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --t-display: 700 calc(40px * var(--text-scale)) / calc(44px * var(--text-scale)) var(--font-sans);

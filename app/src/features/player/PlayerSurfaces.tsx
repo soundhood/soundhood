@@ -2,15 +2,18 @@
 // Playing), the player bar (tablet and desktop) and the Playing screen (the full player: over
 // everything on the phone, two columns in the main area on wider shells). Shuffle, Repeat (off, all,
 // one) and the queue button (the right pane where it fits, else the queue sheet: QueueUi) are live.
+// The full player's "more" is the song rows' menu for the playing song (RowMenu's items).
 // The position and the length come from the player's clock (usePlaybackTime), so a tick re-renders
 // these surfaces and nothing else; the hairline reads the audio element itself.
 import { useEffect, useRef, useState } from "react";
-import { FullPlayer, MiniPlayer, PlayerBar } from "../../design";
+import { FullPlayer, MenuButton, MiniPlayer, PlayerBar } from "../../design";
 import { useApp } from "../../app/context";
 import { libraryView, type Detail } from "../../hooks/useNavigation";
+import type { Track } from "../../lib/types";
 import { reducedMotion } from "../../design/lib/dom";
 import { useQueueUi } from "../queue/QueueUi";
 import { upcomingCount } from "../queue/queueModel";
+import { useSongMenuItems } from "../library/RowMenu";
 import { folderLabel, songCount, trackArtist, trackFormat, trackLength, trackTitle } from "../library/trackInfo";
 import { usePlaybackTime } from "./playbackClock";
 import "./player.css";
@@ -102,6 +105,12 @@ export function NowBar() {
   );
 }
 
+/** The full player's "more": Add to playlist, Go to artist, Edit tags and Delete for the playing song. */
+function PlayerMore({ track }: { track: Track }) {
+  const items = useSongMenuItems(track, true);
+  return <MenuButton label={`More for ${trackTitle(track)}`} items={items} />;
+}
+
 /** Mirrors shell.css: the full player is a screen of its own (and slides away) under 720 px. */
 const PHONE = "(max-width: 719px)";
 
@@ -151,6 +160,7 @@ export function PlayingScreen() {
       onQueue={queue.toggle}
       onClose={close}
       onAddToPlaylist={t ? () => actions.addToPlaylist([t]) : undefined}
+      more={t ? <PlayerMore track={t} /> : undefined}
     />
   );
 }

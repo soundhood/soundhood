@@ -16,7 +16,8 @@ export const KEY_DOWNLOAD_PLAYLISTS = "download_playlists";
 // Links shared into the app (phone share sheet) waiting to be downloaded: the phone has no downloader yet.
 export const KEY_SHARE_QUEUE = "share_queue";
 export const KEY_LAST_SYNC = "last_sync";
-// Hidden developer section: 7 taps on the status pill (phone) or Ctrl+Alt+Shift+D (desktop).
+// Hidden developer section: 7 taps on the version row in Settings, About (phone) or Ctrl+Alt+Shift+D
+// (desktop).
 export const KEY_DEV_MODE = "dev_mode";
 // The real library while the "Test library" switch points the app at the generated fixture library; never
 // the fixture library itself.

@@ -15,7 +15,7 @@ export interface PlaylistCardProps {
   playing?: boolean;
   paused?: boolean;
   onOpen?: () => void;
-  /** The card's menu (Play, Shuffle, Rename, Delete), usually a MenuButton. */
+  /** The card's menu (Play, Shuffle, Delete playlist), usually a MenuButton. */
   more?: ReactNode;
   className?: string;
 }
