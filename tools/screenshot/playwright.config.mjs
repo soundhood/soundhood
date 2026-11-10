@@ -71,12 +71,19 @@ const component = (width, height, mode = "default", contextOptions = {}) => ({
 });
 const componentModes = (width, height) => Object.entries(MODES).map(([mode, options]) => component(width, height, mode, options));
 
+/** On CI, the failures after which the run stops: a break that fails every test ends the job early. */
+export const CI_MAX_FAILURES = 25;
+
+/** How many failures stop the run: CI_MAX_FAILURES on CI, none (0) locally, where every test runs. */
+export const maxFailuresFor = (env) => (env.CI ? CI_MAX_FAILURES : 0);
+
 export default defineConfig({
   testDir: HERE,
   testMatch: "*.spec.mjs",
   outputDir: path.join(HERE, "test-results"),
   snapshotPathTemplate: "{testDir}/__screenshots__/{platform}/{arg}{ext}",
   forbidOnly: !!process.env.CI,
+  maxFailures: maxFailuresFor(process.env),
   retries: 0,
   reporter: [["list"]],
   timeout: 60_000,

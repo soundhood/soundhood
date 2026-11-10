@@ -129,6 +129,11 @@ It has three parts, all in `tools/screenshot/` (the spec table is in
   `playwright.config.mjs`). When a change is intended, rewrite the baselines with
   `npm run test:visual:update` (the same filters work) and commit them with the change that caused
   them.
+- On CI (the `CI` variable set) the run stops after 25 failed tests (`maxFailures`, set from
+  `CI_MAX_FAILURES` in `playwright.config.mjs`; `config.test.mjs` checks it): a break that fails every
+  test (the app not starting, a shared component broken) ends the visual job in a few minutes
+  instead of running out its 30. Locally there is no limit and every test runs, so a local run
+  always lists every failure.
 - Playwright prints one line per test (the `list` reporter, no HTML report). On failure the expected,
   actual and diff images of each failing screenshot are in `tools/screenshot/test-results/`; CI
   uploads that folder as the `visual-diff-report` artefact.
