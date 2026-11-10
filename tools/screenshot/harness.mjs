@@ -84,56 +84,87 @@ export const LOAD_ATTEMPTS = 3;
 export const LOAD_WAIT_MS = 15_000;
 
 /**
+ * The most a whole load may take: every attempt waiting out LOAD_WAIT_MS, the last one IPC_SETTLE_MS
+ * as well, and a margin for the navigations. loadPage adds it to the test's timeout while it loads
+ * and gives back what the load did not use, so a load that gives up always says why itself, however
+ * close the test's own timeout is.
+ */
+export const LOAD_BUDGET_MS = LOAD_ATTEMPTS * LOAD_WAIT_MS + IPC_SETTLE_MS + 15_000;
+
+/**
  * Loads `url` and waits for `ready()`. A load in which a request to the dev server fails, or that
- * `ready()` gives up on, is thrown away and the page loaded again from a blank document, at most
- * LOAD_ATTEMPTS times in all. On Windows a socket can be refused while many connections open and
- * close (net::ERR_NO_BUFFER_SPACE): one of the ~140 module requests of a load fails and the page
- * stays blank. Each retry is logged on stderr and as a test annotation ("page load"), and
- * `onRetry(reason)` runs before the next load so the caller can drop what the broken one reported
- * (its page errors, its console errors). Only the load is repeated: a test's own steps start after
- * this returns. A request cut short because the page navigated (net::ERR_ABORTED) is not a failure.
- * A load that `ready()` gives up on is loaded again only when it threw no error of its own: an app
- * that crashes while it starts, even only sometimes, fails at once with its error, never hidden by
- * a second load that happens to start (a failed request leaves no page error, so it still reloads).
+ * `ready()` gives up on while a request to the dev server is still unanswered, is thrown away and the
+ * page loaded again from a blank document, at most LOAD_ATTEMPTS times in all. On Windows a socket
+ * can be refused while many connections open and close (net::ERR_NO_BUFFER_SPACE): one of the ~140
+ * module requests of a load fails, or never ends, and the page stays blank. Each retry is logged on
+ * stderr and as a test annotation ("page load"), and `onRetry(reason)` runs before the next load so
+ * the caller can drop what the broken one reported (its page errors, its console errors). Only the
+ * load is repeated: a test's own steps start after this returns. A request cut short because the
+ * page navigated (net::ERR_ABORTED) is not a failure.
+ * Anything else `ready()` gives up on fails at once, never hidden by a second load that happens to
+ * start: an app that crashes while it starts (with its error), and an app that hangs while it starts
+ * with every request answered (with the wait that gave up, which names the IPC command it waited
+ * for), even when it does so only sometimes.
+ * The load's own time does not count against the test's timeout (LOAD_BUDGET_MS).
  */
 export async function loadPage(page, testInfo, { url, ready, onRetry = () => {} }) {
   const origin = new URL(testInfo.project.use.baseURL).origin;
+  const started = Date.now();
+  const budgeted = testInfo.timeout > 0;
+  if (budgeted) testInfo.setTimeout(testInfo.timeout + LOAD_BUDGET_MS);
   for (let attempt = 1; ; attempt++) {
     const failed = [];
     const crashed = [];
+    // The requests to the dev server this load is still waiting for.
+    const waiting = new Set();
     const onCrash = (e) => crashed.push(e.message);
     page.on("pageerror", onCrash);
     let signal;
     const failure = new Promise((resolve) => (signal = resolve));
+    const onRequest = (request) => request.url().startsWith(origin) && waiting.add(request);
+    const onFinished = (request) => waiting.delete(request);
     const onFailed = (request) => {
+      waiting.delete(request);
       const why = request.failure()?.errorText ?? "failed";
       if (!request.url().startsWith(origin) || why === "net::ERR_ABORTED") return;
       failed.push(`${new URL(request.url()).pathname} ${why}`);
       signal();
     };
+    page.on("request", onRequest);
+    page.on("requestfinished", onFinished);
     page.on("requestfailed", onFailed);
     const load = (async () => {
       // Only until the response arrives: a module request that never ends would hold the load
       // event, and the goto with it, for the whole test. `ready()` waits, with its own limit.
-      await page.goto(url, { waitUntil: "commit" });
+      await page.goto(url, { waitUntil: "commit", timeout: LOAD_WAIT_MS });
       await ready();
     })();
     // A load given up on may still be waiting when the next one starts; its outcome no longer counts.
     load.catch(() => {});
     let problem = null;
+    let stalled = [];
     try {
       await Promise.race([load, failure]);
     } catch (e) {
       // The test is over (its timeout, the page closed): nothing to load again.
       if (page.isClosed()) throw e;
       problem = String(e?.message ?? e).split("\n")[0];
+      stalled = [...waiting].map((r) => new URL(r.url()).pathname);
     } finally {
+      page.off("request", onRequest);
+      page.off("requestfinished", onFinished);
       page.off("requestfailed", onFailed);
       page.off("pageerror", onCrash);
     }
     if (failed.length) problem = `failed: ${failed.join(", ")}`;
     else if (problem && crashed.length) throw new Error(`${url} did not start: ${crashed[0]} (load ${attempt}, not loaded again)`);
-    if (!problem) return;
+    else if (problem && !stalled.length) {
+      throw new Error(`${url} did not start: ${problem} (load ${attempt}; no request to the dev server failed or was left waiting, so it is not loaded again)`);
+    } else if (problem) problem = `${problem}; still waiting for ${stalled.join(", ")}`;
+    if (!problem) {
+      if (budgeted) testInfo.setTimeout(testInfo.timeout - LOAD_BUDGET_MS + (Date.now() - started));
+      return;
+    }
     if (attempt >= LOAD_ATTEMPTS) throw new Error(`${url} did not load in ${LOAD_ATTEMPTS} attempts; the last one ${problem}`);
     const line = `load ${attempt} of ${url} ${problem}; loading it again`;
     testInfo.annotations.push({ type: "page load", description: line });
