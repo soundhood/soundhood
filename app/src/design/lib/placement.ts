@@ -1,9 +1,10 @@
 // Where a popover goes (a Dropdown's or MultiSelect's list, a menu): against what opened it, inside
 // the area where it can be seen. Below its anchor, or above it only when it does not fit below and
-// there is more room above; its height capped to the room on that side, so it scrolls inside
-// instead of running out of the area; start-aligned with the anchor, or end-aligned when it would
-// leave the area on that side; never outside the area. No DOM here: usePopoverPlacement measures
-// and applies it.
+// there is more room above (so on the side where it fits whole when one does); its height capped to
+// the room on that side only when it fits on neither, so it scrolls inside instead of running out
+// of the area. At the pointer it slides over the pointer instead, until it fits whole. Start-aligned
+// with the anchor, or end-aligned when it would leave the area on that side; never outside the area.
+// No DOM here: usePopoverPlacement and the row menu measure and apply it.
 import type { Box } from "./dom";
 
 /** Between the anchor and the popover (--sp-1). */
@@ -39,9 +40,18 @@ export function placePopover({ anchor, width, height, area, align = "start" }: P
   const below = area.bottom - POPOVER_EDGE - (anchor.bottom + POPOVER_GAP);
   const above = anchor.top - POPOVER_GAP - (area.top + POPOVER_EDGE);
   const up = height > below && above > below;
-  const room = Math.max(0, up ? above : below);
-  const shown = Math.min(height, room);
-  const top = up ? anchor.top - POPOVER_GAP - shown : anchor.bottom + POPOVER_GAP;
+  let room = Math.max(0, up ? above : below);
+  let shown = Math.min(height, room);
+  let top = up ? anchor.top - POPOVER_GAP - shown : anchor.bottom + POPOVER_GAP;
+  // At the pointer (a context menu) there is no button to keep clear: when neither side holds it,
+  // it slides along the area until it shows whole, over the pointer, and is capped only when the
+  // area itself is shorter than it.
+  const atPointer = anchor.top === anchor.bottom && anchor.left === anchor.right;
+  if (atPointer && height > below && height > above) {
+    room = Math.max(0, area.bottom - area.top - 2 * POPOVER_EDGE);
+    shown = Math.min(height, room);
+    top = up ? area.top + POPOVER_EDGE : area.bottom - POPOVER_EDGE - shown;
+  }
 
   const minLeft = area.left + POPOVER_EDGE;
   const maxLeft = area.right - POPOVER_EDGE - width;

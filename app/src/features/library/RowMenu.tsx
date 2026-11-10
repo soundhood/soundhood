@@ -10,11 +10,13 @@
 // the shell's overlay layer against the button or the pointer like every popover (placePopover),
 // because a row in a virtual list cannot hold a popover. Like every popover it is a layer
 // (usePopoverLayer): nothing behind it hears the keys heard on the window, Esc closes it first, and
-// a sheet that opens closes it.
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+// a sheet that opens closes it. However it closes (a pick, Esc, Tab, the list scrolled, the window
+// resized), save by a press elsewhere, the focus goes back to its row, or, when that row is gone, to
+// the main area; its own scroll (a menu capped to a short window) never closes it.
+import { useEffectEvent, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Icon, cx, type MenuItem } from "../../design";
-import { clipBox } from "../../design/lib/dom";
+import { clipBox, focusIfAble, focusMainArea } from "../../design/lib/dom";
 import { useOverlayLayer } from "../../design/lib/overlayLayer";
 import { placePopover } from "../../design/lib/placement";
 import { isPrintable, useOutsidePress, usePopoverLayer, useTypeahead } from "../../design/lib/usePopover";
@@ -92,7 +94,7 @@ function RowMenuPopover({ state, items, onClose }: { state: RowMenuState; items:
 
   const close = (refocus: boolean) => {
     onClose();
-    if (refocus && state.from?.isConnected) state.from.focus({ preventScroll: true });
+    if (refocus && !focusIfAble(state.from)) focusMainArea();
   };
   const run = (i: number) => {
     const item = items[i];
@@ -105,8 +107,8 @@ function RowMenuPopover({ state, items, onClose }: { state: RowMenuState; items:
   useOutsidePress(true, [root], () => close(false));
 
   // Placed against the button (right-aligned) or at the pointer, inside the shell (placePopover:
-  // below, or above when there is more room there, capped to that room); then the menu takes the
-  // focus.
+  // on the side where it fits whole, capped only when neither side holds it; at the pointer it
+  // slides over the pointer until it fits); then the menu takes the focus.
   useLayoutEffect(() => {
     const el = root.current;
     const shell = el?.closest(".Shell");
@@ -127,16 +129,21 @@ function RowMenuPopover({ state, items, onClose }: { state: RowMenuState; items:
     pop.focus({ preventScroll: true });
   }, [state.anchor]);
 
-  // The list scrolls or the window changes size: the menu would point at nothing, so it closes.
+  // The list scrolls or the window changes size: the menu would point at nothing, so it closes and
+  // gives the focus back to its row. Its own scroll is not one of those.
+  const away = useEffectEvent((e: Event) => {
+    if (e.target instanceof Node && menu.current?.contains(e.target)) return;
+    close(true);
+  });
   useLayoutEffect(() => {
-    const away = () => onClose();
-    window.addEventListener("resize", away);
-    document.addEventListener("scroll", away, true);
+    const h = (e: Event) => away(e);
+    window.addEventListener("resize", h);
+    document.addEventListener("scroll", h, true);
     return () => {
-      window.removeEventListener("resize", away);
-      document.removeEventListener("scroll", away, true);
+      window.removeEventListener("resize", h);
+      document.removeEventListener("scroll", h, true);
     };
-  }, [onClose]);
+  }, []);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // The menu's keys are its own: nothing behind it (a list, a shortcut) sees them.

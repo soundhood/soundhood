@@ -4,7 +4,7 @@
 // ::after). Checked by computed style at every stop, and by the pixels around the search field,
 // which Tab, Ctrl+K and "/" reach. And the focus never falls to the page when what had it goes
 // (useFocusReturn): Esc leaving Select mode from the bar's More menu, Esc closing the full player,
-// the setup's Done.
+// the setup's Done, and a song's row menu closed by a scroll of the list or a resize of the window.
 import { PNG } from "pngjs";
 import { expect, test } from "./harness.mjs";
 import { openPlayer, openPlaylist, openSettings, playSong, row, searchField, settle } from "./ui.mjs";
@@ -203,3 +203,100 @@ for (const tag of ["@desktop", "@phone"]) {
     });
   });
 }
+
+/** The row menu's facts: how many items, its own height against its content's, its box. */
+const menuFacts = (page) =>
+  page.getByRole("menu").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { items: el.querySelectorAll('[role="menuitem"]').length, client: el.clientHeight, content: el.scrollHeight, top: r.top, bottom: r.bottom };
+  });
+
+test.describe("a song's row menu and the focus", { tag: "@desktop" }, () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-1280x800", "1280x800 and 760x520, from the 1280x800 project");
+  });
+
+  for (const size of [
+    { width: 1280, height: 800 },
+    { width: 760, height: 520 },
+  ]) {
+    test(`closed by a scroll of the list or a resize of the window, it gives the focus back to its row (${size.width}x${size.height})`, async ({ app, page }) => {
+      await page.setViewportSize(size);
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      const menu = page.getByRole("menu");
+      const target = row(page, "Paper Bloom");
+      await target.focus();
+      await page.keyboard.press("Shift+F10");
+      await expect(menu).toBeVisible();
+      // Over the list, left of the menu (end-aligned with the row's more button, on the right).
+      const main = await page.locator(".Shell-main").boundingBox();
+      await page.mouse.move(main.x + 40, main.y + main.height - 30);
+      await page.mouse.wheel(0, 80);
+      await expect(menu).toHaveCount(0);
+      await expect(target, "after a scroll of the list").toBeFocused();
+      await page.keyboard.press("Shift+F10");
+      await expect(menu).toBeVisible();
+      await page.setViewportSize({ width: size.width - 40, height: size.height });
+      await expect(menu).toHaveCount(0);
+      await expect(target, "after a resize of the window").toBeFocused();
+    });
+  }
+
+  test("at 760x520 a right-click near the middle shows the 7-item menu whole, and a wheel over it leaves it open", async ({ app, page }) => {
+    await page.setViewportSize({ width: 760, height: 520 });
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    const menu = page.getByRole("menu");
+    for (const y of [252, 256, 260, 264, 268]) {
+      expect(await page.evaluate((yy) => !!document.elementFromPoint(300, yy)?.closest(".TrackRow"), y), `a song row at y=${y}`).toBe(true);
+      await page.mouse.click(300, y, { button: "right" });
+      await expect(menu).toBeVisible();
+      const m = await menuFacts(page);
+      expect(m.items, `y=${y}`).toBe(7);
+      expect(m.client, `y=${y}: the whole menu shows, not capped`).toBe(m.content);
+      expect(m.top, `y=${y}`).toBeGreaterThanOrEqual(8);
+      expect(m.bottom, `y=${y}`).toBeLessThanOrEqual(520 - 8);
+      const box = await menu.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel(0, 100);
+      await page.waitForTimeout(300);
+      await expect(menu, `y=${y}: still open after a wheel over it`).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+    }
+  });
+
+  test("at 760x520 a row menu that fits neither below nor above its button scrolls inside, and its own scroll never closes it", async ({ app, page }) => {
+    await page.setViewportSize({ width: 760, height: 520 });
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    // The row whose more button sits nearest the middle of the window.
+    const title = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".Shell-main .TrackRow")].filter((r) => r.getClientRects().length > 0);
+      const off = (r) => {
+        const b = (r.querySelector(".IconButton") ?? r).getBoundingClientRect();
+        return Math.abs((b.top + b.bottom) / 2 - innerHeight / 2);
+      };
+      rows.sort((a, b) => off(a) - off(b));
+      return rows[0]?.querySelector(".TrackRow-title > span:not(.Equaliser)")?.textContent ?? "";
+    });
+    const target = row(page, title);
+    await target.focus();
+    await page.keyboard.press("Shift+F10");
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    const m = await menuFacts(page);
+    expect(m.content, `${title}: capped, it scrolls inside`).toBeGreaterThan(m.client);
+    const box = await menu.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 100);
+    await expect.poll(() => menu.evaluate((el) => el.scrollTop), "the menu scrolled").toBeGreaterThan(0);
+    await page.waitForTimeout(300);
+    await expect(menu, "still open after its own scroll").toBeVisible();
+    await expect(menu.getByRole("menuitem").last(), "scrolled to its last item").toBeInViewport();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(target).toBeFocused();
+  });
+});

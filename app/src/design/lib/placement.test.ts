@@ -6,6 +6,7 @@ import { POPOVER_EDGE, POPOVER_GAP, placePopover } from "./placement";
 
 const area = { top: 0, left: 0, bottom: 800, right: 1280 };
 const button = (top: number, left = 100, width = 160) => ({ top, bottom: top + 36, left, right: left + width });
+const pointer = (x: number, y: number) => ({ top: y, bottom: y, left: x, right: x });
 
 describe("placePopover", () => {
   it("opens below its anchor when it fits there, start-aligned, uncapped", () => {
@@ -62,8 +63,40 @@ describe("placePopover", () => {
   });
 
   it("at the pointer (an anchor of no size) opens below it, or above it near the bottom", () => {
-    const pointer = (x: number, y: number) => ({ top: y, bottom: y, left: x, right: x });
     expect(placePopover({ anchor: pointer(400, 300), width: 240, height: 260, area })).toMatchObject({ left: 400, top: 300 + POPOVER_GAP, up: false });
     expect(placePopover({ anchor: pointer(400, 700), width: 240, height: 260, area })).toMatchObject({ top: 700 - POPOVER_GAP - 260, up: true });
+  });
+
+  it("opens on the side where it fits whole: below when it fits there, else above when it fits there", () => {
+    // The 7-item row menu (260 px) at 760x520: below when it fits there (272 px of room), above
+    // when only that side holds it (278 px above, 182 below), uncapped either way.
+    const small = { top: 0, left: 0, bottom: 520, right: 760 };
+    expect(placePopover({ anchor: button(200), width: 240, height: 260, area: small })).toMatchObject({ up: false, maxHeight: null });
+    expect(placePopover({ anchor: button(290), width: 240, height: 260, area: small })).toMatchObject({ up: true, maxHeight: null, top: 290 - POPOVER_GAP - 260 });
+  });
+
+  it("at the pointer near the middle of a 520 px window, where it fits on neither side, slides to fit whole", () => {
+    // The 7-item row menu (260 px) at 760x520: from y = 249 to 271 neither side holds it.
+    const small = { top: 0, left: 0, bottom: 520, right: 760 };
+    for (const y of [252, 256, 260, 264, 268]) {
+      const at = placePopover({ anchor: pointer(300, y), width: 240, height: 260, area: small });
+      expect(at.maxHeight, `y=${y}`).toBeNull();
+      expect(at.top, `y=${y}`).toBeGreaterThanOrEqual(POPOVER_EDGE);
+      expect(at.top + 260, `y=${y}`).toBeLessThanOrEqual(520 - POPOVER_EDGE);
+      expect(at.top, `y=${y}: over the pointer`).toBeLessThanOrEqual(y);
+      expect(at.top + 260, `y=${y}: over the pointer`).toBeGreaterThanOrEqual(y);
+    }
+  });
+
+  it("at the pointer in an area shorter than itself, uses the whole area and is capped to it", () => {
+    const tiny = { top: 0, left: 0, bottom: 200, right: 760 };
+    expect(placePopover({ anchor: pointer(300, 100), width: 240, height: 260, area: tiny })).toMatchObject({ top: POPOVER_EDGE, maxHeight: 200 - 2 * POPOVER_EDGE });
+  });
+
+  it("against a button where it fits on neither side, is capped to the roomier side (never covers its button)", () => {
+    const small = { top: 0, left: 0, bottom: 520, right: 760 };
+    const at = placePopover({ anchor: { top: 242, bottom: 278, left: 600, right: 636 }, width: 240, height: 260, area: small, align: "end" });
+    expect(at.maxHeight).not.toBeNull();
+    expect(at.top >= 278 || at.top + (at.maxHeight ?? 0) <= 242).toBe(true);
   });
 });

@@ -439,14 +439,17 @@ is in: a sheet opening with one of its own lists open leaves that one open.
 drawn in the shell's overlay layer (the Shell provides it), above every sheet and under the toasts,
 never inside the sheet body or pane their button sits in, so nothing that scrolls clips them. One
 placement rule (`placePopover`): below the button, start-aligned (a row menu end-aligned with its
-button, or at the pointer); above it only when it does not fit below and there is more room above;
-its height capped to the room on the side it opens to, 8 px from the shell's edge, and it then
-scrolls inside (its scrolling never moves what is behind it); right-aligned when it would leave the
-shell on the right, and never outside it. A list or MenuButton's menu follows its button while it is
-open (a sheet still sliding in, a resize) and closes when its button scrolls out of sight. Home, End
-and type-ahead scroll the active option into view inside the list. With the owner's 29 playlists the
-Playlists list of "Where should this go?" shows every one, at every size (`reach.spec.mjs`). Outside
-a shell (a fixture page) a popover sits in place, under its button.
+button, or at the pointer); above only when it does not fit below and there is more room above, so
+on the side where it fits whole when one does; capped (8 px from the shell's edge, then scrolling
+inside, never moving what is behind it) only when it fits on neither; a menu at the pointer instead
+slides over the pointer until it fits whole; right-aligned when it would leave the shell on the right,
+never outside it. A list or MenuButton's menu follows its button while it is open (a sheet still
+sliding in, a resize) and closes when its button scrolls out of sight; a row menu closes when the list
+scrolls or the window changes size, never on its own scroll, and either way the focus goes back to
+the button or row (else the main area). Home, End and type-ahead scroll the active option into view
+inside the list. With the owner's 29 playlists the Playlists list of "Where should this go?" shows
+every one, at every size (`reach.spec.mjs`). Outside a shell (a fixture page) a popover sits in
+place, under its button.
 
 **Modal / Sheet.** Every dialog is one component: on the phone a bottom sheet (rounded top `--r-xl`, a
 32 x 4 grabber in `--fg-2`, swipe down or tap the backdrop to close), on wider shells a centred panel
