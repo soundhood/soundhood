@@ -722,3 +722,49 @@ test.describe("the queue pane and the focus @desktop", { tag: "@desktop" }, () =
     await expect(queueButton(page), "Enter again: Queue").toBeFocused();
   });
 });
+
+// Esc in an empty search field is the field's own key: it closes what is open over the screen
+// (Playing), else it only moves the focus to the screen's heading. It never leaves Select mode and
+// never drops the songs chosen; after Playing closes, the focus is on the heading of the screen under
+// it, never on the button that opened it, where Space would open it again.
+test.describe("Esc in an empty search field, Select mode and Playing @desktop", { tag: "@desktop" }, () => {
+  for (const size of [null, { width: 1080, height: 800 }]) {
+    const label = size ? ` (${size.width}x${size.height})` : "";
+    test(`Select mode with songs chosen: Esc clears the field, then puts the focus on the heading; Select mode and the choice stay${label}`, async ({ app, page }, testInfo) => {
+      test.skip(!!size && testInfo.project.name !== "desktop-1280x800", "1080 wide from the 1280x800 project");
+      if (size) await page.setViewportSize(size);
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      const bar = page.getByRole("toolbar", { name: "Selection" });
+      await row(page, "Paper Bloom").first().click({ modifiers: ["Control"] });
+      await row(page, "Quiet Bloom").first().click({ modifiers: ["Control"] });
+      await expect(bar).toContainText("2 chosen");
+      await searchField(page).click();
+      await page.keyboard.type("bloom");
+      await page.keyboard.press("Escape");
+      await expect(searchField(page), "the first Esc clears the field").toHaveValue("");
+      await expect(bar, "the first Esc keeps the choice").toContainText("2 chosen");
+      await page.keyboard.press("Escape");
+      await expect.poll(() => focusFacts(page), "the second Esc: the heading").toEqual(onHeading("Late Night"));
+      await expect(bar, "Select mode stays, with the songs chosen").toContainText("2 chosen");
+    });
+
+    test(`Playing opened with the keyboard, Esc in the empty search field: Playing closes onto the heading, and Space plays and pauses${label}`, async ({ app, page }, testInfo) => {
+      test.skip(!!size && testInfo.project.name !== "desktop-1280x800", "1080 wide from the 1280x800 project");
+      if (size) await page.setViewportSize(size);
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await playSong(app, page, "Lunar Comets");
+      await page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true }).first().focus();
+      await page.keyboard.press("Enter");
+      await expect(fullPlayer(page)).toBeVisible();
+      await page.keyboard.press("Control+k");
+      await expect(searchField(page)).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(fullPlayer(page), "one Esc closes Playing").toHaveCount(0);
+      await expect.poll(() => focusFacts(page), "the heading of the screen under it").toEqual(onHeading("Late Night"));
+      await spaceToggles(page, "after Esc in the empty field closed Playing");
+      await expect(fullPlayer(page), "Space leaves Playing closed").toHaveCount(0);
+    });
+  }
+});

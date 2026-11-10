@@ -43,7 +43,16 @@ export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
       nav={entries}
       current={current}
       onNavigate={(id) => (id === "download" ? dl.openDraft() : nav.goTo(id))}
-      search={<SearchField value={nav.query} onChange={nav.setQuery} placeholder={placeholder} shortcut />}
+      search={
+        <SearchField
+          value={nav.query}
+          onChange={nav.setQuery}
+          placeholder={placeholder}
+          shortcut
+          // Esc in the empty field closes Playing, the one screen that opens over the others beside it.
+          onEscape={() => nav.playing && nav.setPlaying(false)}
+        />
+      }
       playlists={lib.playlistFiles.map((p, i) => ({
         id: p.name,
         name: p.name,
