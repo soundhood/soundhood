@@ -19,6 +19,34 @@ export function focusables(root: HTMLElement): HTMLElement[] {
 }
 
 /**
+ * Keeps Tab inside `root`, a modal surface (a sheet, the first-launch setup): Tab from its last
+ * control goes to its first, Shift+Tab from its first (or from `root` itself) to its last; with no
+ * control in it, Tab stays on `root`. Call it from the surface's keydown; true when it moved the focus.
+ */
+export function trapTab(e: Pick<KeyboardEvent, "key" | "shiftKey" | "preventDefault">, root: HTMLElement): boolean {
+  if (e.key !== "Tab") return false;
+  const items = focusables(root);
+  if (items.length === 0) {
+    e.preventDefault();
+    return true;
+  }
+  const first = items[0];
+  const last = items[items.length - 1];
+  const at = root.ownerDocument.activeElement;
+  if (e.shiftKey && (at === first || at === root)) {
+    e.preventDefault();
+    last.focus();
+    return true;
+  }
+  if (!e.shiftKey && (at === last || !root.contains(at))) {
+    e.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
+}
+
+/**
  * Moves the focus to `el` when it can still take it (in the page, shown, not disabled, not inert);
  * true when the focus is there afterwards.
  */

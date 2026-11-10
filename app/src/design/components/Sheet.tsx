@@ -27,7 +27,7 @@ import {
   type RefObject,
 } from "react";
 import { cssVars, cx } from "../lib/cx";
-import { focusIfAble, focusMainArea, focusables } from "../lib/dom";
+import { focusIfAble, focusMainArea, trapTab } from "../lib/dom";
 import { closePopovers, popoverIn, topPopover } from "../lib/popoverStack";
 import { createSheetStack } from "../lib/sheetStack";
 import { useSwipe } from "../lib/useSwipe";
@@ -221,22 +221,7 @@ function SheetPanel({
       onClose();
       return;
     }
-    if (e.key !== "Tab" || !panel.current) return;
-    const items = focusables(panel.current);
-    if (items.length === 0) {
-      e.preventDefault();
-      return;
-    }
-    const first = items[0];
-    const last = items[items.length - 1];
-    const at = document.activeElement;
-    if (e.shiftKey && (at === first || at === panel.current)) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && at === last) {
-      e.preventDefault();
-      first.focus();
-    }
+    if (panel.current) trapTab(e, panel.current);
   };
 
   return (

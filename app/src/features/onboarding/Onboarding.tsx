@@ -7,11 +7,14 @@
 //   2. Online lookups: one switch, off. Stored; nothing uses it yet.
 //   3. YouTube helper: Enable downloader (off) and Keep download helper updated (off). The first
 //      shows or hides the download UI; the second is stored for the helper manager.
-// When it ends (Done, Skip on the last step) the focus goes to the main area (useFocusReturn), never
-// to the page.
-import { useEffect, useRef, useState } from "react";
+// It is modal like a sheet: Tab stays inside it (from Skip or Done to its first control and round),
+// and a focus given to the screens behind it, or fallen to the page, comes back to what had it
+// inside, else to the setup itself. When it ends (Done, Skip on the last step) the focus goes to
+// the main area (useFocusReturn), never to the page.
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button, OnboardingStep, SettingRow, SwitchRow, TextField } from "../../design";
+import { focusIfAble, trapTab } from "../../design/lib/dom";
 import { useFocusReturn } from "../../design/lib/useFocusReturn";
 import { useApp } from "../../app/context";
 import { KEY_REAL_LIBRARY_DIR, storePromise } from "../../lib/store";
@@ -107,6 +110,35 @@ export function Onboarding() {
     if (shown) box.current?.focus({ preventScroll: true });
   }, [shown, at]);
   useFocusReturn(box, shown);
+  // Modal: the focus stays in the setup. What had it inside comes back when something takes it to
+  // the screens behind (a sheet cannot open under the setup; the toasts above it may have it) or it
+  // falls to the page.
+  useLayoutEffect(() => {
+    const root = box.current;
+    if (!shown || !root) return;
+    let last: HTMLElement | null = null;
+    const back = () => {
+      if (!(last && last !== root && root.contains(last) && focusIfAble(last))) root.focus({ preventScroll: true });
+    };
+    const onIn = (e: FocusEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      if (root.contains(e.target)) last = e.target;
+      else if (!e.target.closest(".Toasts")) back();
+    };
+    const onOut = (e: FocusEvent) => {
+      if (e.relatedTarget) return;
+      requestAnimationFrame(() => {
+        const at = document.activeElement;
+        if (root.isConnected && (!at || at === document.body)) back();
+      });
+    };
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+    };
+  }, [shown]);
   if (!steps || !steps.length) return null;
   const i = Math.min(at, steps.length - 1);
   const total = steps.length;
@@ -115,7 +147,17 @@ export function Onboarding() {
   const nextLabel = last ? "Done" : "Next";
 
   return (
-    <div ref={box} className="Onboarding" role="dialog" aria-modal="true" aria-label="Set up Soundhood" tabIndex={-1}>
+    <div
+      ref={box}
+      className="Onboarding"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Set up Soundhood"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (box.current) trapTab(e, box.current);
+      }}
+    >
       {steps[i] === "library" && <LibraryStep key="library" step={i + 1} total={total} onNext={next} nextLabel={nextLabel} />}
       {steps[i] === "lookups" && (
         <OnboardingStep

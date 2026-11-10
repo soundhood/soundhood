@@ -187,3 +187,26 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await expect(where(page).getByRole("textbox", { name: "Link" })).toHaveValue("https://www.youtube.com/watch?v=AbCdEfGhIjK");
   });
 });
+
+// The setup is modal like a sheet: Tab never leaves it for the sidebar, the tabs or the screen behind
+// (from its last control it goes round to its first), Shift+Tab neither, and a focus given to the
+// screens behind comes back into it. At every size.
+test.describe("the setup keeps the focus", { tag: ["@desktop", "@phone"] }, () => {
+  test("Tab and Shift+Tab go round inside it, on every step", async ({ app, page }) => {
+    await newInstall(app, page);
+    await expect(setup(page)).toBeVisible();
+    const inside = () => page.evaluate(() => !!document.activeElement?.closest(".Onboarding"));
+    for (let step = 0; step < 3; step++) {
+      for (const key of ["Tab", "Shift+Tab"]) {
+        for (let i = 0; i < 8; i++) {
+          await page.keyboard.press(key);
+          expect(await inside(), `step ${step + 1}: ${key} ${i + 1} stays in the setup`).toBe(true);
+        }
+      }
+      // Something gives the focus to the screens behind: it comes back.
+      await page.evaluate(() => document.querySelector(".Shell-main h1, .Shell-main button, .Shell-sidebar button")?.focus());
+      await expect.poll(inside, `step ${step + 1}: a focus given behind comes back`).toBe(true);
+      if (step < 2) await setup(page).getByRole("button", { name: "Skip" }).click();
+    }
+  });
+});
