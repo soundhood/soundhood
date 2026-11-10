@@ -173,3 +173,28 @@ or Retry acts once. A stopped queue's Retry reads "2 links still waiting in the 
 Each fix has a test that fails on `58dfcdd` (46 failed, 6 guards passed) and passes on `043e874`.
 Left in OPEN: Shift+Tab from an off-screen heading still scrolls up to the header; a download toast
 pushed up by a new toast ignores Cancel for 400 ms, as any moved toast does.
+
+## Round 9 (`46f87a3`)
+
+| Reviewer | Result |
+|---|---|
+| Break the library | **signed**. Each Undo undoes only its own change under undo delays of 0, 300 and 700 ms; a pushed-out toast never acts; a real double click on Undo gives one undo and plays nothing; a deliberate press after 400 ms always acts; Ctrl+E saves through the journaled path. Minor: a slow double click (second click at 460 to 500 ms, inside Windows' default double-click time) also undid the newer toast's change, or played the row behind (older) |
+| Break the build | **signed**. Fresh preparation, every gate; visual 948 twice; stress 844 and 528 runs at 14 and 16 workers, no flake; no Rust changed; CI unchanged |
+| Break the network | **blocked**: a Retry pressed while another download ran started a second download at once, on PC and phone; the first to end was filed into the retried link's playlists under a success message, the other link's playlists never got theirs, and the first end unlocked Undo last change mid-write (older, also at `58dfcdd`). Minors: toasts of different heights arriving under 400 ms apart could keep the download's Cancel unpressable; an ignored press shows no sign but `aria-disabled` (accepted). Confirmed fixed: double taps on Cancel and Retry, "Queue done" with links waiting; command set and bundle unchanged; no network without a user action |
+| Break the design | **signed**. Every round-8 item holds at every size, with touch, pen and Shift+click; held keys, toasts, sheet chains and search clean; at most one aqua fill per screen; no baseline changed. Both OPEN rows accepted. Minors: leaving Select mode, or closing Settings or the Queue, after a mouse open put the focus back on the opener, so Space reopened it (older); held "/" typed "/////" into the sidebar search at 1280 and 1920; the Playing toggle kept the focus after a click if it had keyboard focus before; Esc in an empty search field dropped the focus to the page and did not close Playing (older) |
+
+### Round-9 fixes
+
+One download at a time: every start, Retry included, takes one slot set at once, so nothing can start a
+second download while one runs. A Retry pressed then starts nothing, keeps the failed link's row and says
+"Not retried: a download is running", with Retry. The slot is held until the download's own songs are
+filed into its own playlists, so Undo last change stays locked until the real end, and an end with no
+download running files nothing. The rest of a double click that began on a toast action acts nowhere,
+whatever the system's double-click time. A move never stretches a running press guard, so toasts
+arriving fast cannot keep Cancel unpressable. One focus rule for every sheet, list, menu, mode and pane
+with an opener: opened with a pointer, closing gives the focus to the heading (or the sheet beneath);
+opened with the keyboard, to the opener. Select pressed with a pointer gives the focus to the selection
+bar at every width, so Space stays play/pause and the choice stays. Held "/" and Ctrl+K act once. Esc in
+an empty search field does what Esc does elsewhere at that moment. Each fix has a test that fails on
+`46f87a3` (78 of 78) and passes on `87a8895`; 31 older tests that expected the opener after a pointer
+open now expect the heading, each with a keyboard variant that still expects the opener.
