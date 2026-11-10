@@ -337,3 +337,74 @@ test.describe("closing Playing @desktop @phone", { tag: ["@desktop", "@phone"] }
   }
 });
 
+// Back, "1" or closing Playing onto a grid or list scrolled down keeps the scroll and puts the focus
+// on the heading, which is then out of sight. Tab from there goes to the first card or row in view,
+// never back up to the header's first control (which would scroll the screen to the top). 760x520,
+// from the 1280x800 project.
+test.describe("Tab from a heading out of sight @desktop", { tag: "@desktop" }, () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-1280x800", "760x520, from the 1280x800 project");
+  });
+
+  const scrollTop = (page) => page.locator(".Shell-main").evaluate((e) => e.scrollTop);
+  /** The focused element shows whole inside the main area. */
+  const focusInView = (page) =>
+    page.evaluate(() => {
+      const el = document.activeElement;
+      const main = document.querySelector(".Shell-main");
+      if (!(el instanceof HTMLElement) || !main) return false;
+      const r = el.getBoundingClientRect();
+      const m = main.getBoundingClientRect();
+      return r.top >= m.top - 1 && r.bottom <= m.bottom + 1;
+    });
+
+  test("goes to the first card or row in view and keeps the scroll", async ({ app, page }) => {
+    await page.setViewportSize({ width: 760, height: 520 });
+    await page.addInitScript(() =>
+      window.__soundhoodMock.addPlaylists(["Acoustic Mornings", "Autumn Drive", "Bedroom Pop", "Blue Hour", "Chill Beats", "City Lights", "Deep Work", "Dinner Party", "Early Bird", "Gym Sessions", "Indie Gold", "Jazz Corner", "Workout"]),
+    );
+    await app.open();
+    const workout = page.locator(".PlaylistCard-open").filter({ hasText: "Workout" });
+    await workout.scrollIntoViewIfNeeded();
+    const at = await scrollTop(page);
+    expect(at, "the grid is scrolled").toBeGreaterThan(200);
+    for (const how of ["Back", '"1"']) {
+      await workout.click();
+      await expect(heading(page)).toHaveText("Workout");
+      if (how === "Back") await back(page).click();
+      else await page.keyboard.press("1");
+      await expect(heading(page)).toHaveText("Playlists");
+      await expect.poll(() => focusFacts(page), how).toEqual(onHeading("Playlists"));
+      expect(await scrollTop(page), `${how} keeps the scroll`).toBe(at);
+      await page.keyboard.press("Tab");
+      expect((await focusFacts(page)).kind, `Tab after ${how}: a card`).toBe("card");
+      expect(await focusInView(page), `Tab after ${how}: a card in view`).toBe(true);
+      expect(await scrollTop(page), `Tab after ${how} keeps the scroll`).toBe(at);
+    }
+
+    // A long list scrolled down, Playing opened and closed over it.
+    await openPlaylist(page, "Late Night");
+    await playSong(app, page, "Lunar Comets");
+    await page.keyboard.press("3");
+    await page.locator(".Shell-main .ListRow").filter({ visible: true }).filter({ hasText: "All songs" }).click();
+    await expect(heading(page)).toHaveText("All songs");
+    await page.locator(".Shell-main").evaluate((e) => (e.scrollTop = 900));
+    await page.waitForTimeout(200);
+    const listAt = await scrollTop(page);
+    expect(listAt, "the list is scrolled").toBeGreaterThan(600);
+    await page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true }).click();
+    await expect(fullPlayer(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(fullPlayer(page)).toHaveCount(0);
+    await expect.poll(() => focusFacts(page), "Playing closed").toEqual(onHeading("All songs"));
+    expect(await scrollTop(page), "closing Playing keeps the scroll").toBe(listAt);
+    await page.keyboard.press("Tab");
+    expect((await focusFacts(page)).kind, "Tab after Playing closed: a row").toBe("row");
+    expect(await focusInView(page), "Tab after Playing closed: a row in view").toBe(true);
+    expect(await scrollTop(page), "Tab keeps the scroll").toBe(listAt);
+    // From that row the keys go on from there.
+    const was = await page.evaluate(() => Number(document.activeElement?.getAttribute("data-index")));
+    await page.keyboard.press("ArrowDown");
+    expect(await page.evaluate(() => Number(document.activeElement?.getAttribute("data-index")))).toBe(was + 1);
+  });
+});
