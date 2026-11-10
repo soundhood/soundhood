@@ -40,9 +40,12 @@
   }
 }
 
+/* A sheet shares its backdrop's layer, so they stack in document order: a dialog opened from another
+   one (Settings, then "Where should this go?") puts its backdrop over the first, which dims and blurs
+   it, and only the newest sheet reads as open. The overlays slot mounts them in that order. */
 .Sheet {
   position: absolute;
-  z-index: 31;
+  z-index: 30;
   left: 0;
   right: 0;
   bottom: 0;

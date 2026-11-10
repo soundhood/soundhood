@@ -94,7 +94,11 @@ export function FullPlayer(p: FullPlayerProps) {
         </div>
         <div className="FullPlayer-desk">
           <div>
-            <span className="t-overline">Playing from {p.source.name}</span>
+            {/* The same words as the phone's top row: the kind of list as the overline, its name as named. */}
+            <div className="FullPlayer-source">
+              <span className="t-overline">Playing from {p.source.kind}</span>
+              <strong>{p.source.name}</strong>
+            </div>
             <h1 aria-live="polite">{p.title}</h1>
             <div className="FullPlayer-artist">{p.artist}</div>
           </div>

@@ -86,9 +86,47 @@ test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
     await goTo(page, "Playing");
     await expect(page.locator(".FullPlayer")).toBeVisible();
     await expect(page.locator(".FullPlayer").getByText("Late Night").first()).toBeAttached();
+    // "Playing from" reads the same on every shell: the kind of list, then its name as it is named.
+    const from = page.locator(".FullPlayer-source").filter({ visible: true });
+    await expect(from).toHaveCount(1);
+    await expect(from.locator(".t-overline")).toHaveText("Playing from playlist");
+    await expect(from.locator("strong")).toHaveText("Late Night");
+    await expect(from.locator("strong")).toHaveCSS("text-transform", "none");
     await page.keyboard.press("Escape");
     await expect(page.locator(".FullPlayer")).toHaveCount(0);
     await expect(page.locator(".ScreenHeader h1")).toHaveText("Late Night");
+  });
+
+  test("Playing while nothing plays: the tab, the rail icon and the sidebar item are greyed and inert alike", async ({ app, page }) => {
+    await app.open();
+    // Read the hover colours at once, not a frame into their transition.
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
+    const playing = page.locator(".BottomTabs-tab, .Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Playing" });
+    const look = () => playing.evaluate((el) => ({ color: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor, cursor: getComputedStyle(el).cursor }));
+    const disabledColour = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--fg-disabled)";
+      document.body.append(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      return c;
+    });
+    await expect(playing).toBeDisabled();
+    await expect(playing).toHaveAttribute("aria-disabled", "true");
+    const idle = await look();
+    expect(idle.color).toBe(disabledColour);
+    // No hover: a pointer over it changes nothing, and a click opens nothing.
+    await playing.hover({ force: true });
+    expect(await look()).toEqual(idle);
+    await playing.click({ force: true });
+    await expect(page.locator(".FullPlayer")).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    // Once a song plays it is a normal item again.
+    await openPlaylist(page, "Late Night");
+    await playSong(app, page, "Lunar Comets");
+    await expect(playing).toBeEnabled();
+    await expect(playing).not.toHaveAttribute("aria-disabled");
+    expect((await look()).color).not.toBe(disabledColour);
   });
 
   test("the test library is named on every list screen", async ({ app, page }) => {
@@ -151,6 +189,9 @@ test.describe("mouse and keyboard (platform windows)", { tag: "@desktop" }, () =
     await openPlaylist(page, "Focus");
     const first = (await titles(page))[0];
     await row(page, first).click({ modifiers: ["Control"] });
+    // Remove from the playlist and Leave Select mode are two different glyphs.
+    const glyph = (name) => page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name }).locator("svg").innerHTML();
+    expect(await glyph("Remove from Focus")).not.toBe(await glyph("Leave Select mode"));
     await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Remove from Focus" }).click();
     await expect(toast(page)).toContainText(`Removed ${first} from Focus`);
     await expect(page.locator(".TrackRow").filter({ visible: true })).toHaveCount(6);
@@ -214,6 +255,34 @@ test.describe("touch (platform android)", { tag: "@phone" }, () => {
     await expect(row(page, "Amber Comets")).toHaveClass(/is-playing/);
     await goTo(page, "Playlists");
     await expect(card(page, "Focus")).toContainText("9 songs");
+  });
+
+  test("Select mode below the desktop width: four buttons; Select all, Remove and Delete in More", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await page.getByRole("button", { name: "Select", exact: true }).tap();
+    const bar = page.getByRole("toolbar", { name: "Selection" });
+    await row(page, "Paper Bloom").tap();
+    const buttons = bar.getByRole("button").filter({ visible: true });
+    expect(await buttons.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")))).toEqual([
+      "Leave Select mode",
+      "Add to playlist",
+      "Edit tags",
+      "More actions",
+    ]);
+    const more = bar.getByRole("button", { name: "More actions" });
+    await more.tap();
+    await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Select all", "Remove from Late Night", "Delete song"]);
+    await page.getByRole("menuitem", { name: "Select all" }).tap();
+    await expect(bar).not.toContainText("1 chosen");
+    await more.tap();
+    await expect(page.getByRole("menuitem").first()).toHaveText("Select none");
+    await page.getByRole("menuitem", { name: "Select none" }).tap();
+    await expect(bar).toContainText("0 chosen");
+    await row(page, "Paper Bloom").tap();
+    await more.tap();
+    await page.getByRole("menuitem", { name: "Remove from Late Night" }).tap();
+    await expect(toast(page)).toContainText("Removed Paper Bloom from Late Night");
   });
 
   test("the mini player opens Playing; the tabs hide under it", async ({ app, page }) => {

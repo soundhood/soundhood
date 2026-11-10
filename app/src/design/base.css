@@ -50,7 +50,9 @@ img {
   max-width: 100%;
 }
 
-/* Focus: 2 px aqua outline on keyboard focus, everywhere, never removed. */
+/* Focus: 2 px aqua outline on keyboard focus, everywhere, never removed. A control that hides its
+   own outline hands the same ring to a box that holds it (the search field's frame, a playlist
+   card); tools/screenshot/focus.spec.mjs tabs through the screens and checks every stop. */
 :focus {
   outline: none;
 }
@@ -65,19 +67,26 @@ img {
   color: var(--fg-0);
 }
 
-/* Scrollbars: thin, dark, on a transparent track; hidden on touch. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar) transparent;
-}
-
+/* Scrollbars: an 8 px bar with a --scrollbar thumb on a transparent track, no arrow buttons; none on
+   touch. Chromium (WebView2, the Android System WebView) and WebKitGTK draw the ::-webkit-scrollbar
+   rules. The standard scrollbar-width and scrollbar-color go only where those rules are unsupported:
+   since Chromium 121 either property on an element switches its ::-webkit-scrollbar rules off, and
+   Windows then draws its own bar with arrow buttons. tools/screenshot/scrollbars.spec.mjs photographs
+   the bars with Chromium's scrollbars shown. */
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-*::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 *::-webkit-scrollbar-thumb {
@@ -87,13 +96,22 @@ img {
   background-clip: padding-box;
 }
 
-@media (pointer: coarse) {
+@supports not selector(::-webkit-scrollbar) {
   * {
-    scrollbar-width: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar) transparent;
   }
+}
 
+@media (pointer: coarse) {
   *::-webkit-scrollbar {
     display: none;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: none;
+    }
   }
 }
 

@@ -87,6 +87,7 @@ export function BottomTabs<Id extends string>({ tabs, current, onChange, numberK
           aria-selected={i === index}
           tabIndex={i === index || (index < 0 && i === 0) ? 0 : -1}
           disabled={t.disabled}
+          aria-disabled={t.disabled || undefined}
           onClick={() => go(i, false)}
         >
           <Icon name={t.icon} size={24} />

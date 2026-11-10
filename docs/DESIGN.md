@@ -29,7 +29,7 @@ These come from the build brief and are checked by lints or reviewers. Breaking 
 | No blue in UI chrome (hue 200 to 250 degrees, saturation above 0.5, at most 0.1 % of pixels; artwork and its tint exempt) | `tools/blue-scan.mjs` on the visual suite |
 | No white surfaces or margins; white only as `--fg-0` text | design reviewer |
 | SVG icons only; no emoji or symbol characters as icons (U+1F000 to U+1FAFF, U+2600 to U+27BF, U+2B00 to U+2BFF in TSX) | `tools/token-lint.mjs` |
-| No native scrollbars, `<select>`, range, checkbox or radio look | `tools/token-lint.mjs` (`appearance`), design reviewer |
+| No native scrollbars, `<select>`, range, checkbox or radio look | `tools/token-lint.mjs` (`appearance`), `tools/screenshot/scrollbars.spec.mjs`, design reviewer |
 | No shortcut legends on screen; no J/K shortcuts; tap or click plays (never double-tap) | design reviewer |
 | Text contrast 4.5:1 or better, UI boundaries 3:1 or better | `tools/contrast-lint.mjs` |
 | At most one aqua-filled element per screen (plus hairlines and markers) | design reviewer |
@@ -162,8 +162,24 @@ width, never by platform. Features that exist only on one platform (Proton sync 
 app; on the PC the Proton Drive app mirrors the library) show or hide by what the host reports, and
 that is listed as such in [SCREENS](SCREENS.md).
 
-Insets: Android passes the system-bar and cutout insets from Kotlin as CSS variables (`--inset-top`,
-`--inset-bottom`, ...); `env(safe-area-inset-*)` is not used (unreliable on the WebView floor).
+Insets: on Android `MainActivity` pads the web view by the system bars and the display cutout itself
+(native padding, on the canvas colour), so the CSS inset variables (`--inset-top`, `--inset-bottom`,
+...) the components read stay 0 there ([DECISIONS](DECISIONS.md), 2026-11-10);
+`env(safe-area-inset-*)` is not used (unreliable on the WebView floor).
+
+Scrollbars: an 8 px bar with a `--scrollbar` thumb (2 px clear of its edges) on a transparent track,
+no arrow buttons, on every scrolling box with a mouse; none on touch (`pointer: coarse`). Chromium
+(WebView2, the Android System WebView) and WebKitGTK draw it from the `::-webkit-scrollbar` rules in
+`base.css`. The standard `scrollbar-width` and `scrollbar-color` are set only where those rules are
+unsupported (`@supports not selector(::-webkit-scrollbar)`): since Chromium 121 either property turns
+an element's `::-webkit-scrollbar` rules off, and Windows then draws its own wider bar with arrow
+buttons. The visual suite hides scrollbars, so `tools/screenshot/scrollbars.spec.mjs` shows them and
+checks the bar's width, its styles and its pixels.
+
+Start: the window and the page are the canvas colour before the UI paints, never white: the main
+window's `backgroundColor` in `tauri.conf.json`, an inline `html, body` background in `index.html`,
+and on Android the theme's `windowBackground` (day and night, re-applied by
+`scripts/patch-android.py`).
 
 ## Icons
 
@@ -178,7 +194,7 @@ they render as `settings`, `smart` and `more` from the set.
 |---|---|
 | brand | `mark` |
 | transport | `play`, `pause`, `prev`, `next`, `shuffle`, `repeat`, `repeatOne` |
-| player | `queue`, `lyrics`, `playlistAdd`, `more`, `volume`, `volumeMute`, `expand` |
+| player | `queue`, `lyrics`, `playlistAdd`, `playlistRemove`, `more`, `volume`, `volumeMute`, `expand` |
 | navigation | `playlists`, `artists`, `folders`, `playing`, `search`, `settings`, `sidebar`, `back`, `chevronLeft`, `chevronRight`, `chevronDown`, `chevronUp`, `close` |
 | actions | `plus`, `check`, `edit`, `trash`, `download`, `link`, `paste`, `copy`, `undo`, `sync`, `sort`, `select`, `drag`, `smart`, `filter`, `log`, `globe`, `music` |
 | states | `info`, `warning`, `error`, `done` |
@@ -193,6 +209,7 @@ every list. Sources in [`app/src/design/brand/`](../app/src/design/brand/):
   over a `#0f0f0f` background layer.
 - `app-icon-mono.svg`: white mark on transparent; the tray, the Android notification, Android Auto
   and Android's themed icon.
+- `app/public/favicon.svg`: a copy of `app-icon.svg`, the web UI's favicon.
 
 The platform files in `app/src-tauri/icons/` and the Android resources are generated from these with
 `tauri icon` ([DEV](DEV.md)); never hand-edit the generated files.
@@ -225,7 +242,8 @@ with `--fg-disabled` text.
 glyph cross-fades between play and pause.
 
 **Switch.** A 32 x 18 track: off `--bg-3` with a 1 px edge and a `--fg-1` knob; on `--purple` with a
-`--lilac` knob. `role="switch"`, `aria-checked`, Space and Enter toggle. The whole settings row is the
+1 px `--lilac` edge and a `--lilac` knob (purple alone is 2.8:1 on a sheet, the edge makes the
+boundary 3:1, checked by `tools/contrast-lint.mjs`). `role="switch"`, `aria-checked`, Space and Enter toggle. The whole settings row is the
 click target.
 
 **Checkbox.** A 20 px rounded square used in Select mode: off a `--fg-1` outline, on aqua with an ink
@@ -273,8 +291,9 @@ under reduced motion. Marks the playing song's row, card and sidebar item.
 **TrackRow.** `--row-h` tall (56 phone, 48 desktop, at 100 % text). Anatomy: optional checkbox
 (Select mode) or drag handle (edit mode), thumb, title over artist, the folder name (desktop shell
 only, a storage hint), duration, a "more" icon button (revealed on hover with a mouse, always shown
-on touch). States: playing (a 3 px aqua bar on the left edge, aqua title, the equaliser before the
-title), selected
+on touch). States: playing (a 3 px aqua bar in the row's left padding, 13 px before the thumb at
+every size: on the row's edge where the gutter is 16 px, the phone and the queue; aqua title, the
+equaliser before the title), selected
 (aqua-dim wash and a ticked checkbox), missing (a playlist line whose file is gone: disabled text,
 "Missing file" under the title; never dropped), hover and press washes. Behaviour: tap or click plays
 the row (in Select mode it ticks the row); with a mouse, Ctrl+click and Shift+click select without
@@ -366,21 +385,27 @@ are none. Data arrives in Phase 5; until then the lyrics buttons are not shown.
 **Shell.** The size container and its grid areas (sidebar, main, right pane, player bar, bottom
 block); overlays (sheets, popovers, toasts) are inside it so they follow the same container queries.
 
-**ScreenHeader.** The title (h1 on the phone, display on the desktop) with a meta line (counts) and up
-to two icon actions; below the desktop width (the phone, and the tablet, whose rail has no room for
-it) the search field and, while searching, the chips under it. Below the desktop width the title
-wraps onto a second line rather than give way to the counts and actions (at 130 % text a short name
-does not fit beside them), and ends in an ellipsis only past two lines.
+**ScreenHeader.** One row with the title (h1 on the phone, display on the desktop), the counts beside
+it (body-sm `--fg-1`; on the desktop on the title's baseline) and at its end up to two icon actions
+(or a small Button on the desktop, such as New playlist). Below the desktop width (the phone, and the
+tablet, whose rail has no room for it) the search field under the row and, while searching, the chips
+under the field; on the desktop the field is the sidebar's. The actions come after the field in the
+document, drawn at the end of the title's row by the grid, so Tab reaches the field first, as on the
+desktop where it heads the sidebar. Below the desktop width the title wraps onto a second line rather
+than give way to the counts and actions (at 130 % text a short name does not fit beside them), and
+ends in an ellipsis only past two lines.
 
 **BottomTabs** (phone). Four tabs: Playlists, Artists, Folders, Playing; 56 px plus the bottom inset on
 `--bg-0` with a 1 px line on top. Icon over a caption label; the active tab aqua, with a short aqua bar
-on the tab bar's top edge that slides to it. No pills. Playing is disabled while nothing plays. Hidden
-under the full player. `role="tablist"`; keys 1 to 4 switch tabs with a keyboard.
+on the tab bar's top edge that slides to it. No pills. Playing is disabled while nothing plays
+(`--fg-disabled`, inert), the same as the sidebar's and the rail's Playing item. Hidden under the
+full player. `role="tablist"`; keys 1 to 4 switch tabs with a keyboard.
 
 **DesktopSidebar.** 240 px (200 to 320 by dragging its edge; collapses to the 72 px rail with the
 sidebar button), on `--bg-0` with a 1 px line on its right: the wordmark (aqua mark and "Soundhood"),
-the search field, four nav items (icon, label, count; the current one on `--bg-1` with an aqua icon)
-and a fifth, Download, while the downloader is on (it opens "Where should this go?" with an empty
+the search field, four nav items (icon, label, count; the current one on `--bg-1` with an aqua icon;
+Playing, while nothing plays, `--fg-disabled` with no hover and not clickable, as the phone's tab; the
+rail's icons the same) and a fifth, Download, while the downloader is on (it opens "Where should this go?" with an empty
 link), "Playlists" with a new-playlist button and the list of playlists (mosaic, name, the equaliser
 on the playing one), and a footer with Settings and the collapse button. Tracks dragged from a list
 onto a playlist here are added to it (tier 2, toast with Undo); songs it already holds are left out,
@@ -435,11 +460,13 @@ left out when nothing was applied and on the report of an undo.
 (changed parts in `--fg-0`, unchanged in `--fg-1`), a confidence hint, and the reason.
 
 **SelectModeBar.** While songs are chosen (Select mode, or Ctrl+click and Shift+click with a mouse):
-Leave Select mode, "N chosen", Select all or Select none (words where there is room, an icon on
-narrower shells), then the actions as icon buttons: Add to playlist, Remove from the open playlist
-(only while one is open and holds some of them) and Edit tags (one song only); the rarer ones in a
-"More actions" menu: Move to folder (only on a folder's list or All songs, the storage views) and
-Delete as a danger item. Play and Add to queue are not on it; the rows' menu has them for a
+Leave Select mode (`close`), "N chosen", Select all or Select none (words), then the actions as icon
+buttons, most used first: Add to playlist, Edit tags (one song only) and Remove from the open playlist
+(`playlistRemove`, only while one is open and holds some of them); the rarer ones in a "More actions"
+menu: Move to folder (only on a folder's list or All songs, the storage views) and Delete as a danger
+item. Below the desktop width the bar keeps four buttons, Leave, the first two actions and More
+actions, and the menu there starts with Select all (or Select none) and the other actions, so every
+action stays reachable without a row of six glyphs. Play and Add to queue are not on it; the rows' menu has them for a
 selection. It stays in view at the top of the list; below the desktop width it takes the screen
 header's place, on the desktop it sits above the list. Esc leaves Select mode.
 
@@ -460,8 +487,12 @@ standard Music folder filled in; Android's All-files permission is asked when th
 
 - Text 4.5:1 or better: only `--fg-0`, `--fg-1`, `--aqua` and `--lilac` on `--bg-0`, `--bg-1`,
   `--bg-2` (checked by `tools/contrast-lint.mjs`); UI boundaries 3:1 or better.
-- A 2 px aqua outline on `:focus-visible` everywhere, never removed. The one exception is a sheet's own
+- A 2 px aqua outline on `:focus-visible` everywhere, never removed. A control that hides its own
+  outline hands the same ring to the box that holds it: the search field's frame while its input has
+  the keyboard (Tab, Ctrl+K, "/"), a playlist card's whole face. The one exception is a sheet's own
   panel, which takes the focus on open only so its title is read out (Modal / Sheet, above).
+  `tools/screenshot/focus.spec.mjs` tabs through Playlists, an open playlist and Settings at every
+  size and checks every stop's ring.
 - Roving tabindex in lists; every icon button has an `aria-label`; the now-playing title and toasts are
   live regions.
 - The layout survives 130 % text size (photographed in the visual suite).

@@ -279,8 +279,9 @@
     min-width: 0;
   }
 
-  .FullPlayer-desk .t-overline {
-    color: var(--fg-1);
+  .FullPlayer-desk .FullPlayer-source {
+    justify-items: start;
+    text-align: left;
   }
 
   .FullPlayer-desk h1 {

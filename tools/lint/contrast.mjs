@@ -45,11 +45,18 @@ export const RULES = [
     why: "tokens.css names lilac the slider knob, the mark of the position on the bg-3 track (WCAG 1.4.11)",
   },
   {
+    fg: ["--lilac"],
+    bg: ["--bg-0", "--bg-1", "--bg-2"],
+    min: 3,
+    kind: "boundary",
+    why: "the 1 px edge of a switch that is on: the purple track alone is under 3:1 on a sheet, the lilac edge draws its boundary (WCAG 1.4.11)",
+  },
+  {
     fg: ["--purple"],
     bg: ["--bg-3", "--bg-1"],
     min: null,
     kind: "boundary",
-    why: "the slider fill: tokens.css says purple never carries meaning alone (the lilac knob marks the position), so only reported",
+    why: "the slider fill and a switch's track: tokens.css says purple never carries meaning alone (the lilac knob marks the position, a lilac edge the switch's boundary), so only reported",
   },
 ];
 

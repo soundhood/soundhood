@@ -140,7 +140,8 @@
   opacity: 0;
 }
 
-/* Switch: track 32 x 18, purple when on, lilac knob. */
+/* Switch: track 32 x 18, purple when on with a 1 px lilac edge (purple alone is 2.8:1 on a sheet;
+   the edge gives the boundary 3:1, tools/contrast-lint.mjs), lilac knob. */
 .Switch {
   position: relative;
   display: inline-block;
@@ -169,6 +170,7 @@
 
 .Switch[aria-checked="true"] {
   background: var(--purple);
+  box-shadow: inset 0 0 0 1px var(--lilac);
 }
 
 .Switch[aria-checked="true"]::after {
@@ -178,6 +180,7 @@
 
 .Switch:disabled {
   background: var(--bg-2);
+  box-shadow: inset 0 0 0 1px var(--track-edge);
 }
 
 .Switch:disabled::after {
@@ -372,6 +375,20 @@
 
 .SearchField:focus-within {
   box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* The input draws no ring of its own: the field's frame carries the 2 px aqua ring while the input
+   has keyboard focus (Tab, Ctrl+K, "/"; Chromium also counts a click into a text field). */
+.SearchField:has(input:focus-visible) {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
+}
+
+@supports not selector(:has(*)) {
+  .SearchField:focus-within {
+    outline: 2px solid var(--aqua);
+    outline-offset: 2px;
+  }
 }
 
 .SearchField input {

@@ -1,6 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.soundhood" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Soundhood: the canvas colour until the web UI paints (no white frame at start) -->
+        <item name="android:windowBackground">@color/soundhood_canvas</item>
         <!-- Customize your theme here. -->
     </style>
 </resources>

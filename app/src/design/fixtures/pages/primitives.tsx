@@ -1,6 +1,6 @@
 // Fixture pages: primitives. Each page shows the component's states with invented data; the
 // controls work, so the page doubles as a playground in the dev server (/fixtures.html#Name).
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Badge } from "../../components/Badge";
 import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
@@ -40,7 +40,15 @@ function IconPage() {
           {names.map((n) => (
             <div key={n}>
               <Icon name={n} />
-              <span>{n}</span>
+              {/* A long name breaks between its words (playlist / Remove), never inside one. */}
+              <span>
+                {n.split(/(?=[A-Z])/).map((word, i) => (
+                  <Fragment key={word}>
+                    {i > 0 && <wbr />}
+                    {word}
+                  </Fragment>
+                ))}
+              </span>
             </div>
           ))}
         </div>
@@ -138,7 +146,7 @@ function SwitchPage() {
   const [a, setA] = useState(true);
   const [b, setB] = useState(false);
   return (
-    <Page title="Switch" note="32 x 18; purple with a lilac knob when on. In a settings row the whole row toggles it.">
+    <Page title="Switch" note="32 x 18; purple with a lilac edge and a lilac knob when on. In a settings row the whole row toggles it.">
       <Demo label="On, off, disabled">
         <Row>
           <Switch checked aria-label="On" />

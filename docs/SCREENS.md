@@ -25,15 +25,17 @@ under Tools.
 
 **Phone.** One screen at a time. At the bottom the mini player (while a song is loaded) and four
 tabs: Playlists, Artists, Folders and Playing (greyed out until a song is loaded). Each list screen
-has its title, a settings button (the gear) and, under the title, the search field. The mini player
-and the tabs hide under the Playing screen.
+has its title, a settings button (the gear) and, under the title, the search field, which Tab reaches
+before the title's buttons. The mini player and the tabs hide under the Playing screen.
 
 **Tablet.** A 72 px rail of icons on the left (Playlists, Artists, Folders, Playing, Download while
 the downloader is on, Settings) and the player bar at the bottom. The search field stays under each
-screen's title.
+screen's title, before the title's buttons in Tab order. Playing is greyed out until a song is loaded,
+as on the phone and the desktop.
 
 **Desktop.** The sidebar on the left: the Soundhood wordmark, the search field, Playlists, Artists,
-Folders and Playing with their counts, **Download** while the downloader is on, then "Playlists" with
+Folders and Playing with their counts (Playing greyed out until a song is loaded), **Download** while
+the downloader is on, then "Playlists" with
 a new-playlist button and every playlist (the one playing marked with the equaliser), and at the
 bottom Settings and the button that folds the sidebar to the rail. Drag its right edge (or use Left
 and Right on it) to set its width, 200 to 320 px; the width and the fold are remembered. The main
@@ -85,19 +87,21 @@ header: **Play**, **Shuffle**, the sort order (Natural order, Title A to Z, Titl
 Z, Longest first, Shortest first; remembered) and **Select**.
 
 **Rows.** The cover, title over artist, the folder (desktop), the length and a "more" button (shown
-on hover with a mouse, always on touch). The playing song has an aqua bar and title and the
-equaliser. **A single tap or click plays the song**, on every device; there is no double-click. The
+on hover with a mouse, always on touch). The playing song has an aqua bar beside its cover (in the
+row's left margin) and an aqua title with the equaliser. **A single tap or click plays the song**, on every device; there is no double-click. The
 list it plays from becomes what Next and Previous step through, in the order shown (its sort, and
 the search field's filter while the list is open). With a mouse, **Ctrl+click** and **Shift+click**
 choose songs (one more, or a range) without playing anything, and Enter plays the chosen ones.
 
 **Select mode** (Select, on any device): a tap or click ticks a row instead of playing it (Shift+click
-ticks a range). The selection bar shows the count, Select all (or Select none), and the actions:
-**Add to playlist**, **Remove from** the open playlist (when it holds chosen songs), **Edit tags** (one
-song), and under "More actions" **Move to folder** (while a folder or All songs is open, the storage
-views) and **Delete**. On narrower shells the bar takes the header's place; on the desktop it sits
-above the list. The close button or Esc leaves Select mode. Ctrl+click and Shift+click show the same
-bar.
+ticks a range). The selection bar shows the close button, the count, Select all (or Select none), and
+the actions: **Add to playlist**, **Edit tags** (one song), **Remove from** the open playlist (when it
+holds chosen songs; its own icon, a list with a minus), and under "More actions" **Move to folder**
+(while a folder or All songs is open, the storage views) and **Delete**. On the desktop the bar sits
+above the list with all of these. On narrower shells it takes the header's place and keeps four
+buttons: close, Add to playlist, Edit tags and More actions, which then also holds Select all and
+Remove from (the shell's width). The close button or Esc leaves Select mode. Ctrl+click and
+Shift+click show the same bar.
 
 **The row menu.** Opened by the "more" button, a right click, a long press on touch, or the menu key
 (or Shift+F10) on a row. It acts on the row's song, or on the whole selection when the row is part of
@@ -132,7 +136,7 @@ open playlist. The background runs from a dark tint of the cover into the canvas
 the Playing tab, and closes with the close button, a swipe down or Esc, sliding back down.
 
 **Tablet and desktop.** Playing fills the main area in two columns: the artwork; then "Playing from"
-the list, the title in large type, the artist, its facts (length, format, folder, and its place in
+with the list's kind and name, worded as on the phone, the title in large type, the artist, its facts (length, format, folder, and its place in
 the queue, "4 of 12"), and the queue, Add to playlist and "more" buttons. The transport and the time line
 stay in the player bar. It opens from the player bar's open button, Playing in the sidebar or the
 rail, or 4 on the keyboard, and closes with the player bar's button, Esc, or any other screen.
@@ -179,7 +183,8 @@ order:
   now**, **Get new**, **Send new** and the last sync time. A failed login or sync shows an error row
   with Copy log and Retry. Sync is off while the test library is shown.
 - **Appearance.** **Text size**: 100 %, 115 % or 130 %, for every screen on this device; rows grow with
-  the text.
+  the text. **Show the queue beside the list** (a switch) where the right pane fits, a desktop window
+  at least 600 px tall (the shell's width and height): the same as the player bar's queue button or Q.
 - **Tools.** **Copy log** (the log with the app and device details on top, and the change lines the
   screen does not show) and **View log**, whose help line is the newest line of the log. View log opens
   the log in a sub-sheet, newest line in view, with **Clear log** and **Copy log**.
@@ -197,7 +202,9 @@ the sidebar or the rail (an empty link field, with the focus in it), **Add** or 
 or a link shared to the phone app. Each opens **Where should this go?**: the link, the folder it lands
 in (a list of the folders and "New folder", whose name is checked before anything is made), the
 playlists every file it brings joins, and **Cancel**, **Queue** and **Download**. The folder and
-playlists start from the remembered choice, which each Download on the PC updates.
+playlists start from the remembered choice, which each Download on the PC updates. Opened from
+Settings it comes over Settings, which dims under its backdrop (one dialog reads as open at a time)
+and is back when it closes.
 
 - **Download** on the PC starts at once and remembers the folder and playlists for the next link; on
   the phone the link is queued first and leaves the queue once it has downloaded.

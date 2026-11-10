@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Soundhood app icon: the aqua mark (a hood over three equaliser bars) on the canvas colour. -->
+  <rect width="1024" height="1024" rx="232" fill="#0f0f0f"/>
+  <g transform="translate(64 64) scale(37.333)" fill="none" stroke="#00ffbf" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5V12a7.5 7.5 0 0 1 15 0v7.5"/><path d="M9 19.5v-5M12 19.5v-8.5M15 19.5v-3.5"/></g>
+</svg>
