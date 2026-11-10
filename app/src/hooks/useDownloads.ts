@@ -324,6 +324,11 @@ export function useDownloads({
     notify({ text, action: { label: "Retry", onClick: retry } });
   }
 
+  /**
+   * Starts a download; false when it was refused before it started (nothing ran: the slot, the
+   * switch, the folder, a channel link, the PC host), true once it started (its end or its failure
+   * says the rest).
+   */
   async function startDownload(url: string, target: string, playlists: string[], queued: QueuedLink | null): Promise<boolean> {
     // One at a time, on every path: what a download files and where is its own until it is over.
     if (slot.taken()) {
@@ -375,7 +380,7 @@ export function useDownloads({
         setDlLogs((prev) => prev + `\n[done] exit code: ${res.exitCode}\n`);
         noteDlOutput(res.log || "");
         await finishDownload(res.exitCode, res.files || []);
-        return res.exitCode === 0;
+        return true;
       } catch (err) {
         slot.helperEnded();
         slot.release();
@@ -383,7 +388,8 @@ export function useDownloads({
         const reason = String(err).split("\n")[0].slice(0, 120);
         if (queued) { activeDlRef.current = { ...activeDlRef.current, queued: null }; queueRunRef.current = []; runTotalRef.current = 0; setRun(null); }
         failed("Download failed", `Download failed: ${reason}`, reason, { url, target: folderName, playlists, queued });
-        return false;
+        // It started: its failure (with Retry) has said the rest.
+        return true;
       }
     }
     try {
@@ -512,8 +518,15 @@ export function useDownloads({
       return;
     }
     setRun({ at: runTotalRef.current - queueRunRef.current.length, of: runTotalRef.current });
-    startDownload(item.url, item.target || DEFAULT_DOWNLOAD_TARGET, item.playlists || [], item).then((ok) => {
-      if (!ok) { queueRunRef.current = []; runTotalRef.current = 0; setRun(null); }
+    startDownload(item.url, item.target || DEFAULT_DOWNLOAD_TARGET, item.playlists || [], item).then((started) => {
+      if (started) return;
+      // Refused before it started (a channel link, a folder name, the host): the run stops here, and
+      // the toast after the refusal says the links left are still waiting.
+      queueRunRef.current = [];
+      runTotalRef.current = 0;
+      setRun(null);
+      const text = queueEndStatus(false, shareQueueRef.current.length);
+      if (text) notify({ text });
     });
   }
   const nextQueuedRef = useRef(nextQueued);
