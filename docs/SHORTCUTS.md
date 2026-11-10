@@ -3,11 +3,15 @@
 The decided list, all working from Phase 1 (0.3.0) unless marked. Shortcuts are discoverable here
 only: the app shows no on-screen legend. There are no J/K shortcuts. Single keys do nothing while you
 type in a text field (Esc still works there): "/" typed in a field is a "/". While a sheet, the
-first-launch setup or a menu is open, a key acts only on what is on top: only the playback keys
-answer (and, in the queue sheet, Q and Ctrl+L); Ctrl+K and "/" never move the focus to the search
-field behind it, and 1 to 4, Ctrl+A and the list keys never act on the screen behind it. Ctrl+, and
-a pasted link may open a sheet on top of another sheet, never under the first-launch setup or a
-menu. On the phone there is no keyboard layer: a tap plays, and there is no double-tap.
+first-launch setup, a list (Sort, Text size, a sheet's folder list) or a menu is open, a key acts
+only on what is on top: in a sheet only the playback keys answer (and, in the queue sheet, Q and
+Ctrl+L); in a list or menu no key heard on the window answers at all, the letters jump within it,
+and Esc closes it first. Ctrl+K and "/" never move the focus to the search field behind, and 1 to 4
+(the phone's tabs too), Ctrl+A and the list keys never act on the screen behind. Ctrl+, and a pasted
+link may open a sheet on top of another sheet, never under the first-launch setup; an open list or
+menu closes first, and the focus comes back to it when the sheet closes. A held key is one press:
+holding Enter on a button, a menu item or a list option acts once. On the phone there is no keyboard
+layer: a tap plays, and there is no double-tap.
 
 "The selection" means the songs you have chosen (Ctrl+click, Shift+click, or Select mode), or else
 the row that has the keyboard focus.
@@ -29,7 +33,7 @@ Ctrl+arrows also work while a slider has the focus.
 |---|---|
 | 1, 2, 3, 4 | Playlists, Artists, Folders, Playing |
 | Ctrl+K or / | Focus the search field |
-| Esc | Clear the search, or close the open sheet |
+| Esc | Close the open list, menu or sheet (the one on top), else clear the search |
 | Ctrl+, | Settings |
 | Q | Show or hide the queue |
 

@@ -231,12 +231,13 @@ never replaces its paths in the middle of a press (that once swallowed clicks).
 
 **IconButton.** A round hit target (`--hit`) around a 20 or 24 px icon. Resting `--fg-1`, hover
 `--fg-0` with a 4 % wash, press scale 0.92, `is-on` aqua (shuffle or repeat on, the queue pane open).
-`aria-label` is required; `aria-pressed` for toggles.
+`aria-label` is required; `aria-pressed` for toggles. Like every button, a held key is one press: the
+repeated keydowns of a held Enter never press it again (Accessibility, below).
 
 **Button.** A 40 px pill (32 px `is-small`). Variants: default (`--bg-2`), `is-primary` (aqua fill,
 ink text; counts as the screen's one aqua fill), `is-danger` (danger fill, ink text), `is-text`
 (transparent), `is-link` (aqua text, for one action in an empty state or a toast). Disabled: `--bg-2`
-with `--fg-disabled` text.
+with `--fg-disabled` text. A held key is one press.
 
 **PlayButton.** The round aqua play/pause: 64 px in the full player, 40 px in the player bar. Its
 glyph cross-fades between play and pause.
@@ -271,10 +272,11 @@ and `/` focus it.
 **Dropdown and MultiSelect.** A button showing the value and a chevron that opens a popover listbox
 (`--bg-2`, `--r-md`, `--shadow-float`) of 36 px options; the chosen option has an aqua check.
 `role="combobox"` on the button with `aria-expanded` and `aria-controls`, `role="listbox"` and
-`role="option"` with `aria-selected`; Up and Down move, Enter or Space picks, Esc closes, typing jumps
-to the first option starting with the typed letters. MultiSelect keeps the popover open and toggles
-options; its button shows "None", one name, or "N chosen". The popover flips upward when there is no
-room below. Never a native `<select>`.
+`role="option"` with `aria-selected`; Up and Down move, Enter or Space picks (a held key picks once),
+Esc closes, typing jumps to the first option starting with the typed letters. MultiSelect keeps the
+popover open and toggles options; its button shows "None", one name, or "N chosen". The popover flips
+upward when there is no room below. The open list is a layer (Overlays, Layers). Never a native
+`<select>`.
 
 ### Lists
 
@@ -307,9 +309,10 @@ touch, or the ContextMenu key or Shift+F10. It acts on the row's song, or on the
 the row is part of it: Play next, Add to queue, Add to playlist, Go to artist and Edit tags (one song
 only; Go to artist is disabled on that artist's own list), Remove from the open playlist (only while
 one is open and holds the songs), and Delete as a danger item. It is the MenuButton's popover (the
-same look and keys: Up, Down, Home, End, Enter or Space, typed letters, Esc and Tab close), drawn in
-the shell's overlay layer against the button or at the pointer, kept inside the shell, because a row
-of a virtual list cannot hold a popover. It closes when the list scrolls or the window changes size,
+same look and keys: Up, Down, Home, End, Enter or Space, typed letters, Esc and Tab close; a held key
+runs one item), drawn in the shell's overlay layer against the button or at the pointer, kept inside
+the shell, because a row of a virtual list cannot hold a popover. Open, it is a layer (Overlays,
+Layers). It closes when the list scrolls or the window changes size,
 and the focus returns to the row. The full player's "more" offers the same items for the playing song
 (FullPlayer, below).
 
@@ -416,6 +419,18 @@ Open or closed is remembered.
 
 ### Overlays
 
+**Layers.** Everything that floats over the screens is a layer, with one rule: a sheet (and a sheet
+over a sheet), the first-launch setup, a Dropdown's or MultiSelect's open list, and a menu (a
+MenuButton's, a song's row menu). Only the layer on top takes the keys heard on the window: while a
+list or menu is open none of them acts behind it (Ctrl+K and "/" leave the search alone; 1 to 4, the
+phone's tabs included, Ctrl+A, the list keys, Q and Ctrl+L do nothing), its letters jump within it,
+and Esc closes it first, wherever the focus is. A sheet that opens by any path (Ctrl+comma, a pasted
+or shared link, a button, a menu item) closes every open list or menu first, so a popover is never
+drawn over a newer sheet, and when that sheet closes the focus goes back to the control that opened
+the list or menu. Nothing opens under the first-launch setup: a link shared to the phone while it is
+up waits, and its sheet opens when the setup closes. `topLayer` (Sheet.tsx) is the one question every
+key asks; `docs/SHORTCUTS.md` has the keys.
+
 **Modal / Sheet.** Every dialog is one component: on the phone a bottom sheet (rounded top `--r-xl`, a
 32 x 4 grabber in `--fg-2`, swipe down or tap the backdrop to close), on wider shells a centred panel
 (at most 640 px wide, `--r-xl`, `--shadow-float`). A title (h2) and a close button; a body that
@@ -439,8 +454,9 @@ one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about
 `--shadow-float`, body-sm text and at most one text action: Undo (a tier-2 playlist change, a song
 taken out of the queue), Retry (a failed download), Cancel (the phone's running download) or Settings
 (a link that arrived while the downloader is off). Stays 4 s (longer while hovered or focused), at
-most two at once, the newest at the bottom. A download toast stays while the download runs, with a
-purple progress line on its bottom edge. `role="status"` (polite).
+most two at once, the newest at the bottom. The same words again within 2 s (no action, not a
+download's) show once: the toast already there starts its 4 s again. A download toast stays while the
+download runs, with a purple progress line on its bottom edge. `role="status"` (polite).
 
 **SettingsSheet.** One component on every device: the phone's settings sheet and the desktop's
 Ctrl+comma dialog. Groups in this order, each an overline heading over rows: Library, Playback, YouTube,
@@ -509,6 +525,10 @@ standard Music folder filled in; Android's All-files permission is asked when th
   size and checks every stop's ring.
 - Roving tabindex in lists; every icon button has an `aria-label`; the now-playing title and toasts are
   live regions.
+- A held key is one press: buttons, icon buttons, the play button, chips, a menu's items and a list's
+  options ignore the auto-repeated keydowns of a held Enter (or Space where it acts on keydown), so
+  holding Enter on Remove removes one link even when the focus lands on the next Remove
+  (`tools/screenshot/presses.spec.mjs`).
 - The layout survives 130 % text size (photographed in the visual suite).
 - `prefers-reduced-motion` and `prefers-contrast: more` are honoured (above).
 

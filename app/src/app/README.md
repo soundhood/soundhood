@@ -61,7 +61,9 @@ layout despite the name).
   `actions.addToPlaylist`, `actions.newPlaylist` and `actions.moveToFolder`.
 - **Downloads**: `features/ingest/Downloads.tsx` over `hooks/useDownloads.ts`: the Ctrl+V listener,
   "Where should this go?" and the download's toast. The downloader switch (`prefs.downloader`)
-  gates all of it.
+  gates all of it. A link shared to the phone comes in through `hooks/useSharedLinks.ts`
+  (`window.__soundhoodShare`), which holds it until startup has read the settings and the
+  first-launch setup has closed.
 - **First-launch setup**: `features/onboarding/Onboarding.tsx`. `useStartup` reads the store and
   decides the steps with `decideOnboarding` (`hooks/usePrefs.ts`, the migration rule).
 - **Queue**: the model is `features/queue/queueModel.ts` (pure, unit-tested); the player hook owns
