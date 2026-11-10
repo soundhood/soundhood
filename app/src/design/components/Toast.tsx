@@ -1,7 +1,8 @@
 // Toasts: bottom centre, above the mini player or the player bar, --bg-3, body-sm text and at most
 // one text action (Undo for a playlist change). Each stays 4 s, and keeps the clock stopped while
 // it is hovered or focused; persistent ones (a running download, with a purple progress line on
-// the bottom edge) stay until dismissed. At most two show at once, the newest at the bottom.
+// the bottom edge) stay until dismissed. At most two show at once, the newest at the bottom. A toast
+// identical to one shown a moment ago is that toast again, never a second copy (toastList.ts).
 // role="status" (polite).
 //
 //   <ToastProvider>              holds the toasts (wrap the app)
@@ -18,6 +19,7 @@ import {
   type ReactNode,
 } from "react";
 import { cssVars } from "../lib/cx";
+import { addToast, type ToastEntry } from "../lib/toastList";
 import { Button } from "./Button";
 
 export interface ToastOptions {
@@ -35,9 +37,7 @@ export interface ToastApi {
   dismiss: (id: number) => void;
 }
 
-interface Entry extends ToastOptions {
-  id: number;
-}
+type Entry = ToastEntry & ToastOptions;
 
 const ToastContext = createContext<{ api: ToastApi; toasts: readonly Entry[] } | null>(null);
 
@@ -46,23 +46,29 @@ const MAX_VISIBLE = 2;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<readonly Entry[]>([]);
+  // The list as the calls left it, so show() can answer with the id of the toast that shows (a new
+  // one, or the identical one shown a moment ago).
+  const list = useRef<readonly Entry[]>([]);
   const next = useRef(1);
-  const api = useMemo<ToastApi>(
-    () => ({
+  const api = useMemo<ToastApi>(() => {
+    const set = (to: readonly Entry[]) => {
+      list.current = to;
+      setToasts(to);
+    };
+    return {
       show(toast) {
-        const id = next.current++;
-        setToasts((t) => [...t, { ...toast, id }]);
-        return id;
+        const out = addToast<Entry>(list.current, toast, next.current++, Date.now());
+        set(out.list);
+        return out.id;
       },
       update(id, patch) {
-        setToasts((t) => t.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+        set(list.current.map((x) => (x.id === id ? { ...x, ...patch } : x)));
       },
       dismiss(id) {
-        setToasts((t) => t.filter((x) => x.id !== id));
+        set(list.current.filter((x) => x.id !== id));
       },
-    }),
-    [],
-  );
+    };
+  }, []);
   const value = useMemo(() => ({ api, toasts }), [api, toasts]);
   return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;
 }
@@ -92,11 +98,12 @@ function ToastItem({ toast, dismiss }: { toast: Entry; dismiss: () => void }) {
   const expire = useEffectEvent(dismiss);
   const held = hovered || focused || !!toast.persistent;
 
+  // Its 4 s start again when its words change or the same toast is shown again (toast.at).
   useEffect(() => {
     if (held) return;
     const t = setTimeout(() => expire(), SHOW_MS);
     return () => clearTimeout(t);
-  }, [held, toast.text]);
+  }, [held, toast.text, toast.at]);
 
   return (
     <div

@@ -384,7 +384,11 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     });
     await page.goto("/");
     // In plain words, what could not be read and what that means; the raw error only in the log.
-    const unreadable = toast(page, "The settings (music folder and downloader) could not be read");
+    // Once: the dev server's StrictMode starts the app twice, and both starts fail the same way.
+    const unreadable = page.locator(".Toast").filter({ hasText: "The settings (music folder and downloader) could not be read" });
+    await expect(unreadable).toHaveCount(1);
+    await page.waitForTimeout(500);
+    await expect(unreadable, "one toast, never two of the same").toHaveCount(1);
     await expect(unreadable).toHaveText(
       "The settings (music folder and downloader) could not be read, so no library is open and the downloader is off until you turn it on. Choose the folder in Settings.",
     );
