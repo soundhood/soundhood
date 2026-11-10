@@ -12,6 +12,7 @@
 // a failed one; and a link shared before startup has read the stored switch, or while the first-launch
 // setup is up, waits until both are over (useSharedLinks).
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { MutableRefObject } from "react";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { CHANNEL_REFUSAL, isChannelLink, lastErrorLine, queueStopStatus } from "../downloads";
@@ -235,6 +236,9 @@ export function useDownloads({
   }
 
   const [dlBusy, setDlBusy] = useState<boolean>(false);
+  // A download ended: its toast goes at once (DownloadToast, on dlBusy), before any toast saying how
+  // it ended, so that toast never pushes a newer notice out of the stack past the leaving one.
+  const endBusy = () => flushSync(() => setDlBusy(false));
   const [failure, setFailure] = useState<DownloadFailure | null>(null);
   // While "Download queue" runs: which link of how many (the download toast says "2 of 5").
   const [run, setRun] = useState<{ at: number; of: number } | null>(null);
@@ -384,7 +388,7 @@ export function useDownloads({
         await finishDownload(res.exitCode, res.files || []);
         return res.exitCode === 0;
       } catch (err) {
-        setDlBusy(false);
+        endBusy();
         setDlLogs((prev) => prev + `\n[error] ${String(err)}\n`);
         const reason = String(err).split("\n")[0].slice(0, 120);
         if (queued) { activeDlRef.current = { ...activeDlRef.current, queued: null }; queueRunRef.current = []; setRun(null); }
@@ -400,7 +404,7 @@ export function useDownloads({
     } catch (err) {
       // The host refused to start (a channel link, no Music folder, no yt-dlp): say why in a toast
       // too, not only in the log.
-      setDlBusy(false);
+      endBusy();
       setRun(null);
       setDlLogs((prev) => prev + `\n[error] ${String(err)}\n`);
       notify({ text: String(err).split("\n")[0].slice(0, 160) });
@@ -411,7 +415,7 @@ export function useDownloads({
   // After a download ended (either engine): rescan, file the new tracks into the chosen playlists,
   // drop a finished queued link, start the next queued one.
   async function finishDownload(exitCode: number, filePaths: string[]) {
-    setDlBusy(false);
+    endBusy();
     const lib = folderRef.current;
     if (!lib) return;
     const active = activeDlRef.current;

@@ -266,9 +266,11 @@ Every dialog is the same sheet: a bottom sheet on the phone, a centred panel on 
   while it runs does nothing.
 
 Toasts sit at the bottom centre, above the mini player or the player bar, at most two at a time,
-the newest at the bottom. Each stays 4 seconds, longer while the pointer or the focus is on it.
-Everything you do is confirmed every time: adding a song to the queue twice shows two toasts. Only
-the notice that the settings could not be read shows once, however often startup meets it.
+the newest at the bottom; a third pushes the oldest out for good, and an Undo toast pushed out is
+gone (its change can still be undone with Undo last change in Settings). Each stays 4 seconds from
+when it shows, longer while the pointer or the focus is on it. Everything you do is confirmed every
+time: adding a song to the queue twice shows two toasts. Only the notice that the settings could
+not be read shows once, however often startup meets it.
 
 ## First-launch setup
 

@@ -470,14 +470,17 @@ one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about
 **Toast.** Bottom centre, above the mini player or the player bar, `--bg-3`, `--r-md`,
 `--shadow-float`, body-sm text and at most one text action: Undo (a tier-2 playlist change, a song
 taken out of the queue), Retry (a failed download), Cancel (the phone's running download) or Settings
-(a link that arrived while the downloader is off). Stays 4 s (longer while hovered or focused), at
-most two at once, the newest at the bottom. Every toast is a toast of its own, shown as the newest:
-what the user caused is said every time, in the same words or not (A pressed twice queues the song
-twice and shows two "Added ... to the queue"; A, B, C, then A again shows that last A at the bottom).
-Only a notice sent with a key stands for an earlier one of the same key, which comes back as the
-newest with its 4 s started again; today one notice has a key, the unreadable settings at startup.
-A download toast stays while the download runs, with a purple progress line on its bottom edge.
-`role="status"` (polite).
+(a link that arrived while the downloader is off). Stays 4 s from when it is shown (the clock stops
+while hovered or focused). The stack holds two: at most two toasts exist, the newest at the bottom; a
+third pushes the oldest out, dismissed with its timer, never shown later (A, B, C, A shows C and A,
+then nothing). An Undo toast pushed out is simply gone: its change stays in the journal, undoable
+from Settings (Undo last change, newest first). For 400 ms after the stack moves (a toast added or
+removed) its actions ignore presses: a double click on an older toast's Undo never presses the newer
+one's, slid under the pointer. Every toast is its own, shown as the newest, in the same words or not
+(A pressed twice shows two "Added ... to the queue"). Only a notice sent with a key stands for an
+earlier one of that key, coming back as the newest with its 4 s started again (today only the
+unreadable settings at startup). A download toast stays while the download runs, with a purple
+progress line on its bottom edge, and is not pushed out while another can go. `role="status"` (polite).
 
 **SettingsSheet.** One component on every device: the phone's settings sheet and the desktop's
 Ctrl+comma dialog. Groups in this order, each an overline heading over rows: Library, Playback, YouTube,

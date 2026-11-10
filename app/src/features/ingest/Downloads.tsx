@@ -60,7 +60,8 @@ function DownloadToast() {
     cancel.current = dl.cancelPhoneDownload;
   });
 
-  useEffect(() => {
+  // In the commit that ends the download, so it has left before a toast says how it ended.
+  useLayoutEffect(() => {
     if (!dl.dlBusy) {
       if (id.current !== null) toast.dismiss(id.current);
       id.current = null;
