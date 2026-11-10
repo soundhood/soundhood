@@ -36,7 +36,7 @@ export function useQueueEdits() {
       const t = player.trackByPath.get(removed.entry.path);
       toast.show({
         text: `Removed ${t ? trackTitle(t) : "a song"} from the queue`,
-        action: { label: "Undo", guarded: true, onClick: () => player.restoreToQueue(removed) },
+        action: { label: "Undo", onClick: () => player.restoreToQueue(removed) },
       });
     },
     /** Takes every upcoming row of these songs out of the queue (X on a list). */

@@ -15,8 +15,8 @@ import { SETTINGS_UNREADABLE } from "./usePrefs";
 
 export interface Notice {
   text: string;
-  /** One text action (Undo, Retry, Cancel); `guarded` on an Undo only (ToastOptions). */
-  action?: { label: string; onClick: () => void; guarded?: boolean };
+  /** One text action (Undo, Retry, Settings); its press guard is the toast's own (ToastOptions). */
+  action?: { label: string; onClick: () => void };
 }
 
 /** The key of the unreadable-settings notice: however often startup sends it, it shows once. */
@@ -66,7 +66,6 @@ export function useNotices() {
       let pressed = false;
       const action = {
         label: "Undo",
-        guarded: true,
         onClick: () => {
           if (pressed) return;
           pressed = undoRef.current(changes);
