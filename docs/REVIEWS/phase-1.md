@@ -212,3 +212,21 @@ All four reviewers signed this commit, the first round in which they all did.
 
 Because four of the minors came from fix pass 9, a scoped fix pass 10 follows, then a focused round 11.
 From round 11 on, only a major reopens the review; minors go to `docs/OPEN.md`.
+
+### Round-10 fixes
+
+The focus goes back to the opener only when the keyboard both opened and closed a sheet, list, menu,
+mode or pane; any pointer open or close gives the focus to the heading (or the sheet beneath), and a song
+row a pointer chose keeps the focus, so Ctrl+click then Esc leaves the arrows working and Select by Enter
+left with the mouse no longer jumps to an off-screen Select. A click that opens the queue pane gives it
+the focus and one that closes it gives the heading, so Space stays play/pause. Esc in an empty search
+field closes Playing if it is open and goes to the heading; it never leaves Select mode, and SHORTCUTS
+says so. One press guard for toasts: every change re-arms it for 400 ms, so a toast that slides is never
+pressable sooner than 400 ms after the slide; a bounded relief lets a deliberate press act after ignored
+presses spanning half a second while the toast kept moving, never within 400 ms of a toast arriving or
+changing its action, so Cancel works under a toast every 250 ms and quick clicks on a fresh toast are not
+all lost. A playlist that refuses a song is named in the toast ("Not added to Late Night: file in use").
+A queued run stopped by a refused link says how many links still wait. A download end counts only while
+the helper runs. Each fix has a test that fails on `a76d617` (46 of 52 Playwright tests and 1 of 1 unit
+test; three of the four Cancel tap timings happened to get through before) and passes on `eb530e1`.
+The aria label can still say "ignoring presses" while the relief takes one; that is in `docs/OPEN.md`.
