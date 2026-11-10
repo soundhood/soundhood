@@ -565,8 +565,8 @@ the setup ends (Done, or Skip on its last step) the focus goes to the main area.
   text area, and the arrows, Page Up and Down, Home and End in lists and sliders still repeat
   (`tools/screenshot/presses.spec.mjs`).
 - The focus never falls to the page: a sheet gives it back to what opened it (Modal / Sheet), and so
-  do the full player, the selection bar, the first-launch setup and a row menu when they go with the
-  focus in them (`useFocusReturn`): back to what had it when they came, else to the main area: the
+  do the full player, the selection bar and the first-launch setup going with the focus in them
+  (`useFocusReturn`) and a row menu (Popovers): back to what had it when they came, else the main area: the
   screen's first meaningful control (`focusMainArea`: its list's current or first row, a card grid's
   first card, else its header's first control). After any navigation that takes the focused control
   away (Enter on a card or a row, Back, the tab digits, "4" for Playing) the focus goes there on the
