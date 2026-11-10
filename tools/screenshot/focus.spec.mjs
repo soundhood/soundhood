@@ -36,10 +36,14 @@ function focusStop(page) {
   });
 }
 
-/** Tab from the page start until the focus comes round again; every stop must show the ring. */
+/**
+ * Tab from where the focus is until it comes round again; every stop must show the ring. Returns the
+ * kinds of control met and their names in Tab order.
+ */
 async function walk(page) {
   const seen = new Set();
   const kinds = new Set();
+  const order = [];
   const missing = [];
   for (let i = 0; i < MAX_STOPS; i++) {
     await page.keyboard.press("Tab");
@@ -48,12 +52,13 @@ async function walk(page) {
     if (seen.has(stop.id)) break;
     seen.add(stop.id);
     kinds.add(stop.kind);
+    order.push(stop.name);
     const ok = stop.visible && stop.style === "solid" && stop.width === "2px" && stop.color === AQUA;
     if (!ok) missing.push(`${stop.kind} "${stop.name}": ${stop.style} ${stop.width} ${stop.color}`);
   }
   expect(seen.size, "focus stops reached").toBeGreaterThan(5);
   expect(missing, "focus stops without the 2 px aqua ring").toEqual([]);
-  return kinds;
+  return { kinds, order };
 }
 
 /** Aqua pixels in a 6 px band around the search field's frame (the ring sits 2 px outside it). */
@@ -87,7 +92,11 @@ for (const [tag, layout] of [
     test("Tab through Playlists: every stop shows the ring, the search field's frame too", async ({ app, page }) => {
       await app.open();
       await settle(app, page);
-      const kinds = await walk(page);
+      const { kinds, order } = await walk(page);
+      // The search field before the screen's own buttons, on every shell: it heads the desktop's
+      // sidebar, and the screen header puts its actions after it.
+      expect(order.indexOf("Search"), "the search field is a stop").toBeGreaterThanOrEqual(0);
+      expect(order.indexOf("Search"), "the search field comes before New playlist").toBeLessThan(order.indexOf("New playlist"));
       // The player bar's position slider is there from the tablet up; the phone has the mini player.
       const wide = page.viewportSize().width >= 720;
       for (const kind of ["input.-", "button.PlaylistCard-open", "button.IconButton", ...(wide ? ["input.Slider"] : [])]) {
@@ -112,12 +121,12 @@ for (const [tag, layout] of [
       await openPlaylist(page, "Late Night");
       await playSong(app, page, "Lunar Comets");
       await settle(app, page);
-      const kinds = await walk(page);
+      const { kinds } = await walk(page);
       for (const kind of ["div.TrackRow", "button.Button", "button.Dropdown-button"]) {
         expect([...kinds], `the walk reaches ${kind}`).toContain(kind);
       }
       await openSettings(app, page);
-      const inSettings = await walk(page);
+      const { kinds: inSettings } = await walk(page);
       for (const kind of ["button.Switch", "button.Button"]) {
         expect([...inSettings], `the settings walk reaches ${kind}`).toContain(kind);
       }
