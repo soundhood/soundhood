@@ -3,11 +3,14 @@
 // ARIA: the button is a select-only combobox (aria-expanded, aria-controls, aria-activedescendant);
 // the popover is a listbox of options with aria-selected. Focus stays on the button the whole time,
 // so it is where focus is after closing. Keys: Up and Down move (and open), Home and End, Enter or
-// Space picks, Esc and Tab close, typed letters jump to the first option starting with them.
-// MultiSelect keeps the popover open and toggles; its button reads "None", one name or "N chosen".
+// Space picks (a held key picks once), Esc and Tab close, typed letters jump to the first option
+// starting with them. MultiSelect keeps the popover open and toggles; its button reads "None", one
+// name or "N chosen". The open list is a layer (usePopoverLayer): nothing behind it hears the keys
+// heard on the window, Esc closes it first, and a sheet that opens closes it.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cx } from "../lib/cx";
-import { isPrintable, useOutsidePress, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
+import { heldRepeat } from "../lib/dom";
+import { isPrintable, useOutsidePress, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
 import { Icon } from "./Icon";
 
 export interface DropdownOption<V extends string = string> {
@@ -59,14 +62,18 @@ function Listbox({
     setOpen(true);
     setActive(Math.min(Math.max(0, at), last));
   };
-  const close = () => setOpen(false);
+  const close = (refocus = false) => {
+    setOpen(false);
+    if (refocus) button.current?.focus();
+  };
   const choose = (i: number) => {
     if (i < 0 || disabledAt(i)) return;
     pick(i);
     if (!multi) close();
   };
 
-  useOutsidePress(open, root, close);
+  usePopoverLayer(open, popover, () => button.current, close);
+  useOutsidePress(open, root, () => close());
   usePopoverPlacement(open, button, popover);
   // Keep the active option in view inside the popover (never scrolls the page).
   useLayoutEffect(() => {
@@ -80,6 +87,7 @@ function Listbox({
   }, [open, active]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (heldRepeat(e)) return;
     const k = e.key;
     if (!open) {
       if (k === "ArrowDown" || k === "Enter" || k === " ") show(firstSelected);
@@ -96,10 +104,8 @@ function Listbox({
     else if (k === "Home" || k === "PageUp") setActive(0);
     else if (k === "End" || k === "PageDown") setActive(last);
     else if (k === "Enter" || k === " ") choose(active);
-    else if (k === "Escape") {
-      e.stopPropagation();
-      close();
-    } else if (k === "Tab") {
+    // Esc: the layer closes the list before any handler hears the key (usePopoverLayer).
+    else if (k === "Tab") {
       close();
       return;
     } else if (isPrintable(e)) {

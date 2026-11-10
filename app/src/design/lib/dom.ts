@@ -83,3 +83,21 @@ export function reducedMotion(): boolean {
 export function isControlTarget(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest("button, a, input, textarea, [role='slider']");
 }
+
+/**
+ * A held key is one press: true for the auto-repeated keydowns of a held Enter or Space, whose
+ * browser default (a button's click) it cancels. Every control that acts on these keys ignores them,
+ * so holding Enter on Remove removes one link, not every one the focus moves on to.
+ */
+export function heldRepeat(e: { key: string; repeat: boolean; preventDefault(): void }): boolean {
+  if (!e.repeat || (e.key !== "Enter" && e.key !== " ")) return false;
+  e.preventDefault();
+  return true;
+}
+
+/** A button's onKeyDown that ignores a held key's repeats (heldRepeat) and hands every other key on. */
+export function onePress<E extends { key: string; repeat: boolean; preventDefault(): void }>(onKeyDown?: (e: E) => void) {
+  return (e: E) => {
+    if (!heldRepeat(e)) onKeyDown?.(e);
+  };
+}

@@ -9,7 +9,8 @@
 // download goes through (the sheet's Download, a queued link, the queue runner, Retry), refuses while
 // it is off or before startup has read the stored switch (a settings store that cannot be read counts
 // as off); switching it off ends a running queue after the download in flight and drops the Retry of
-// a failed one; and a link shared before startup has read the stored switch waits until it has.
+// a failed one; and a link shared before startup has read the stored switch, or while the first-launch
+// setup is up, waits until both are over (useSharedLinks).
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
@@ -20,6 +21,7 @@ import { DEFAULT_DOWNLOAD_TARGET, KEY_DOWNLOAD_PLAYLISTS, KEY_DOWNLOAD_TARGET, K
 import type { PhoneDownloadResult, PlaylistFile, QueueDraft, QueuedLink, Setter, Track } from "../lib/types";
 import { journaled } from "../lib/journal";
 import type { Notices } from "./useNotices";
+import { useSharedLinks } from "./useSharedLinks";
 import { songCount } from "../features/library/trackInfo";
 
 // The yt-dlp listeners live in their own file; the shell imports them from here, as before.
@@ -44,6 +46,8 @@ type DownloadsArgs = {
   downloader: boolean;
   /** Startup has read the stored settings (until then `downloader` is only a default). */
   prefsLoaded: boolean;
+  /** The first-launch setup is up: a shared link waits for it to close. */
+  setupOpen: boolean;
   openSettings: () => void;
   folder: string;
   folderRef: MutableRefObject<string>;
@@ -60,6 +64,7 @@ export function useDownloads({
   notices,
   downloader,
   prefsLoaded,
+  setupOpen,
   openSettings,
   folder,
   folderRef,
@@ -197,26 +202,10 @@ export function useDownloads({
     setDraftError(check.ok ? "" : folderNameRefusal(name, check.reason));
     return check.ok;
   }
-  const queueLinkRef = useRef(queueLink);
-  queueLinkRef.current = queueLink;
-  // A link shared before startup has read the stored switch waits here, then goes the way the stored
-  // switch says (off, or a store that could not be read: the toast saying where to turn it on).
-  const heldShareRef = useRef<string | null>(null);
-  useEffect(() => {
-    // Called by MainActivity.kt when another app shares text/a link into Soundhood.
-    (window as any).__soundhoodShare = (text: string) => {
-      if (prefsLoadedRef.current) return queueLinkRef.current(text);
-      heldShareRef.current = text;
-      return true;
-    };
-    return () => { delete (window as any).__soundhoodShare; };
-  }, []);
-  useEffect(() => {
-    const held = heldShareRef.current;
-    if (!prefsLoaded || held === null) return;
-    heldShareRef.current = null;
-    queueLinkRef.current(held);
-  }, [prefsLoaded]);
+  // A link shared into the phone: at once, or once startup has read the stored switch and the
+  // first-launch setup has closed; then it goes the way the stored switch says (off, or a store that
+  // could not be read: the toast saying where to turn it on).
+  useSharedLinks({ prefsLoaded, setupOpen, take: queueLink });
   async function pasteLink() {
     try {
       const t = await navigator.clipboard.readText();

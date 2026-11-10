@@ -4,11 +4,13 @@
 // menu).
 // ARIA menu button: the button has aria-haspopup="menu" and aria-expanded; opening moves focus to
 // the menu, which tracks the active item with aria-activedescendant. Up and Down move, Home and
-// End, Enter or Space runs the item, typed letters jump, Esc and Tab close; focus returns to the
-// button.
+// End, Enter or Space runs the item (a held key runs nothing more), typed letters jump, Esc and Tab
+// close; focus returns to the button. The open menu is a layer (usePopoverLayer): nothing behind it
+// hears the keys heard on the window, Esc closes it first, and a sheet that opens closes it.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cx } from "../lib/cx";
-import { isPrintable, useOutsidePress, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
+import { heldRepeat } from "../lib/dom";
+import { isPrintable, useOutsidePress, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
 import { Icon, type IconName } from "./Icon";
 import { IconButton } from "./IconButton";
 
@@ -54,6 +56,7 @@ export function MenuButton({ label, items, icon = "more", size = 24, defaultOpen
     item.onSelect();
   };
 
+  usePopoverLayer(open, menu, () => button.current, close);
   useOutsidePress(open, root, () => close(false));
   usePopoverPlacement(open, button, menu);
   useLayoutEffect(() => {
@@ -61,16 +64,15 @@ export function MenuButton({ label, items, icon = "more", size = 24, defaultOpen
   }, [open, defaultOpen]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (heldRepeat(e)) return;
     const k = e.key;
     if (k === "ArrowDown") setActive((a) => (a >= last ? 0 : a + 1));
     else if (k === "ArrowUp") setActive((a) => (a <= 0 ? last : a - 1));
     else if (k === "Home") setActive(0);
     else if (k === "End") setActive(last);
     else if (k === "Enter" || k === " ") run(active);
-    else if (k === "Escape") {
-      e.stopPropagation();
-      close(true);
-    } else if (k === "Tab") {
+    // Esc: the layer closes the menu before any handler hears the key (usePopoverLayer).
+    else if (k === "Tab") {
       close(true);
     } else if (isPrintable(e)) {
       const i = typeahead(k, active, e.timeStamp);

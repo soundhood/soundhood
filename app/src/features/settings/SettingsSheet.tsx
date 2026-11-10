@@ -29,7 +29,9 @@ const SCALE_OPTIONS = TEXT_SCALES.map((s) => ({ value: String(s), label: `${Math
 
 /**
  * Ctrl+comma opens the settings (a PC shortcut; harmless elsewhere): over the screens or on top of
- * another sheet, but never under the first-launch setup or a menu, which are drawn above sheets.
+ * another sheet, never under the first-launch setup, which is drawn above sheets. An open list or
+ * menu closes as the sheet opens (Sheet.tsx). Heard on the way down (capture), so a menu that keeps
+ * its keys from the list behind it (the row menu) still lets this one through.
  */
 function useSettingsShortcut(setOpen: (open: boolean) => void) {
   useEffect(() => {
@@ -40,8 +42,8 @@ function useSettingsShortcut(setOpen: (open: boolean) => void) {
         setOpen(true);
       }
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [setOpen]);
 }
 

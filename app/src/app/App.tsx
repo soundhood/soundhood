@@ -70,6 +70,7 @@ function AppRoot() {
     notices,
     downloader: prefs.downloader,
     prefsLoaded: prefs.loaded,
+    setupOpen: !!prefs.onboarding?.length,
     openSettings: () => phone.setMSettings(true),
     folder: lib.folder,
     folderRef: lib.folderRef,
