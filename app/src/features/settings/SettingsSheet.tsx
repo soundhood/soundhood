@@ -9,7 +9,7 @@
 // does, on a window wide and tall enough for the right pane); elsewhere the row is left out.
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Button, Dropdown, Icon, SettingGroup, SettingRow, Sheet, SwitchRow, onePress, sheetMayOpen } from "../../design";
+import { Button, Dropdown, Icon, SettingGroup, SettingRow, Sheet, SwitchRow, sheetMayOpen } from "../../design";
 import { useApp } from "../../app/context";
 import type { Diagnostics } from "../../coreIpc";
 import { TEXT_SCALES } from "../../hooks/usePrefs";
@@ -69,7 +69,7 @@ function ToolsGroup({ onViewLog }: { onViewLog: () => void }) {
         </Button>
       </SettingRow>
       {/* View log, with the newest line of the log as its help line. */}
-      <button type="button" className="SettingRow is-clickable LogRow" onClick={onViewLog} onKeyDown={onePress()}>
+      <button type="button" className="SettingRow is-clickable LogRow" onClick={onViewLog}>
         <span className="SettingRow-text">
           <span className="SettingRow-label">View log</span>
           <span className="SettingRow-help">{log.lastLine || "Nothing logged yet"}</span>

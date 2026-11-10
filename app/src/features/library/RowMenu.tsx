@@ -14,7 +14,7 @@
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Icon, cx, type MenuItem } from "../../design";
-import { clipBox, heldRepeat } from "../../design/lib/dom";
+import { clipBox } from "../../design/lib/dom";
 import { useOverlayLayer } from "../../design/lib/overlayLayer";
 import { placePopover } from "../../design/lib/placement";
 import { isPrintable, useOutsidePress, usePopoverLayer, useTypeahead } from "../../design/lib/usePopover";
@@ -141,7 +141,6 @@ function RowMenuPopover({ state, items, onClose }: { state: RowMenuState; items:
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // The menu's keys are its own: nothing behind it (a list, a shortcut) sees them.
     e.stopPropagation();
-    if (heldRepeat(e)) return;
     const k = e.key;
     if (k === "ArrowDown") setActive((n) => (n >= last ? 0 : n + 1));
     else if (k === "ArrowUp") setActive((n) => (n <= 0 ? last : n - 1));

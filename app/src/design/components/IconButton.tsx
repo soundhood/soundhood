@@ -1,10 +1,8 @@
 // IconButton: a round hit target (--hit) around one icon. The label is required by the type,
 // because an icon alone says nothing to a screen reader. `pressed` makes it a toggle (aria-pressed)
-// and paints it aqua while on (shuffle, repeat, the queue pane open). A held key is one press: the
-// repeats of a held Enter never press it again (onePress).
+// and paints it aqua while on (shuffle, repeat, the queue pane open).
 import type { ButtonHTMLAttributes, Ref } from "react";
 import { cx } from "../lib/cx";
-import { onePress } from "../lib/dom";
 import { Icon, type IconName, type IconSize } from "./Icon";
 
 export interface IconButtonProps
@@ -21,7 +19,7 @@ export interface IconButtonProps
   ref?: Ref<HTMLButtonElement>;
 }
 
-export function IconButton({ icon, label, size = 24, pressed, strong, className, type, title, onKeyDown, ...rest }: IconButtonProps) {
+export function IconButton({ icon, label, size = 24, pressed, strong, className, type, title, ...rest }: IconButtonProps) {
   return (
     <button
       type={type ?? "button"}
@@ -29,7 +27,6 @@ export function IconButton({ icon, label, size = 24, pressed, strong, className,
       aria-label={label}
       aria-pressed={pressed}
       title={title ?? label}
-      onKeyDown={onePress(onKeyDown)}
       {...rest}
     >
       <Icon name={icon} size={size} />

@@ -1,9 +1,7 @@
 // PlayButton: the round aqua play/pause, 40 px in the player bar and 64 px (large) in the full
-// player. Both glyphs are drawn and cross-fade (controls.css), so the swap never jumps. A held key
-// is one press (onePress).
+// player. Both glyphs are drawn and cross-fade (controls.css), so the swap never jumps.
 import type { ButtonHTMLAttributes, Ref } from "react";
 import { cx } from "../lib/cx";
-import { onePress } from "../lib/dom";
 import { Icon } from "./Icon";
 
 export interface PlayButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "aria-label"> {
@@ -13,7 +11,7 @@ export interface PlayButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   ref?: Ref<HTMLButtonElement>;
 }
 
-export function PlayButton({ playing, large, className, type, onKeyDown, ...rest }: PlayButtonProps) {
+export function PlayButton({ playing, large, className, type, ...rest }: PlayButtonProps) {
   const size = large ? 32 : 20;
   return (
     <button
@@ -22,7 +20,6 @@ export function PlayButton({ playing, large, className, type, onKeyDown, ...rest
       data-state={playing ? "playing" : "paused"}
       aria-label={playing ? "Pause" : "Play"}
       title={playing ? "Pause" : "Play"}
-      onKeyDown={onePress(onKeyDown)}
       {...rest}
     >
       <Icon name="play" size={size} className="PlayButton-play" />

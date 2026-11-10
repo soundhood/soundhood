@@ -12,7 +12,6 @@
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../lib/cx";
-import { heldRepeat } from "../lib/dom";
 import { useOverlayLayer } from "../lib/overlayLayer";
 import { isPrintable, useOutsidePress, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
 import { Icon, type IconName } from "./Icon";
@@ -72,7 +71,6 @@ export function MenuButton({ label, items, icon = "more", size = 24, defaultOpen
   }, [open, defaultOpen]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (heldRepeat(e)) return;
     const k = e.key;
     if (k === "ArrowDown") setActive((a) => (a >= last ? 0 : a + 1));
     else if (k === "ArrowUp") setActive((a) => (a <= 0 ? last : a - 1));

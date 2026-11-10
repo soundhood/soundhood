@@ -5,7 +5,7 @@
 // (ValueRow). A stacked row puts the control under the label (a field with a Paste button).
 import { useId, type ReactNode } from "react";
 import { cx } from "../lib/cx";
-import { isControlTarget, onePress } from "../lib/dom";
+import { isControlTarget } from "../lib/dom";
 import { Icon } from "./Icon";
 import { Switch } from "./Switch";
 
@@ -100,7 +100,7 @@ export interface ValueRowProps {
 /** A value with a chevron; the row is one button that opens a sub-sheet. */
 export function ValueRow({ label, help, value, onClick }: ValueRowProps) {
   return (
-    <button type="button" className="SettingRow is-clickable" onClick={onClick} onKeyDown={onePress()}>
+    <button type="button" className="SettingRow is-clickable" onClick={onClick}>
       <span className="SettingRow-text">
         <span className="SettingRow-label">{label}</span>
         {help && <span className="SettingRow-help">{help}</span>}

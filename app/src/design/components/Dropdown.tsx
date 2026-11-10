@@ -3,8 +3,8 @@
 // ARIA: the button is a select-only combobox (aria-expanded, aria-controls, aria-activedescendant);
 // the popover is a listbox of options with aria-selected. Focus stays on the button the whole time,
 // so it is where focus is after closing. Keys: Up and Down move (and open), Home and End, Enter or
-// Space picks (a held key picks once), Esc and Tab close, typed letters jump to the first option
-// starting with them. MultiSelect keeps the popover open and toggles; its button reads "None", one
+// Space picks (a held key picks once: heldKeys.ts), Esc and Tab close, typed letters jump to the
+// first option starting with them. MultiSelect keeps the popover open and toggles; its button reads "None", one
 // name or "N chosen". The open list is a layer (usePopoverLayer): nothing behind it hears the keys
 // heard on the window, Esc closes it first, and a sheet that opens closes it. It is drawn in the
 // shell's overlay layer against its button (usePopoverPlacement), so a sheet body or pane that
@@ -12,7 +12,6 @@
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../lib/cx";
-import { heldRepeat } from "../lib/dom";
 import { useOverlayLayer } from "../lib/overlayLayer";
 import { isPrintable, useOutsidePress, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
 import { Icon } from "./Icon";
@@ -95,7 +94,6 @@ function Listbox({
   }, [open, active]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
-    if (heldRepeat(e)) return;
     const k = e.key;
     if (!open) {
       if (k === "ArrowDown" || k === "Enter" || k === " ") show(firstSelected);

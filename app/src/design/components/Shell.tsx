@@ -3,11 +3,13 @@
 // tablet (the rail, main, a 72 px player bar); 1080 and wider the desktop (sidebar, main, an
 // optional right pane, an 80 px player bar). Overlays (sheets, toasts) sit inside the shell so
 // they follow the same container queries; the overlays slot is also the layer every open popover
-// is drawn in (OverlayLayer), against its button. The shell also carries the artwork tint (--tint).
+// is drawn in (OverlayLayer), against its button. The shell also carries the artwork tint (--tint),
+// and installs the rule that a held key is one press (heldKeys.ts).
 //
 // RightPane: the desktop's 320 px pane under the artwork tint, holding the queue.
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { cssVars, cx } from "../lib/cx";
+import { holdKeysAsOnePress } from "../lib/heldKeys";
 import { OverlayLayer } from "../lib/overlayLayer";
 
 export interface ShellProps {
@@ -49,6 +51,8 @@ export function Shell({
   const width = sidebarCollapsed ? "var(--rail-w)" : sidebarWidth ? `${sidebarWidth}px` : undefined;
   // The overlays slot's element, once it is in the page: the layer popovers are drawn in.
   const [layer, setLayer] = useState<HTMLDivElement | null>(null);
+  // On the window in the capture phase: a swallowed repeat reaches no other handler.
+  useLayoutEffect(() => holdKeysAsOnePress(), []);
   return (
     <OverlayLayer.Provider value={layer}>
       <div className={cx("Shell", className)} data-view={view} style={cssVars({ "--tint": tint })}>
