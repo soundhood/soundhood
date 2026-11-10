@@ -7,12 +7,31 @@ import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefO
 import { clipBox } from "./dom";
 import { placePopover } from "./placement";
 import { openPopovers, type OpenPopover } from "./popoverStack";
+import { giveFocusBack, noteOpening, type Opening } from "./useFocusReturn";
+
+/**
+ * How the popover that `open` shows was opened, and the call that gives the focus back when it
+ * closes, by the one rule for every surface (useFocusReturn.ts): opened with the keyboard, to
+ * `anchor`, the control that opened it; opened with a pointer, to where the layer under it starts
+ * (the sheet it is in, else the screen's heading), so Space never opens it again.
+ */
+export function usePopoverFocus(open: boolean, anchor: () => HTMLElement | null): () => void {
+  const latest = useRef(anchor);
+  useLayoutEffect(() => {
+    latest.current = anchor;
+  });
+  const opening = useRef<Opening>({ opener: null, pointer: false });
+  useLayoutEffect(() => {
+    if (open) opening.current = noteOpening(latest.current());
+  }, [open]);
+  return () => giveFocusBack(opening.current);
+}
 
 /**
  * Makes an open popover a layer (popoverStack.ts): the keys heard on the window leave what is behind
- * it alone (topLayer, Sheet.tsx), a sheet that opens closes it first, and Esc closes it, wherever the
+ * it alone (topLayer, layers.ts), a sheet that opens closes it first, and Esc closes it, wherever the
  * focus is, before anything else hears the key (the sheet it is in, the selection, the search).
- * `anchor` is the control that opened it; `close(true)` puts the focus back there.
+ * `anchor` is the control that opened it; `close(true)` gives the focus back (usePopoverFocus).
  */
 export function usePopoverLayer(
   open: boolean,

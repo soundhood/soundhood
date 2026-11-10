@@ -4,7 +4,9 @@
 // ::after). Checked by computed style at every stop, and by the pixels around the search field,
 // which Tab, Ctrl+K and "/" reach. And the focus never falls to the page when what had it goes
 // (useFocusReturn): Esc leaving Select mode from the bar's More menu, Esc closing the full player,
-// the setup's Done; a song's row menu closed by a scroll of the list or a resize of the window.
+// the setup's Done; a song's row menu closed by a scroll of the list or a resize of the window. Where
+// it goes is the one rule: back on the opener when the keyboard opened the menu, Select mode or the
+// player, on where the screen starts when a pointer did.
 // Where the focus goes after a navigation: navigation.spec.mjs.
 import { PNG } from "pngjs";
 import { expect, test } from "./harness.mjs";
@@ -154,20 +156,43 @@ for (const tag of ["@desktop", "@phone"]) {
     test("Esc twice from the selection bar's More menu: the menu closes, then Select mode, and the focus is back in the list", async ({ app, page }) => {
       await app.open();
       await openPlaylist(page, "Late Night");
+      const bar = page.getByRole("toolbar", { name: "Selection" });
+      const more = bar.getByRole("button", { name: "More actions" }).filter({ visible: true });
+      // With a pointer: the menu closes onto where the screen starts, never back on More, and
+      // leaving Select mode keeps it there.
       if (tag === "@phone") {
         await page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).first().click();
         await row(page, "Paper Bloom").click();
       } else await row(page, "Paper Bloom").click({ modifiers: ["Control"] });
-      const bar = page.getByRole("toolbar", { name: "Selection" });
-      await bar.getByRole("button", { name: "More actions" }).filter({ visible: true }).click();
+      await more.click();
       await expect(page.getByRole("menu")).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(page.getByRole("menu")).toHaveCount(0);
-      await expect(bar.getByRole("button", { name: "More actions" }).filter({ visible: true })).toBeFocused();
+      await expect.poll(() => focusPlace(page), "opened with a pointer").toMatch(/^main: (?!More actions)/);
       await page.keyboard.press("Escape");
       await expect(bar).toHaveCount(0);
       await expect.poll(() => focusPlace(page)).toMatch(/^main: /);
-      if (tag === "@desktop") await expect(row(page, "Paper Bloom"), "back on the row that started Select mode").toBeFocused();
+      // With the keyboard: the menu closes back onto More, and leaving Select mode goes back to what
+      // began it (Select on the phone, the row on the desktop).
+      const select = page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).first();
+      if (tag === "@phone") {
+        await select.focus();
+        await page.keyboard.press("Enter");
+      } else {
+        await row(page, "Paper Bloom").focus();
+        await page.keyboard.press("Control+a");
+      }
+      await expect(bar).toBeVisible();
+      await more.focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("menu")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menu")).toHaveCount(0);
+      await expect(more, "opened with the keyboard").toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(bar).toHaveCount(0);
+      if (tag === "@phone") await expect(select, "back on Select").toBeFocused();
+      else await expect(row(page, "Paper Bloom"), "back on the row that started Select mode").toBeFocused();
     });
 
     test("Esc closing the full player from its More menu: the focus is on the heading (opened by a click), else back on what opened it", async ({ app, page }) => {
@@ -314,9 +339,10 @@ test.describe("a song's row menu and the focus", { tag: "@desktop" }, () => {
 });
 
 // Select pressed where the selection bar takes the header's place (under 1080 px): Select is hidden
-// then, and the bar takes the focus it had (never the page): Tab goes on into the bar, Esc leaves
-// Select mode with the focus back on Select. On the desktop Select stays and keeps it. At
-// 1280x800 and 760x520 (from the 1280x800 project), 834x1194 and 390x844.
+// then, and the bar takes the focus it had (never the page): Tab goes on into the bar. On the
+// desktop Select stays and keeps it. Esc leaves Select mode with the focus back on Select when the
+// keyboard pressed it, on the screen's heading when a pointer did (Space then plays and pauses,
+// never Select again). At 1280x800 and 760x520 (from the 1280x800 project), 834x1194 and 390x844.
 test.describe("Select and the focus", { tag: ["@desktop", "@phone"] }, () => {
   for (const size of [null, { width: 760, height: 520 }]) {
     test(`Select pressed: the focus on the selection bar, or still on Select where it shows${size ? ` (${size.width}x${size.height})` : ""}`, async ({ app, page }, testInfo) => {
@@ -345,7 +371,8 @@ test.describe("Select and the focus", { tag: ["@desktop", "@phone"] }, () => {
         }
         await page.keyboard.press("Escape");
         await expect(bar).toHaveCount(0);
-        await expect(select, `Select by ${how}, then Esc: Select again`).toBeFocused();
+        if (how === "keyboard") await expect(select, `Select by ${how}, then Esc: Select again`).toBeFocused();
+        else await expect.poll(() => focusPlace(page), `Select by ${how}, then Esc: the heading`).toBe("main: Late Night");
       }
     });
   }

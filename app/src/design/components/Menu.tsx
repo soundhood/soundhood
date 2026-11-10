@@ -5,7 +5,8 @@
 // ARIA menu button: the button has aria-haspopup="menu" and aria-expanded; opening moves focus to
 // the menu, which tracks the active item with aria-activedescendant. Up and Down move, Home and
 // End, Enter or Space runs the item (a held key runs nothing more), typed letters jump, Esc and Tab
-// close; focus returns to the button. The open menu is a layer (usePopoverLayer): nothing behind it
+// close; focus returns to the button when the keyboard opened the menu, else to where the layer
+// under it starts (usePopoverFocus). The open menu is a layer (usePopoverLayer): nothing behind it
 // hears the keys heard on the window, Esc closes it first, and a sheet that opens closes it. Like a
 // Dropdown's list it is drawn in the shell's overlay layer against its button (usePopoverPlacement),
 // so nothing that scrolls clips it.
@@ -13,7 +14,7 @@ import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type Reac
 import { createPortal } from "react-dom";
 import { cx } from "../lib/cx";
 import { useOverlayLayer } from "../lib/overlayLayer";
-import { isPrintable, useOutsidePress, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
+import { isPrintable, useOutsidePress, usePopoverFocus, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
 import { Icon, type IconName } from "./Icon";
 import { IconButton } from "./IconButton";
 
@@ -49,9 +50,12 @@ export function MenuButton({ label, items, icon = "more", size = 24, defaultOpen
   const layer = useOverlayLayer();
   const last = items.length - 1;
 
+  // `refocus`: the focus goes back by the one rule (usePopoverFocus): to the button when the
+  // keyboard opened the menu, else where the layer under it starts (Space never opens it again).
+  const focusBack = usePopoverFocus(open, () => button.current);
   const close = (refocus: boolean) => {
     setOpen(false);
-    if (refocus) button.current?.focus({ preventScroll: true });
+    if (refocus) focusBack();
   };
   const run = (i: number) => {
     const item = items[i];
@@ -98,7 +102,7 @@ export function MenuButton({ label, items, icon = "more", size = 24, defaultOpen
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={() => {
-          if (open) close(false);
+          if (open) close(true);
           else {
             setActive(0);
             setOpen(true);

@@ -7,11 +7,11 @@
 // component lays out in two columns: artwork; then where it plays from, the title in display size,
 // the artist, facts (length, format...) and the action row. The transport stays in the player bar.
 // The layout switch is CSS only (a container query on the player). When it closes with the focus in
-// it, the focus goes back to what opened it with the keyboard, else to the main area (useFocusReturn:
-// opened with a pointer, it is a navigation like any other and gives the focus to the screen's
-// heading, so the button pressed never takes Space and opens it again). Opened, the
-// focus goes to the title shown (h2 or h1, tabindex -1: focusMainArea), never to a control, so Space
-// stays play and pause.
+// it (or still on the button a pointer pressed), the focus goes by the one rule (useFocusReturn):
+// back to what opened it with the keyboard; opened with a pointer, it is a navigation like any other
+// and gives the focus to the screen's heading, so the button pressed never takes Space and opens it
+// again. Opened, the focus goes to the title shown (h2 or h1, tabindex -1: focusMainArea), never to
+// a control, so Space stays play and pause.
 import { useEffect, useEffectEvent, useRef, type ReactNode } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { formatTime } from "../lib/time";
@@ -56,7 +56,7 @@ export interface FullPlayerProps {
 export function FullPlayer(p: FullPlayerProps) {
   const swipe = useSwipe({ axis: "down", onSwipe: () => p.onClose?.(), enabled: !!p.onClose });
   const root = useRef<HTMLDivElement>(null);
-  useFocusReturn(root, true, true);
+  useFocusReturn(root);
 
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     if (e.key === "Escape" && !e.defaultPrevented && p.onClose) p.onClose();

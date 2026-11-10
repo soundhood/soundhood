@@ -2,8 +2,10 @@
 // Dropdown list or menu is a layer, like a sheet. While one is open no key heard on the window acts
 // behind it (Ctrl+K, "/", 1 to 4, Ctrl+A, the list keys, Q, Ctrl+L); Esc closes it first, and only
 // it; a sheet that opens by any path (Ctrl+comma, a pasted link, a link shared to the phone, a
-// button) closes it first, so it is never drawn over the newer sheet, and when that sheet closes the
-// focus is back on the control that opened the list or menu. A link shared to the phone while the
+// button) closes it first, so it is never drawn over the newer sheet. Where the focus goes when it or
+// that sheet closes is the one rule: back on the control that opened the list or menu when the
+// keyboard opened it (Ctrl+comma, Ctrl+V), on where the screen or the sheet starts when a pointer
+// did (a click on the list, the Settings button; a share after a click). A link shared to the phone while the
 // first-launch setup is up waits until the setup closes, then opens "Where should this go?" with the
 // focus in it. Checked at 390x844, 834x1194 and 1280x800 with the Sort list and a song's row menu.
 import { expect, test } from "./harness.mjs";
@@ -45,6 +47,8 @@ const focusAt = (page) =>
 const focusIn = (page) => page.evaluate(() => document.activeElement?.closest('[role="dialog"]')?.querySelector("h2")?.textContent ?? null);
 
 const sortButton = (page) => page.getByRole("combobox", { name: "Sort" }).filter({ visible: true });
+/** The screen's heading, where the focus goes when what a pointer opened closes. */
+const screenHeading = (page) => page.locator('.Shell-main :is(h1, h2)[tabindex="-1"]').filter({ visible: true }).first();
 const moreButton = (page) => row(page, "Paper Bloom").getByRole("button", { name: "More for Paper Bloom" });
 
 const POPUPS = {
@@ -52,6 +56,11 @@ const POPUPS = {
     anchor: sortButton,
     async open(page) {
       await sortButton(page).click();
+      await expect(page.getByRole("listbox", { name: "Sort" })).toBeVisible();
+    },
+    async openByKey(page) {
+      await sortButton(page).focus();
+      await page.keyboard.press("Enter");
       await expect(page.getByRole("listbox", { name: "Sort" })).toBeVisible();
     },
   },
@@ -62,23 +71,34 @@ const POPUPS = {
       await moreButton(page).click();
       await expect(page.getByRole("menu", { name: "More for Paper Bloom" })).toBeVisible();
     },
+    async openByKey(page) {
+      await row(page, "Paper Bloom").focus();
+      await page.keyboard.press("Shift+F10");
+      await expect(page.getByRole("menu", { name: "More for Paper Bloom" })).toBeVisible();
+    },
   },
 };
 
-/** A link pasted (Ctrl+V) where the focus is. */
+/** A link pasted (Ctrl+V) where the focus is: the key's press, then the paste it makes. */
 const paste = (page) =>
   page.evaluate((url) => {
+    const at = document.activeElement ?? document.body;
+    at.dispatchEvent(new KeyboardEvent("keydown", { key: "v", code: "KeyV", ctrlKey: true, bubbles: true, cancelable: true }));
     const data = new DataTransfer();
     data.setData("text/plain", url);
-    (document.activeElement ?? document.body).dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    at.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
   }, VIDEO);
 
-/** Every way a sheet opens: [what, how, the sheet it opens, whether the focus comes back to the list or menu]. */
+/**
+ * Every way a sheet opens, the list or menu opened with a pointer before it: [what, how, the sheet
+ * it opens, where the focus is once it closes]. Opened with a key, back on the list's or menu's
+ * control; with a pointer, or by a share after a pointer opened the list, where the screen starts.
+ */
 const OPENERS = [
-  ["Ctrl+comma", (page) => page.keyboard.press("Control+Comma"), "Settings", true],
-  ["a pasted link", paste, "Where should this go?", true],
-  ["a link shared to the phone", (page) => page.evaluate((url) => window.__soundhoodShare(url), VIDEO), "Where should this go?", true],
-  ["the Settings button", (page) => page.getByRole("button", { name: "Settings", exact: true }).filter({ visible: true }).first().click(), "Settings", false],
+  ["Ctrl+comma", (page) => page.keyboard.press("Control+Comma"), "Settings", "control"],
+  ["a pasted link", paste, "Where should this go?", "control"],
+  ["a link shared to the phone", (page) => page.evaluate((url) => window.__soundhoodShare(url), VIDEO), "Where should this go?", "heading"],
+  ["the Settings button", (page) => page.getByRole("button", { name: "Settings", exact: true }).filter({ visible: true }).first().click(), "Settings", "heading"],
 ];
 
 function sizes(testInfo) {
@@ -114,13 +134,19 @@ for (const [name, popup] of Object.entries(POPUPS)) {
       await page.keyboard.press("Escape");
       await expect(floating(page)).toHaveCount(0);
       expect(await behind(page), "Esc closed the list or menu and nothing else").toEqual(before);
-      await expect(popup.anchor(page)).toBeFocused();
+      // Opened with a pointer: the focus is where the screen starts, never on its control.
+      await expect(screenHeading(page), "opened with a pointer: the screen's heading").toBeFocused();
+      // Opened with the keyboard: back on its control.
+      await popup.openByKey(page);
+      await page.keyboard.press("Escape");
+      await expect(floating(page)).toHaveCount(0);
+      await expect(popup.anchor(page), "opened with the keyboard: its control").toBeFocused();
     });
 
     test("a sheet opened by any path closes it first: nothing floats over the sheet, and the focus comes back", async ({ app, page }, testInfo) => {
       sizes(testInfo);
       await start(app, page, testInfo);
-      for (const [path, open, sheet, comesBack] of OPENERS) {
+      for (const [path, open, sheet, back] of OPENERS) {
         await popup.open(page);
         await open(page);
         await expect(dialog(page, sheet), `${path} opens ${sheet}`).toBeVisible();
@@ -128,7 +154,8 @@ for (const [name, popup] of Object.entries(POPUPS)) {
         await expect.poll(() => focusIn(page), `${path}: the focus is in ${sheet}`).toBe(sheet);
         await page.keyboard.press("Escape");
         await expect(dialog(page, sheet)).toHaveCount(0);
-        if (comesBack) await expect(popup.anchor(page), `${path}: ${sheet} closed, the focus is back where ${name} opened`).toBeFocused();
+        if (back === "control") await expect(popup.anchor(page), `${path}: ${sheet} closed, the focus is back where ${name} opened`).toBeFocused();
+        else await expect(screenHeading(page), `${path}: ${sheet} closed, the focus is on the screen's heading`).toBeFocused();
       }
     });
   });
@@ -159,6 +186,14 @@ test.describe("a list inside a sheet", { tag: ["@desktop", "@phone"] }, () => {
     await page.keyboard.press("Escape");
     await expect(floating(page), "Esc closed the list").toHaveCount(0);
     await expect(dialog(page, "Settings"), "and not Settings").toBeVisible();
+    // Opened with a pointer: the focus is on Settings itself, where the sheet starts.
+    await expect(dialog(page, "Settings")).toBeFocused();
+    // Opened with the keyboard: back on Text size.
+    await textSize.focus();
+    await page.keyboard.press("Enter");
+    await expect(floating(page)).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(floating(page)).toHaveCount(0);
     await expect(textSize).toBeFocused();
   });
 });

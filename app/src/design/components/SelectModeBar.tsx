@@ -11,8 +11,9 @@
 // stays reachable. When it comes and the control that had the focus is hidden under it (Select,
 // where the bar takes the header's place below the desktop width), the bar itself takes the focus
 // (no Tab stop, no ring): Tab goes on into its controls, Space still plays and pauses, Esc leaves.
-// When it goes with the focus in it (Esc after its More menu), the focus goes back to what had it
-// when Select mode began (the row, Select), else to the main area (useFocusReturn).
+// When it goes with the focus in it, or still on Select a pointer pressed, the focus goes by the one
+// rule (useFocusReturn): back to what began Select mode (the row, Select) when the keyboard did,
+// else to the screen's heading, so Space never turns Select mode on again.
 import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
 import { cx } from "../lib/cx";
 import { useFocusReturn } from "../lib/useFocusReturn";

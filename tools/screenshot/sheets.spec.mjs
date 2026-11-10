@@ -1,7 +1,8 @@
 // Dialogs over dialogs (docs/DESIGN.md, Modal / Sheet): one opened from another goes on top with its
 // own backdrop, so only the newest reads as open, whatever order the overlays slot mounts them in;
-// the focus is in it, and when it closes the focus goes back to what opened it or, when that can no
-// longer take it (Settings' Add once its link is taken), to the sheet below. Checked for every pair
+// the focus is in it, and when it closes the focus goes back to what opened it when the keyboard did,
+// else (a pointer opened it, or what opened it can no longer take it: Settings' Add once its link is
+// taken) to the sheet below. Checked for every pair
 // the app has: Settings with "Where should this go?", the log and the links waiting; the queue sheet
 // with New playlist (Save as playlist) and "Clear the queue?" (Ctrl+L). The pairs are drawn at the
 // phone (390x844), the tablet (834x1194) and the smallest PC window (760x520), where the queue is a
@@ -125,7 +126,7 @@ test.describe("phone, tablet and the smallest PC window", { tag: ["@desktop", "@
     await expectOnTop(page, "Settings");
   });
 
-  test("Settings, then View log: the log on top; closed, Settings on top with the focus on View log", async ({ app, page }) => {
+  test("Settings, then View log: the log on top; closed, Settings on top with the focus on Settings (a click opened it) or View log (Enter did)", async ({ app, page }) => {
     await app.open();
     await openSettings(app, page);
     const viewLog = dialog(page, "Settings").locator(".LogRow");
@@ -134,7 +135,14 @@ test.describe("phone, tablet and the smallest PC window", { tag: ["@desktop", "@
     await dialog(page, "Log").getByRole("button", { name: "Close", exact: true }).click();
     await expect(dialog(page, "Log")).toHaveCount(0);
     await expectOnTop(page, "Settings");
-    await expect(viewLog).toBeFocused();
+    await expect(dialog(page, "Settings"), "opened with a pointer: Settings itself").toBeFocused();
+    await viewLog.focus();
+    await page.keyboard.press("Enter");
+    await expectOnTop(page, "Log", "Settings");
+    await page.keyboard.press("Escape");
+    await expect(dialog(page, "Log")).toHaveCount(0);
+    await expectOnTop(page, "Settings");
+    await expect(viewLog, "opened with the keyboard: View log").toBeFocused();
   });
 
   test("Settings, then Links waiting: the links on top; closed, Settings on top", async ({ app, page }) => {
@@ -160,7 +168,13 @@ test.describe("phone, tablet and the smallest PC window", { tag: ["@desktop", "@
     await dialog(page, "New playlist").getByRole("button", { name: "Cancel" }).click();
     await expect(dialog(page, "New playlist")).toHaveCount(0);
     await expectOnTop(page, "Queue");
-    await expect(save).toBeFocused();
+    await expect(dialog(page, "Queue"), "opened with a pointer: the queue sheet itself").toBeFocused();
+    await save.focus();
+    await page.keyboard.press("Enter");
+    await expectOnTop(page, "New playlist", "Queue");
+    await page.keyboard.press("Escape");
+    await expect(dialog(page, "New playlist")).toHaveCount(0);
+    await expect(save, "opened with the keyboard: Save as playlist").toBeFocused();
   });
 
   test('the queue sheet, then Ctrl+L: "Clear the queue?" on top; Cancel, the queue on top', async ({ app, page }) => {

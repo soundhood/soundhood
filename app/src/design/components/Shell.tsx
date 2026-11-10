@@ -7,13 +7,16 @@
 // and installs the rule that a held key is one press (heldKeys.ts), the watch on how the user last
 // pressed something (lastInput.ts), and Tab from an off-screen heading (mainTab.ts).
 //
-// RightPane: the desktop's 320 px pane under the artwork tint, holding the queue.
-import { useLayoutEffect, useState, type ReactNode } from "react";
+// RightPane: the desktop's 320 px pane under the artwork tint, holding the queue. It is a surface its
+// toggle opens and closes: when it goes, the focus goes by the one rule (useFocusReturn.ts), so a
+// toggle pressed with the pointer never keeps the focus for Space to press again.
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { holdKeysAsOnePress } from "../lib/heldKeys";
 import { watchInput } from "../lib/lastInput";
 import { tabIntoView } from "../lib/mainTab";
 import { OverlayLayer } from "../lib/overlayLayer";
+import { useFocusReturn } from "../lib/useFocusReturn";
 
 export interface ShellProps {
   main: ReactNode;
@@ -89,8 +92,10 @@ export interface RightPaneProps {
 }
 
 export function RightPane({ label, children, className }: RightPaneProps) {
+  const box = useRef<HTMLElement>(null);
+  useFocusReturn(box);
   return (
-    <aside className={cx("RightPane", className)} aria-label={label}>
+    <aside ref={box} className={cx("RightPane", className)} aria-label={label}>
       {children}
     </aside>
   );

@@ -11,15 +11,16 @@
 // because a row in a virtual list cannot hold a popover. Like every popover it is a layer
 // (usePopoverLayer): nothing behind it hears the keys heard on the window, Esc closes it first, and
 // a sheet that opens closes it. However it closes (a pick, Esc, Tab, the list scrolled, the window
-// resized), save by a press elsewhere, the focus goes back to its row, or, when that row is gone, to
-// the main area; its own scroll (a menu capped to a short window) never closes it.
+// resized), save by a press elsewhere, the focus goes back by the one rule (usePopoverFocus): to its
+// row when the keyboard opened it and the row is still there, else to where the layer under it
+// starts (the screen's heading); its own scroll (a menu capped to a short window) never closes it.
 import { useEffectEvent, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Icon, cx, type MenuItem } from "../../design";
-import { clipBox, focusIfAble, focusMainArea } from "../../design/lib/dom";
+import { clipBox } from "../../design/lib/dom";
 import { useOverlayLayer } from "../../design/lib/overlayLayer";
 import { placePopover } from "../../design/lib/placement";
-import { isPrintable, useOutsidePress, usePopoverLayer, useTypeahead } from "../../design/lib/usePopover";
+import { isPrintable, useOutsidePress, usePopoverFocus, usePopoverLayer, useTypeahead } from "../../design/lib/usePopover";
 import { useApp } from "../../app/context";
 import { splitArtists } from "../../lib/tracks";
 import type { Track } from "../../lib/types";
@@ -92,9 +93,12 @@ function RowMenuPopover({ state, items, onClose }: { state: RowMenuState; items:
   const typeahead = useTypeahead(items.map((i) => i.label));
   const last = items.length - 1;
 
+  // `refocus`: the focus goes back by the one rule (usePopoverFocus): to the row when the keyboard
+  // opened the menu and it is still there, else where the layer under it starts.
+  const focusBack = usePopoverFocus(true, () => state.from);
   const close = (refocus: boolean) => {
     onClose();
-    if (refocus && !focusIfAble(state.from)) focusMainArea();
+    if (refocus) focusBack();
   };
   const run = (i: number) => {
     const item = items[i];

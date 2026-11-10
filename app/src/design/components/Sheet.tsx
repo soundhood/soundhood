@@ -7,14 +7,15 @@
 // typing into a field can never rerun the opening), and is trapped there; Esc closes. When the focus
 // falls to the page (what had it inside went away, a toast that had it left) or anything gives it to
 // the screens or the player behind (a focus given back in the full player), the sheet takes it back,
-// to what had it inside when that is still there, else to the sheet itself. On close the focus
-// returns to what opened it or, when that is gone or disabled, to the sheet below, else to the main
-// area (where the screen starts: its heading): never to the page.
+// to what had it inside when that is still there, else to the sheet itself. On close the focus goes
+// back by the one rule for every surface (giveFocusBack, useFocusReturn.ts): opened with the
+// keyboard, to what opened it; opened with a pointer, or when its opener is gone or disabled, to
+// where the layer under it starts (the sheet below, else the screen's heading): never to the page.
 // A sheet opened while another is open goes on top of it, with its own backdrop, whatever order the
 // overlays slot mounts them in: the newest open sheet is the one drawn on top, the one Tab and Esc
 // work in, and the one the app's shortcuts ask about (topSheet, topLayer). A list or menu still open
 // when a sheet opens, by any path, closes first (closePopovers), so nothing floats over the newer
-// sheet, and the focus comes back to the control that opened it when the sheet closes.
+// sheet; the control that opened that list or menu counts as the sheet's opener.
 // role="dialog", aria-modal, labelled by its title. Place it in the Shell's overlays slot.
 import {
   useId,
@@ -27,20 +28,15 @@ import {
   type RefObject,
 } from "react";
 import { cssVars, cx } from "../lib/cx";
-import { focusIfAble, focusMainArea, trapTab } from "../lib/dom";
-import { closePopovers, popoverIn, topPopover } from "../lib/popoverStack";
-import { createSheetStack } from "../lib/sheetStack";
+import { trapTab } from "../lib/dom";
+import { openSheets, refocus, type OpenSheet } from "../lib/layers";
+import { closePopovers } from "../lib/popoverStack";
+import { giveFocusBack, noteOpening } from "../lib/useFocusReturn";
 import { useSwipe } from "../lib/useSwipe";
 import { IconButton } from "./IconButton";
 
-/**
- * An open sheet, as the stack holds it: its panel, where the focus goes when the one above closes,
- * and what last had the focus inside it, where the focus goes back when something took it away.
- */
-type OpenSheet = { panel: RefObject<HTMLElement | null>; last: RefObject<HTMLElement | null> };
-
-/** Every open sheet in the app, oldest first. */
-const openSheets = createSheetStack<OpenSheet>();
+// The layer queries live with the sheet stack (layers.ts); the app asks them from here, as before.
+export { behindLayer, refocusTopLayer, sheetMayOpen, topLayer, topSheet } from "../lib/layers";
 
 /**
  * Layers a sheet may climb above the first one's (z-index 30 + layer, overlays.css): the row menu
@@ -48,70 +44,6 @@ const openSheets = createSheetStack<OpenSheet>();
  * when a sheet opens closes first, so the row menu is above a sheet only when opened from it.)
  */
 const MAX_LAYER = 9;
-
-/** The panel of the sheet on top (the newest open one), or null while none is open. */
-export function topSheet(): HTMLElement | null {
-  return openSheets.top()?.panel.current ?? null;
-}
-
-/** The first-launch setup: the one modal dialog that is not a sheet, drawn above every sheet. */
-function setupDialog(): HTMLElement | null {
-  return document.querySelector<HTMLElement>('[aria-modal="true"]:not(.Sheet)');
-}
-
-/** Puts the focus back in `sheet`: on what last had it inside, while that can take it, else the panel. */
-function refocus(sheet: OpenSheet) {
-  const box = sheet.panel.current;
-  const last = sheet.last.current;
-  if (last && last !== box && box?.contains(last) && focusIfAble(last)) return;
-  box?.focus({ preventScroll: true });
-}
-
-/**
- * Gives the focus back to the layer on top after it fell to the page (a toast that had it left):
- * the first-launch setup, else the sheet on top (to what had the focus in it). False when neither
- * is open, for the caller to put it where the screen starts.
- */
-export function refocusTopLayer(): boolean {
-  const setup = setupDialog();
-  if (setup) {
-    setup.focus({ preventScroll: true });
-    return true;
-  }
-  const top = openSheets.top();
-  if (!top?.panel.current) return false;
-  refocus(top);
-  return true;
-}
-
-/**
- * What is open over the screens and takes the keys: an open list or menu (a Dropdown's or
- * MultiSelect's list, a menu: popoverStack.ts), else a modal dialog that is not a sheet (the
- * first-launch setup, drawn above every sheet), else the sheet on top; null when nothing is. The
- * keys heard on the window (Ctrl+K, "/", the tab digits, Ctrl+A, the list keys) ask it before they
- * act (docs/SHORTCUTS.md).
- */
-export function topLayer(): HTMLElement | null {
-  const popover = topPopover();
-  const setup = setupDialog();
-  if (popover?.panel.current && (!setup || popoverIn(setup, popover))) return popover.panel.current;
-  return setup ?? topSheet();
-}
-
-/** True when a key heard on the window must leave `el` alone: something is open over it. */
-export function behindLayer(el: Element | null): boolean {
-  const top = topLayer();
-  return !!top && !(el && top.contains(el));
-}
-
-/**
- * True when a sheet may open now (Ctrl+comma, a pasted or shared link): always, on top of the
- * screens or of another sheet, except under the first-launch setup, which is drawn above every
- * sheet. An open list or menu is no reason to wait: the sheet closes it as it opens.
- */
-export function sheetMayOpen(): boolean {
-  return !setupDialog();
-}
 
 export interface SheetProps {
   open: boolean;
@@ -164,7 +96,7 @@ function SheetPanel({
     // A list or menu still open closes first (it would float over this sheet); the control that
     // opened the one the focus was in is what opened this sheet, as far as the focus goes.
     const held = closePopovers(panel.current);
-    const opener = held ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const opening = noteOpening(held ?? document.activeElement);
     const box = panel.current;
     openSheets.open(self);
     last.current = null;
@@ -206,13 +138,11 @@ function SheetPanel({
       openSheets.close(self);
       // A sheet closing under the one on top leaves the focus where it is, in that one.
       if (!wasTop && !focusInside) return;
-      // What opened it, unless it is gone or disabled now (Settings' Add, once its link is taken);
-      // then the sheet below, so Tab stays in it and Esc closes it next; with none below, the main
-      // area (a report whose opener went with the songs it deleted).
-      if (focusIfAble(opener)) return;
-      const below = openSheets.top()?.panel.current;
-      if (below) below.focus({ preventScroll: true });
-      else focusMainArea();
+      // Opened with the keyboard: what opened it, unless it is gone or disabled now (Settings' Add,
+      // once its link is taken). Opened with a pointer, or with its opener gone: the sheet below, so
+      // Tab stays in it and Esc closes it next; with none below, the screen's heading (a report
+      // whose opener went with the songs it deleted), so Space never presses the opener again.
+      giveFocusBack(opening);
     };
   }, [openFocus, self, last]);
 

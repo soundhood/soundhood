@@ -1,8 +1,9 @@
 // Dropdown and MultiSelect: a button that shows the value and a chevron and opens a popover listbox
 // of 36 px options; the chosen option has an aqua tick. Never a native <select>.
 // ARIA: the button is a select-only combobox (aria-expanded, aria-controls, aria-activedescendant);
-// the popover is a listbox of options with aria-selected. Focus stays on the button the whole time,
-// so it is where focus is after closing. Keys: Up and Down move (and open), Home and End, Enter or
+// the popover is a listbox of options with aria-selected. Focus stays on the button the whole time;
+// once the list closes (a pick, Esc, its button) it stays there when the keyboard opened the list,
+// and goes to where the layer under it starts when a pointer did (usePopoverFocus). Keys: Up and Down move (and open), Home and End, Enter or
 // Space picks (a held key picks once: heldKeys.ts), Esc and Tab close, typed letters jump to the
 // first option starting with them. MultiSelect keeps the popover open and toggles; its button reads "None", one
 // name or "N chosen". The open list is a layer (usePopoverLayer): nothing behind it hears the keys
@@ -13,7 +14,7 @@ import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type Reac
 import { createPortal } from "react-dom";
 import { cx } from "../lib/cx";
 import { useOverlayLayer } from "../lib/overlayLayer";
-import { isPrintable, useOutsidePress, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
+import { isPrintable, useOutsidePress, usePopoverFocus, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
 import { Icon } from "./Icon";
 
 export interface DropdownOption<V extends string = string> {
@@ -66,14 +67,17 @@ function Listbox({
     setOpen(true);
     setActive(Math.min(Math.max(0, at), last));
   };
+  // `refocus`: the focus goes back by the one rule (usePopoverFocus): to the button when the
+  // keyboard opened the list, else where the layer under it starts (Space never opens it again).
+  const focusBack = usePopoverFocus(open, () => button.current);
   const close = (refocus = false) => {
     setOpen(false);
-    if (refocus) button.current?.focus();
+    if (refocus) focusBack();
   };
   const choose = (i: number) => {
     if (i < 0 || disabledAt(i)) return;
     pick(i);
-    if (!multi) close();
+    if (!multi) close(true);
   };
 
   // In the shell's overlay layer; in place outside a shell (a fixture page).
@@ -134,7 +138,7 @@ function Listbox({
         aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
         aria-label={label}
         disabled={disabled}
-        onClick={() => (open ? close() : show(firstSelected))}
+        onClick={() => (open ? close(true) : show(firstSelected))}
         onKeyDown={onKeyDown}
       >
         <span className="Dropdown-value">{text}</span>

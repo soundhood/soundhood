@@ -408,3 +408,101 @@ test.describe("Tab from a heading out of sight @desktop", { tag: "@desktop" }, (
     expect(await page.evaluate(() => Number(document.activeElement?.getAttribute("data-index")))).toBe(was + 1);
   });
 });
+
+// The same rule for every sheet, list or menu, mode and pane that has an opener (useFocusReturn.ts):
+// opened with a pointer, closing it leaves the focus on the heading of the screen under it, so Space
+// plays and pauses and never presses the opener again (Select mode back on, the sheet or the queue
+// open again). Select mode left with its X or with Esc, Settings and the queue opened and closed with
+// the pointer; the player bar's button clicked after the keyboard had put the focus on it counts as
+// a pointer's press too. At 1280x800, 1080x800 and 760x520 (from the 1280x800 project), 834x1194
+// and 390x844.
+test.describe("closing what a pointer opened @desktop @phone", { tag: ["@desktop", "@phone"] }, () => {
+  const SIZES = [null, { width: 1080, height: 800 }, { width: 760, height: 520 }];
+  const select = (page) => page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).first();
+  const bar = (page) => page.getByRole("toolbar", { name: "Selection" });
+  /** What a pointer opens and closes: [its name, the steps, with `press` a click or a tap]. */
+  const PARTS = [
+    ["Select mode left with its X", async (page, press) => {
+      await press(select(page));
+      await expect(bar(page)).toBeVisible();
+      await press(row(page, "Paper Bloom"));
+      await press(bar(page).getByRole("button", { name: "Leave Select mode" }));
+      await expect(bar(page)).toHaveCount(0);
+    }],
+    ["Select mode left with Esc", async (page, press) => {
+      await press(select(page));
+      await expect(bar(page)).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(bar(page)).toHaveCount(0);
+    }],
+    ["Settings closed with its Close", async (page, press) => {
+      await press(page.getByRole("button", { name: "Settings", exact: true }).filter({ visible: true }).first());
+      const settings = page.getByRole("dialog", { name: "Settings" });
+      await expect(settings).toBeVisible();
+      await press(settings.getByRole("button", { name: "Close", exact: true }));
+      await expect(settings).toHaveCount(0);
+    }],
+    ["the queue (pane or sheet) closed", async (page, press) => {
+      const queue = page.getByRole("button", { name: "Queue", exact: true }).filter({ visible: true }).first();
+      await press(queue);
+      const sheet = page.getByRole("dialog", { name: "Queue" });
+      await expect(page.locator(".RightPane, .QueueSheet").filter({ visible: true })).toHaveCount(1);
+      if (await sheet.count()) await press(sheet.getByRole("button", { name: "Close", exact: true }));
+      else await press(queue);
+      await expect(page.locator(".RightPane, .QueueSheet")).toHaveCount(0);
+    }],
+  ];
+  for (const size of SIZES) {
+    for (const [what, steps] of PARTS) {
+      const label = size ? ` (${size.width}x${size.height})` : "";
+      test(`${what} with the pointer: the heading, and Space plays and pauses${label}`, async ({ app, page }, testInfo) => {
+        const name = testInfo.project.name;
+        test.skip(name === "desktop-1920x1080", "1280x800 stands for the desktop");
+        test.skip(!!size && name !== "desktop-1280x800", "1080 and 760 wide from the 1280x800 project");
+        const touch = !!testInfo.project.use.hasTouch;
+        if (size) await page.setViewportSize(size);
+        await app.open();
+        await openPlaylist(page, "Late Night");
+        await playSong(app, page, "Lunar Comets");
+        await page.mouse.move(2, 2);
+        await steps(page, (loc) => (touch ? loc.tap() : loc.click()));
+        await expect.poll(() => focusFacts(page), what).toEqual(onHeading("Late Night"));
+        await spaceToggles(page, `after ${what}`);
+        await expect(bar(page), `Space after ${what} leaves Select mode off`).toHaveCount(0);
+        await expect(page.getByRole("dialog"), `Space after ${what} opens no sheet`).toHaveCount(0);
+        await expect(page.locator(".RightPane"), `Space after ${what} opens no queue`).toHaveCount(0);
+      });
+    }
+  }
+
+  for (const size of [null, { width: 760, height: 520 }]) {
+    test(`the player bar's button clicked after the keyboard had the focus on it: Playing closes onto the heading${size ? ` (${size.width}x${size.height})` : ""}`, async ({ app, page }, testInfo) => {
+      const name = testInfo.project.name;
+      test.skip(name === "desktop-1920x1080", "1280x800 stands for the desktop");
+      test.skip(!!size && name !== "desktop-1280x800", "760x520 from the 1280x800 project");
+      const touch = !!testInfo.project.use.hasTouch;
+      if (size) await page.setViewportSize(size);
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await playSong(app, page, "Lunar Comets");
+      const open = page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true }).first();
+      // The keyboard: Enter opens it, Esc closes it back onto the button.
+      await open.focus();
+      await page.keyboard.press("Enter");
+      await expect(fullPlayer(page)).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(fullPlayer(page)).toHaveCount(0);
+      await expect(open).toBeFocused();
+      // Then a click or a tap on it: a pointer's press, whatever had the focus there before.
+      if (touch) await open.tap();
+      else await open.click();
+      await expect(fullPlayer(page)).toBeVisible();
+      await expect.poll(() => focusFacts(page), "opened by the pointer: the player's title").toEqual(onHeading("Lunar Comets", "player"));
+      await page.keyboard.press("Escape");
+      await expect(fullPlayer(page)).toHaveCount(0);
+      await expect.poll(() => focusFacts(page), "closed: the heading").toEqual(onHeading("Late Night"));
+      await spaceToggles(page, "after Playing opened by the pointer closed");
+      await expect(fullPlayer(page), "Space leaves Playing closed").toHaveCount(0);
+    });
+  }
+});

@@ -171,10 +171,17 @@ test.describe("every layout", { tag: ["@desktop", "@phone"] }, () => {
     await expect(more).toHaveAttribute("aria-expanded", "true");
     // No Play next or Add to queue for the song already playing, no Remove from a playlist.
     await expect(menu.getByRole("menuitem")).toHaveText(["Add to playlist", "Go to artist", "Edit tags", "Delete song"]);
-    // Esc closes the menu, not the player, and the button has the focus again.
+    // Esc closes the menu, not the player. Opened with a pointer, the focus goes to where the player
+    // starts (its title), never back on More; opened with the keyboard, More has it again.
     await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0);
     await expect(player).toBeVisible();
+    await expect(player.locator(':is(h1, h2)[tabindex="-1"]').filter({ visible: true }).first()).toBeFocused();
+    await more.focus();
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
     await expect(more).toBeFocused();
     // The keys of the rows' menu: Down opens it, a typed letter moves to its item, Enter runs it.
     await page.keyboard.press("ArrowDown");
