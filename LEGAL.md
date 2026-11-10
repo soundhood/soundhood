@@ -115,5 +115,6 @@ build script and the release workflow download yt-dlp and deno as described abov
 | Tauri, React, SQLite, lofty | the app itself | both |
 | Inter | the typeface (from Phase 1) | both (bundled) |
 
-Each component keeps its own licence. From Phase 1 the About section of the settings lists them with
-their licence notices.
+Soundhood's own code is under the MIT licence ([LICENSE](LICENSE)). Each component keeps its own
+licence; the About group in Settings names them, and Inter's licence ships with the font
+(`app/src/design/fonts/OFL.txt`).
