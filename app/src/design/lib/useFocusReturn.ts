@@ -20,10 +20,15 @@ import { lastInput } from "./lastInput";
  * gives the focus to the main area when it goes, never back to the button pressed.
  */
 export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true, screen = false) {
+  const noted = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     if (!active) return;
     const el = box.current;
-    const opener = screen && lastInput() === "pointer" ? null : document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const had = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // What had the focus as the surface came. StrictMode runs this twice at mount, the second time
+    // after the surface may have taken the focus itself (the selection bar): that is not its opener.
+    if (!(had && el?.contains(had))) noted.current = screen && lastInput() === "pointer" ? null : had;
+    const opener = noted.current;
     return () => {
       const at = document.activeElement;
       if (at && at !== document.body && !el?.contains(at)) return;

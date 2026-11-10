@@ -8,9 +8,12 @@
 // visibility helpers, by width, never by platform). Which two keep a button is the owner's choice
 // for the screen (`narrow`), never the selection's: a button never turns into another under a
 // finger as songs are chosen; it is only disabled while the selection cannot use it. Every action
-// stays reachable. When it goes with the focus in it (Esc after its More menu), the focus goes back
-// to what had it when Select mode began (the row), else to the main area (useFocusReturn).
-import { useEffect, useEffectEvent, useRef } from "react";
+// stays reachable. When it comes and the control that had the focus is hidden under it (Select,
+// where the bar takes the header's place below the desktop width), the bar itself takes the focus
+// (no Tab stop, no ring): Tab goes on into its controls, Space still plays and pauses, Esc leaves.
+// When it goes with the focus in it (Esc after its More menu), the focus goes back to what had it
+// when Select mode began (the row, Select), else to the main area (useFocusReturn).
+import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
 import { cx } from "../lib/cx";
 import { useFocusReturn } from "../lib/useFocusReturn";
 import { Button } from "./Button";
@@ -59,6 +62,11 @@ export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit,
   }, []);
   const root = useRef<HTMLDivElement>(null);
   useFocusReturn(root);
+  // After useFocusReturn has noted what had the focus: Select, hidden now under 1080 px.
+  useLayoutEffect(() => {
+    const at = document.activeElement;
+    if (!at || at === document.body || (at instanceof HTMLElement && at.getClientRects().length === 0)) root.current?.focus({ preventScroll: true });
+  }, []);
 
   const all = total > 0 && count >= total;
   const selectLabel = all ? "Select none" : "Select all";
@@ -85,7 +93,7 @@ export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit,
   );
 
   return (
-    <div ref={root} className={cx("SelectModeBar", className)} role="toolbar" aria-label="Selection">
+    <div ref={root} className={cx("SelectModeBar", className)} role="toolbar" aria-label="Selection" tabIndex={-1}>
       <IconButton icon="close" label="Leave Select mode" strong onClick={onExit} />
       <span className="SelectModeBar-count" aria-live="polite">
         {count} chosen

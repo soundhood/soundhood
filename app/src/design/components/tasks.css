@@ -195,6 +195,13 @@
   background: var(--bg-1);
 }
 
+/* Where the bar takes the header's place, it takes the focus Select had (Select is hidden then):
+   where Select mode starts, as a heading is where a screen starts. No Tab stop, nothing to press,
+   so no ring; the ring belongs to its controls. */
+.SelectModeBar:focus-visible {
+  outline: none;
+}
+
 /* The count gives way first when the text is large: it ellipsizes, the buttons never squeeze. */
 .SelectModeBar-count {
   flex: 0 1 auto;

@@ -170,7 +170,7 @@ for (const tag of ["@desktop", "@phone"]) {
       if (tag === "@desktop") await expect(row(page, "Paper Bloom"), "back on the row that started Select mode").toBeFocused();
     });
 
-    test("Esc closing the full player from its More menu: the focus is back on what opened it", async ({ app, page }) => {
+    test("Esc closing the full player from its More menu: the focus is on the heading (opened by a click), else back on what opened it", async ({ app, page }) => {
       test.skip(tag === "@phone", "on the phone the mini player opens it, by touch");
       for (const size of [{ width: 1280, height: 800 }, { width: 760, height: 520 }]) {
         await page.setViewportSize(size);
@@ -184,7 +184,18 @@ for (const tag of ["@desktop", "@phone"]) {
         await expect(page.getByRole("menu")).toHaveCount(0);
         await page.keyboard.press("Escape");
         await expect(page.locator(".FullPlayer")).toHaveCount(0);
-        await expect(page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true }), `${size.width}x${size.height}`).toBeFocused();
+        await expect.poll(() => focusPlace(page), `${size.width}x${size.height}: opened by a click, a navigation like any other`).toBe("main: Late Night");
+        // Opened with the keyboard: back on its button.
+        const open = page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true });
+        await open.focus();
+        await page.keyboard.press("Enter");
+        await page.locator(".FullPlayer").getByRole("button", { name: /^More for/ }).click();
+        await expect(page.getByRole("menu")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(page.locator(".FullPlayer")).toHaveCount(0);
+        await expect(open, `${size.width}x${size.height}: opened by Enter on its button`).toBeFocused();
       }
     });
 
@@ -300,4 +311,42 @@ test.describe("a song's row menu and the focus", { tag: "@desktop" }, () => {
     await expect(menu).toHaveCount(0);
     await expect(target).toBeFocused();
   });
+});
+
+// Select pressed where the selection bar takes the header's place (under 1080 px): Select is hidden
+// then, and the bar takes the focus it had (never the page): Tab goes on into the bar, Esc leaves
+// Select mode with the focus back on Select. On the desktop Select stays and keeps it. At
+// 1280x800 and 760x520 (from the 1280x800 project), 834x1194 and 390x844.
+test.describe("Select and the focus", { tag: ["@desktop", "@phone"] }, () => {
+  for (const size of [null, { width: 760, height: 520 }]) {
+    test(`Select pressed: the focus on the selection bar, or still on Select where it shows${size ? ` (${size.width}x${size.height})` : ""}`, async ({ app, page }, testInfo) => {
+      test.skip(testInfo.project.name === "desktop-1920x1080", "1280x800 stands for the desktop");
+      test.skip(!!size && testInfo.project.name !== "desktop-1280x800", "760x520 from the 1280x800 project");
+      if (size) await page.setViewportSize(size);
+      const touch = !!testInfo.project.use.hasTouch;
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      const select = page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).first();
+      const bar = page.getByRole("toolbar", { name: "Selection" });
+      for (const how of ["pointer", "keyboard"]) {
+        if (how === "keyboard") {
+          await select.focus();
+          await page.keyboard.press("Enter");
+        } else if (touch) await select.tap();
+        else await select.click();
+        await expect(bar).toBeVisible();
+        const wide = (page.viewportSize()?.width ?? 0) >= 1080;
+        const at = await focusPlace(page);
+        if (wide) expect(at, `Select by ${how}, on the desktop: Select keeps the focus`).toBe("main: Select");
+        else {
+          expect(at, `Select by ${how}: the selection bar`).toBe("main: Selection");
+          await page.keyboard.press("Tab");
+          expect(await focusPlace(page), `Select by ${how}, then Tab: into the bar`).toBe("main: Leave Select mode");
+        }
+        await page.keyboard.press("Escape");
+        await expect(bar).toHaveCount(0);
+        await expect(select, `Select by ${how}, then Esc: Select again`).toBeFocused();
+      }
+    });
+  }
 });
