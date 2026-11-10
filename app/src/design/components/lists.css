@@ -183,15 +183,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The playing row's 3 px bar sits in the row's left padding, 13 px before the cover at every size:
+   on the row's edge where the gutter is 16 px (the phone, the queue), inside it on wider gutters. */
 .TrackRow.is-playing::before {
   content: "";
   position: absolute;
-  left: 0;
+  left: max(0px, var(--gutter) - var(--sp-4));
   top: var(--sp-2);
   bottom: var(--sp-2);
   width: 3px;
   border-radius: 0 2px 2px 0;
   background: var(--aqua);
+}
+
+/* Away from the edge (the wider gutters of the tablet and the desktop) the bar is rounded at both
+   sides; the queue keeps a 16 px gutter, so its bar stays on the edge. */
+@container shell (min-width: 720px) {
+  .TrackRow.is-playing::before {
+    border-radius: 2px;
+  }
+
+  .Queue .TrackRow.is-playing::before {
+    border-radius: 0 2px 2px 0;
+  }
 }
 
 .TrackRow.is-playing .TrackRow-title {

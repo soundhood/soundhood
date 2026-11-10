@@ -86,6 +86,12 @@ test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
     await goTo(page, "Playing");
     await expect(page.locator(".FullPlayer")).toBeVisible();
     await expect(page.locator(".FullPlayer").getByText("Late Night").first()).toBeAttached();
+    // "Playing from" reads the same on every shell: the kind of list, then its name as it is named.
+    const from = page.locator(".FullPlayer-source").filter({ visible: true });
+    await expect(from).toHaveCount(1);
+    await expect(from.locator(".t-overline")).toHaveText("Playing from playlist");
+    await expect(from.locator("strong")).toHaveText("Late Night");
+    await expect(from.locator("strong")).toHaveCSS("text-transform", "none");
     await page.keyboard.press("Escape");
     await expect(page.locator(".FullPlayer")).toHaveCount(0);
     await expect(page.locator(".ScreenHeader h1")).toHaveText("Late Night");
