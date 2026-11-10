@@ -352,6 +352,28 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect(await journalLabels(page), "the second end files nothing").toEqual(["Added 1 track to Focus"]);
   });
 
+  test("a playlist that refuses the downloaded song: the toast says it downloaded and which playlist missed it", async ({ app, page }) => {
+    await app.open();
+    await downloadItem(page).click();
+    await where(page).getByRole("textbox", { name: "Link" }).fill(B_LINK);
+    await togglePlaylist(page, "Focus");
+    await togglePlaylist(page, "Late Night");
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    // Late Night's file is in use: its playlist_add is refused, Focus's goes through.
+    await page.evaluate(() => {
+      const internals = window.__TAURI_INTERNALS__;
+      const invoke = internals.invoke;
+      internals.invoke = (cmd, args, options) =>
+        cmd === "playlist_add" && args?.args?.name === "Late Night" ? Promise.reject("file in use") : invoke(cmd, args, options);
+    });
+    await emit(page, "ytdlp:files", [app.data.tracks[3].path]);
+    await emit(page, "ytdlp:done", 0);
+    await expect(toast(page, "Downloaded 1 and added to 1 playlist. Not added to Late Night: file in use")).toBeVisible();
+    expect(await page.locator(".Toast > span").allTextContents(), "no bare refresh error").not.toContainEqual(expect.stringContaining("Refresh error"));
+    expect(await journalLabels(page)).toEqual(["Added 1 track to Focus"]);
+  });
+
   test("the downloader switched off hides the download UI; a pasted link says where to turn it on", async ({ app, page }) => {
     await app.open();
     await openSettings(app, page);

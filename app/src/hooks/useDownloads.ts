@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { CHANNEL_REFUSAL, isChannelLink, lastErrorLine, queueEndStatus, queueStopStatus } from "../downloads";
+import { CHANNEL_REFUSAL, filedStatus, isChannelLink, lastErrorLine, queueEndStatus, queueStopStatus } from "../downloads";
 import { checkFolderName, folderNameRefusal } from "../folderName";
 import { firstUrl, isPlaylistLink } from "../lib/links";
 import { DEFAULT_DOWNLOAD_TARGET, KEY_SHARE_QUEUE, storePromise } from "../lib/store";
@@ -437,13 +437,23 @@ export function useDownloads({
       if (exitCode === 0 && filePaths.length && targets.length) {
         const paths = filePaths.filter((fp) => found.some((x) => x.path === fp));
         if (paths.length) {
-          // Through the journal, like every playlist write: never between a write and its report.
+          // Through the journal, like every playlist write: never between a write and its report. A
+          // playlist that refuses (a file in use) keeps the others: the toast says which was missed.
+          const added: string[] = [];
+          const missed: { name: string; reason: string }[] = [];
           for (const name of targets) {
-            await journaled<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths } });
+            try {
+              await journaled<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths } });
+              added.push(name);
+            } catch (err) {
+              missed.push({ name, reason: String(err).split("\n")[0].slice(0, 120) });
+            }
           }
           await loadPlaylists(lib);
-          setDlLogs((prev) => prev + `[soundhood] ${paths.length} file${paths.length === 1 ? "" : "s"} added to: ${targets.join(", ")}\n`);
-          notify({ text: `Downloaded ${paths.length} and added to ${targets.length} playlist${targets.length === 1 ? "" : "s"}` });
+          const files = `${paths.length} file${paths.length === 1 ? "" : "s"}`;
+          if (added.length) setDlLogs((prev) => prev + `[soundhood] ${files} added to: ${added.join(", ")}\n`);
+          if (missed.length) appendLog(missed.map((m) => `[error] ${files} not added to ${m.name}: ${m.reason}`));
+          notify({ text: filedStatus(paths.length, added.length, missed) });
         }
       } else if (exitCode === 0) {
         notify({ text: `Downloaded ${filePaths.length} file${filePaths.length === 1 ? "" : "s"}` });
