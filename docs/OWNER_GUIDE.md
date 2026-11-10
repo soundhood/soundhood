@@ -90,16 +90,21 @@ send the message to the team.
 Soundhood now remembers every change it makes to your music files and playlists, and can take the last
 one back.
 
-- **On the phone:** open the settings sheet (the gear icon). The row **Undo last change** shows, in
-  plain words, the last change made on this phone, for example "Edited tags of Song - Artist.m4a".
-- **On the PC:** the **Undo** button at the top, next to Rescan. Hover over it to see what it will undo.
+- **On both devices:** open Settings (the gear icon at the top on the phone, the gear at the bottom
+  of the sidebar on the PC, or Ctrl+comma). Under Library, the row **Undo last change** shows in
+  plain words the last change made on this device, for example "Edited tags of Song - Artist.m4a",
+  with its **Undo** button. It waits while a download or a Proton sync is running.
+- **Right after a change:** adding or removing songs in a playlist shows a message at the bottom
+  with **Undo** for a few seconds. A tag edit, a move or a delete opens a report that stays until
+  you close it, with **Undo this batch**.
 
 What it undoes: a tag edit, a move to another folder, a delete, or a playlist change (adding or
 removing tracks, creating or deleting a playlist). Everything that one change did comes back
 together: a deleted track comes back in the same folder and the same playlists.
 
-- For now, deleting or moving several selected tracks at once counts as one change per track, so
-  Undo brings them back one per press. Press it once for each track.
+- Deleting or moving several selected tracks at once: **Undo this batch** in the report brings them
+  all back. **Undo last change** in Settings still counts one change per track, so there it brings
+  them back one per press.
 - A deleted file comes back from the Recycle Bin on the PC, and from the app's own bin on the phone
   (the folder `_Soundhood\.bin` inside your music folder; the phone has no Recycle Bin).
 - After a tag edit, Undo brings back the old title and artist. An m4a or mp3 file can come back a
@@ -115,10 +120,9 @@ together: a deleted track comes back in the same folder and the same playlists.
 
 When something goes wrong, the log says why. Paste it to the team as it is.
 
-- **On the phone:** settings sheet (gear icon), then **Copy log**. The log is now on the clipboard;
-  paste it into a message.
-- **On the PC:** **Copy log**, next to **Download** (it shows while there is a log). It copies the log
-  with the app and device details on top; paste it into a message.
+- **On both devices:** Settings, Tools, **Copy log**. The log is now on the clipboard, with the app
+  and device details on top; paste it into a message. **View log** next to it shows the log on
+  screen.
 
 The log names versions and what the app was doing; it never contains your passwords or your cookie
 file.
@@ -128,13 +132,13 @@ file.
 A hidden set of switches the team uses for tests: **Test library**, **Run self-test** and
 **Rebuild index**. You only need it when the team asks.
 
-- **On the phone:** tap the status line in the top bar (next to the gear icon) 7 times quickly. The
-  switches appear at the bottom of the settings sheet.
-- **On the PC:** press Ctrl+Alt+Shift+D. A row of switches appears under the top bar.
+- **On the phone:** open Settings, scroll to About and tap the **Soundhood** version row 7 times
+  quickly. A Developer group appears at the bottom of Settings.
+- **On the PC:** press Ctrl+Alt+Shift+D. The Developer group appears at the bottom of Settings.
 
-Do the same again to hide them. **Test library** swaps your library for a small test library the
-app makes itself (the switch reads "Test library: on"); while it is on, Proton sync is off on the
-phone. Turn it off again to get your own library back.
+Do the same again to hide it. The **Test library** switch swaps your library for a small test library
+the app makes itself (its line reads "On: the generated test library is shown, and sync is off");
+while it is on, Proton sync is off on the phone. Switch it off to get your own library back.
 
 ## Take a library snapshot and compare two
 
