@@ -207,7 +207,9 @@ in (a list of the folders and "New folder", whose name is checked before anythin
 playlists every file it brings joins, and **Cancel**, **Queue** and **Download**. The folder and
 playlists start from the remembered choice, which each Download on the PC updates. Opened from
 Settings it comes over Settings, which dims under its backdrop (one dialog reads as open at a time)
-and is back when it closes.
+and is back when it closes. A list or menu that is open when a link arrives closes first, so nothing
+floats over the sheet. A link shared to the phone while the first-launch setup is up waits, and the
+sheet opens when the setup closes (never under it).
 
 - **Download** on the PC starts at once and remembers the folder and playlists for the next link; on
   the phone the link is queued first and leaves the queue once it has downloaded.
@@ -255,13 +257,15 @@ Every dialog is the same sheet: a bottom sheet on the phone, a centred panel on 
   does nothing. Undo this batch undoes exactly the batch's own changes, by their ids, newest first,
   whatever came after them, and stops at the first one that is refused, naming it; the title counts
   the changes really undone ("Undid 1 of 2 changes"), the rows name files without their extension and
-  the bin by this device's name. Its own report has no Undo.
+  the bin by this device's name. Its own report has no Undo. Saving tags a song already has writes
+  nothing and says "Nothing to change" in a toast, with no report.
 - **Undo last change** in Settings undoes the change it names, by its id, and ends in a toast when it
   cleanly undid a playlist change, else in a report. Every Undo takes the first press; a second press
   while it runs does nothing.
 
 Toasts sit at the bottom centre, above the mini player or the player bar, at most two at a time.
-Each stays 4 seconds, longer while the pointer or the focus is on it.
+Each stays 4 seconds, longer while the pointer or the focus is on it. The same words twice within a
+moment show once.
 
 ## First-launch setup
 

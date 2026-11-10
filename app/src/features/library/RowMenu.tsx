@@ -6,12 +6,15 @@
 // ones that make no sense for it (useSongMenuItems with `player`).
 //
 // It is the MenuButton's popover (the same .Popover, .Option and .Menu styles and keys: Up, Down,
-// Home, End, Enter or Space, typed letters, Esc and Tab close), drawn in the shell's overlay layer
-// against the button or the pointer, because a row in a virtual list cannot hold a popover.
+// Home, End, Enter or Space, typed letters, Esc and Tab close; a held key runs one item), drawn in
+// the shell's overlay layer against the button or the pointer, because a row in a virtual list
+// cannot hold a popover. Like every popover it is a layer (usePopoverLayer): nothing behind it hears
+// the keys heard on the window, Esc closes it first, and a sheet that opens closes it.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Icon, cx, type MenuItem } from "../../design";
-import { isPrintable, useOutsidePress, useTypeahead } from "../../design/lib/usePopover";
+import { heldRepeat } from "../../design/lib/dom";
+import { isPrintable, useOutsidePress, usePopoverLayer, useTypeahead } from "../../design/lib/usePopover";
 import { useApp } from "../../app/context";
 import { splitArtists } from "../../lib/tracks";
 import type { Track } from "../../lib/types";
@@ -98,6 +101,7 @@ function RowMenuPopover({ state, items, onClose }: { state: RowMenuState; items:
     item.onSelect();
   };
 
+  usePopoverLayer(true, menu, () => state.from, close);
   useOutsidePress(true, root, () => close(false));
 
   // Placed against the button (right-aligned, below or, without room, above) or at the pointer,
@@ -136,13 +140,15 @@ function RowMenuPopover({ state, items, onClose }: { state: RowMenuState; items:
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // The menu's keys are its own: nothing behind it (a list, a shortcut) sees them.
     e.stopPropagation();
+    if (heldRepeat(e)) return;
     const k = e.key;
     if (k === "ArrowDown") setActive((n) => (n >= last ? 0 : n + 1));
     else if (k === "ArrowUp") setActive((n) => (n <= 0 ? last : n - 1));
     else if (k === "Home") setActive(0);
     else if (k === "End") setActive(last);
     else if (k === "Enter" || k === " ") run(active);
-    else if (k === "Escape" || k === "Tab") close(true);
+    // Esc: the layer closes the menu before any handler hears the key (usePopoverLayer).
+    else if (k === "Tab") close(true);
     else if (isPrintable(e)) {
       const i = typeahead(k, active, e.timeStamp);
       if (i >= 0) setActive(i);

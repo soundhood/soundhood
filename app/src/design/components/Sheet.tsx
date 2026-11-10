@@ -10,8 +10,10 @@
 // list on screen, or the screen header's first control): never to the page.
 // A sheet opened while another is open goes on top of it, with its own backdrop, whatever order the
 // overlays slot mounts them in: the newest open sheet is the one drawn on top, the one Tab and Esc
-// work in, and the one the app's shortcuts ask about (topSheet, topLayer). role="dialog", aria-modal,
-// labelled by its title. Place it in the Shell's overlays slot.
+// work in, and the one the app's shortcuts ask about (topSheet, topLayer). A list or menu still open
+// when a sheet opens, by any path, closes first (closePopovers), so nothing floats over the newer
+// sheet, and the focus comes back to the control that opened it when the sheet closes.
+// role="dialog", aria-modal, labelled by its title. Place it in the Shell's overlays slot.
 import {
   useId,
   useLayoutEffect,
@@ -24,6 +26,7 @@ import {
 } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { focusIfAble, focusMainArea, focusables } from "../lib/dom";
+import { closePopovers, topPopover } from "../lib/popoverStack";
 import { createSheetStack } from "../lib/sheetStack";
 import { useSwipe } from "../lib/useSwipe";
 import { IconButton } from "./IconButton";
@@ -36,7 +39,8 @@ const openSheets = createSheetStack<OpenSheet>();
 
 /**
  * Layers a sheet may climb above the first one's (z-index 30 + layer, overlays.css): the row menu
- * and the first-launch setup (40) and the toasts (50) stay above every sheet.
+ * and the first-launch setup (40) and the toasts (50) stay above every sheet. (A list or menu open
+ * when a sheet opens closes first, so the row menu is above a sheet only when opened from it.)
  */
 const MAX_LAYER = 9;
 
@@ -45,18 +49,23 @@ export function topSheet(): HTMLElement | null {
   return openSheets.top()?.panel.current ?? null;
 }
 
+/** The first-launch setup: the one modal dialog that is not a sheet, drawn above every sheet. */
+function setupDialog(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[aria-modal="true"]:not(.Sheet)');
+}
+
 /**
- * What is open over the screens and takes the keys: an open menu, else a modal dialog that is not a
- * sheet (the first-launch setup, drawn above every sheet), else the sheet on top; null when nothing
- * is. The keys heard on the window (Ctrl+K, "/", the tab digits, Ctrl+A, a pasted link, Ctrl+comma)
- * ask it before they act (docs/SHORTCUTS.md).
+ * What is open over the screens and takes the keys: an open list or menu (a Dropdown's or
+ * MultiSelect's list, a menu: popoverStack.ts), else a modal dialog that is not a sheet (the
+ * first-launch setup, drawn above every sheet), else the sheet on top; null when nothing is. The
+ * keys heard on the window (Ctrl+K, "/", the tab digits, Ctrl+A, the list keys) ask it before they
+ * act (docs/SHORTCUTS.md).
  */
 export function topLayer(): HTMLElement | null {
-  return (
-    document.querySelector<HTMLElement>('[role="menu"]') ??
-    document.querySelector<HTMLElement>('[aria-modal="true"]:not(.Sheet)') ??
-    topSheet()
-  );
+  const popover = topPopover();
+  const setup = setupDialog();
+  if (popover && (!setup || setup.contains(popover))) return popover;
+  return setup ?? topSheet();
 }
 
 /** True when a key heard on the window must leave `el` alone: something is open over it. */
@@ -66,12 +75,12 @@ export function behindLayer(el: Element | null): boolean {
 }
 
 /**
- * True when a sheet may open now from a key or a paste: nothing is open, or only sheets (the new one
- * goes on top). Never under the first-launch setup or a menu, which are drawn above every sheet.
+ * True when a sheet may open now (Ctrl+comma, a pasted or shared link): always, on top of the
+ * screens or of another sheet, except under the first-launch setup, which is drawn above every
+ * sheet. An open list or menu is no reason to wait: the sheet closes it as it opens.
  */
 export function sheetMayOpen(): boolean {
-  const top = topLayer();
-  return !top || top === topSheet();
+  return !setupDialog();
 }
 
 export interface SheetProps {
@@ -121,7 +130,10 @@ function SheetPanel({
   const [openFocus] = useState(() => initialFocus);
 
   useLayoutEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // A list or menu still open closes first (it would float over this sheet); the control that
+    // opened the one the focus was in is what opened this sheet, as far as the focus goes.
+    const held = closePopovers(panel.current);
+    const opener = held ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const box = panel.current;
     openSheets.open(self);
     (openFocus?.current ?? box)?.focus({ preventScroll: true });

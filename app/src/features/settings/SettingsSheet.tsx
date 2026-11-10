@@ -9,7 +9,7 @@
 // does, on a window wide and tall enough for the right pane); elsewhere the row is left out.
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Button, Dropdown, Icon, SettingGroup, SettingRow, Sheet, SwitchRow, sheetMayOpen } from "../../design";
+import { Button, Dropdown, Icon, SettingGroup, SettingRow, Sheet, SwitchRow, onePress, sheetMayOpen } from "../../design";
 import { useApp } from "../../app/context";
 import type { Diagnostics } from "../../coreIpc";
 import { TEXT_SCALES } from "../../hooks/usePrefs";
@@ -29,7 +29,9 @@ const SCALE_OPTIONS = TEXT_SCALES.map((s) => ({ value: String(s), label: `${Math
 
 /**
  * Ctrl+comma opens the settings (a PC shortcut; harmless elsewhere): over the screens or on top of
- * another sheet, but never under the first-launch setup or a menu, which are drawn above sheets.
+ * another sheet, never under the first-launch setup, which is drawn above sheets. An open list or
+ * menu closes as the sheet opens (Sheet.tsx). Heard on the way down (capture), so a menu that keeps
+ * its keys from the list behind it (the row menu) still lets this one through.
  */
 function useSettingsShortcut(setOpen: (open: boolean) => void) {
   useEffect(() => {
@@ -40,8 +42,8 @@ function useSettingsShortcut(setOpen: (open: boolean) => void) {
         setOpen(true);
       }
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [setOpen]);
 }
 
@@ -67,7 +69,7 @@ function ToolsGroup({ onViewLog }: { onViewLog: () => void }) {
         </Button>
       </SettingRow>
       {/* View log, with the newest line of the log as its help line. */}
-      <button type="button" className="SettingRow is-clickable LogRow" onClick={onViewLog}>
+      <button type="button" className="SettingRow is-clickable LogRow" onClick={onViewLog} onKeyDown={onePress()}>
         <span className="SettingRow-text">
           <span className="SettingRow-label">View log</span>
           <span className="SettingRow-help">{log.lastLine || "Nothing logged yet"}</span>

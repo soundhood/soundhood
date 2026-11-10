@@ -63,6 +63,7 @@ export { Sidebar, type SidebarProps, type NavEntry, type SidebarPlaylist } from 
 
 // Overlays
 export { Sheet, behindLayer, sheetMayOpen, topLayer, topSheet, type SheetProps } from "./components/Sheet";
+export { topPopover } from "./lib/popoverStack";
 export { ToastProvider, ToastViewport, useToast, type ToastApi, type ToastOptions } from "./components/Toast";
 export {
   SettingGroup,
@@ -85,4 +86,5 @@ export { TINT_FALLBACK, tintFromPixels } from "./tint/tint";
 
 // Helpers
 export { cx, cssVars } from "./lib/cx";
+export { onePress } from "./lib/dom";
 export { formatTime } from "./lib/time";

@@ -89,11 +89,15 @@ It has three parts, all in `tools/screenshot/` (the spec table is in
   the specs check behaviour without photographs. The suite never retries a test (`retries: 0`). It
   retries only a page's load: when a request to the dev server fails while the app or a fixture page
   loads (Windows refuses a socket now and then under many parallel connections,
-  `net::ERR_NO_BUFFER_SPACE`), or nothing is drawn within 15 s, the harness loads the page again, at
-  most three times in all, and logs each retry (`harness.mjs`, `loadPage`; proved by
-  `harness.spec.mjs`). A load that drew nothing but threw an error of its own is never loaded again:
-  an app that crashes as it starts, even only now and then, fails the test with its error. A wait
-  for IPC to settle gives up after 15 s and names the command it waited for.
+  `net::ERR_NO_BUFFER_SPACE`), or the load gives up (nothing drawn within 15 s, IPC not settled
+  within 15 s) while a request to the dev server is still unanswered, the harness loads the page
+  again, at most three times in all, and logs each retry (`harness.mjs`, `loadPage`; proved by
+  `harness.spec.mjs`). Any other load that gives up is never loaded again: an app that crashes as it
+  starts fails the test with its error, and one that hangs as it starts with every request answered
+  fails with the wait that gave up, which names the IPC command it waited for, even when it happens
+  only now and then. The load's own time is added to the test's 60 s while it runs (at most
+  3 x 15 s, plus the IPC wait and a margin), so a load that never succeeds still ends with its own
+  error, not the test's timeout.
 - **The screens in three more modes.** The screen captures (`screens.spec.mjs` and the `queue` and
   `settings` captures, tagged `@modes`) run again at 390x844 and 1280x800 with reduced motion,
   `prefers-contrast: more`, and 130 % text, which is the Text size setting stored at 1.3, so the app

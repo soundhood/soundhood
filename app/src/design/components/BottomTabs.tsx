@@ -2,8 +2,9 @@
 // over a caption label; the active tab aqua, with a short aqua bar on the top edge that slides to it
 // (--tab-index). No pills. A tab can be disabled (Playing while nothing plays).
 // ARIA tabs: role="tablist", role="tab" with aria-selected and roving tabindex; Left and Right move,
-// Home and End. Keys 1 to 4 switch tabs from a hardware keyboard while the tabs are on screen and
-// no text field has the keyboard.
+// Home and End. Keys 1 to 4 switch tabs from a hardware keyboard while the tabs are on screen, no
+// text field has the keyboard, nothing is open over them (a sheet, the setup, a list or a menu:
+// topLayer) and no other part of the app took the key first.
 import { useEffect, useEffectEvent, useRef, type KeyboardEvent } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { isTypingTarget } from "../lib/dom";
@@ -39,9 +40,9 @@ export function BottomTabs<Id extends string>({ tabs, current, onChange, numberK
   };
 
   const onGlobalKey = useEffectEvent((e: globalThis.KeyboardEvent) => {
-    if (!numberKeys || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+    if (!numberKeys || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
     const el = root.current;
-    // Nothing behind an open sheet, setup or menu answers a key.
+    // Nothing behind an open sheet, setup, list or menu answers a key.
     if (!el || el.getClientRects().length === 0 || behindLayer(el)) return;
     const n = Number(e.key);
     if (Number.isInteger(n) && n >= 1 && n <= tabs.length) {

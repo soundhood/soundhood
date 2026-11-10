@@ -350,16 +350,14 @@ export function useTrackEdits({
       setEditTags(null);
       if (held) await reloadHeldTrack(held, updated.path);
       const c = changeOf(sent);
-      // Not sure what it sent (the host's events did not come back in time): written, no Undo here.
-      const row: BatchRow = c || !sure
-        ? { key: path, before: tagLine(track.title, track.artist), after: tagLine(updated.title, updated.artist), status: "done" }
-        : { key: path, before: displayName(updated.name), after: displayName(updated.name), status: "skipped", reason: "the file already has these tags" };
-      setReport({
-        title: c || !sure ? `Saved the tags of ${displayName(updated.name)}` : "Nothing to change",
-        rows: [row],
-        reasons: reasonLines([row]),
-        changes: c ? [c] : [],
-      });
+      if (!c && sure) {
+        // The file already has these tags: nothing written, nothing to undo, so no report either.
+        notices.notify({ text: "Nothing to change" });
+      } else {
+        // Not sure what it sent (the host's events did not come back in time): written, no Undo here.
+        const row: BatchRow = { key: path, before: tagLine(track.title, track.artist), after: tagLine(updated.title, updated.artist), status: "done" };
+        setReport({ title: `Saved the tags of ${displayName(updated.name)}`, rows: [row], reasons: reasonLines([row]), changes: c ? [c] : [] });
+      }
     } catch (err) {
       setTagError(plain(err));
       if (held) await reloadHeldTrack(held, path);

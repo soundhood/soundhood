@@ -135,6 +135,13 @@ export function useStartup({
             /* non-fatal: the value was read, it applies for this session */
           }
         }
+        const saved = await store.get<string>(KEY_LIBRARY_DIR);
+        const hasFolder = !!saved && typeof saved === "string";
+        const steps = decideOnboarding({ done: (await store.get<boolean>(KEY_ONBOARDED)) === true, existing, hasFolder });
+        // The setup is decided in the same render as the settings are read: what waits for the
+        // settings (a shared link) then also sees whether the setup is up, and never opens a sheet in
+        // the moment before the setup covers it.
+        if (steps.length) prefs.setOnboarding(steps);
         prefs.load({
           textScale: typeof savedScale === "number" ? savedScale : undefined,
           downloader: savedDownloader === true,
@@ -143,11 +150,7 @@ export function useStartup({
         });
         prefsRead = true;
 
-        const saved = await store.get<string>(KEY_LIBRARY_DIR);
-        const hasFolder = !!saved && typeof saved === "string";
-        const steps = decideOnboarding({ done: (await store.get<boolean>(KEY_ONBOARDED)) === true, existing, hasFolder });
-        if (steps.length) prefs.setOnboarding(steps);
-        else if (existing) {
+        if (!steps.length && existing) {
           // Nothing to ask on an existing install: never ask later either.
           await store.set(KEY_ONBOARDED, true);
           await store.save();

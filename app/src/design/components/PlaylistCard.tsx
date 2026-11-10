@@ -4,6 +4,7 @@
 // without a button inside a button. Cards fill a grid of columns at least 150 px wide.
 import type { ReactNode } from "react";
 import { cx } from "../lib/cx";
+import { onePress } from "../lib/dom";
 import { Equaliser } from "./Equaliser";
 import { Mosaic } from "./Thumb";
 
@@ -26,7 +27,7 @@ export function PlaylistCard({ name, meta, covers, playing, paused, onOpen, more
       <Mosaic covers={covers} />
       <div className="PlaylistCard-foot">
         <div className="PlaylistCard-text">
-          <button type="button" className="PlaylistCard-open" onClick={onOpen}>
+          <button type="button" className="PlaylistCard-open" onClick={onOpen} onKeyDown={onePress()}>
             {playing && <Equaliser paused={paused} />}
             <span className="PlaylistCard-name">{name}</span>
           </button>

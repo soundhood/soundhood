@@ -2,8 +2,10 @@
 // is loaded again, a bounded number of times, and logged. On Windows a socket can be refused while
 // many connections open and close (net::ERR_NO_BUFFER_SPACE): one module request of the app's ~140
 // fails and the page stays blank. Here the failure is injected: a route aborts the request. An app
-// that crashes as it starts is never loaded again, even when it would start the second time: the
-// load fails with the crash. A wait for IPC that never settles says which command it waited for.
+// that crashes as it starts, or hangs as it starts with every request answered, is never loaded
+// again, even when it would start the second time: the load fails with the crash, or with the wait
+// that gave up (naming the IPC command it waited for). A load's own time is added to the test's
+// timeout while it runs, so a load that never succeeds still ends with its own error.
 import { expect, test } from "./harness.mjs";
 import { IPC_SETTLE_MS, LOAD_ATTEMPTS, LOAD_WAIT_MS, loadPage } from "./harness.mjs";
 
@@ -27,6 +29,15 @@ test.describe("app.open() and loadPage", { tag: "@desktop" }, () => {
     expect(entry.count, "the entry module was asked for twice").toBe(2);
     await expect(page.locator(".PlaylistCard")).toHaveCount(5);
     expect(retries(testInfo)).toEqual([expect.stringMatching(/^load 1 of \/ failed: \/src\/main\.tsx net::ERR_FAILED; loading it again$/)]);
+  });
+
+  test("the page's own document request fails once: the app is loaded again and starts", async ({ app, page }, testInfo) => {
+    // The browser then goes to its error page, which can interrupt the harness's blank page.
+    const doc = await failFirst(page, (url) => url.pathname === "/", 1);
+    await app.open();
+    expect(doc.count, "the document was asked for twice").toBe(2);
+    await expect(page.locator(".PlaylistCard")).toHaveCount(5);
+    expect(retries(testInfo)).toEqual([expect.stringMatching(/^load 1 of \/ failed: \/ net::ERR_FAILED; loading it again$/)]);
   });
 
   test("a module deep in the app's imports fails once: the app is loaded again and starts", async ({ app, page }, testInfo) => {
@@ -71,6 +82,56 @@ test.describe("app.open() and loadPage", { tag: "@desktop" }, () => {
     await expect(opened).rejects.toThrow("/ did not start: startup crash on the first load (load 1, not loaded again)");
     expect(loads, "the entry module was asked for once").toBe(1);
     expect(retries(testInfo), "no second load hid the crash").toEqual([]);
+  });
+
+  test("startup IPC that hangs on the first load only, with no request failing: the load fails at once and names the command, it is not loaded again", async ({ app, page }, testInfo) => {
+    test.setTimeout(IPC_SETTLE_MS + 30_000);
+    // On the first load only, list_playlists is never recorded as called: startup waits for it in
+    // vain, as an app that hangs only sometimes would. A second load would start, and hide it.
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("hung-once")) return;
+      sessionStorage.setItem("hung-once", "1");
+      const iv = setInterval(() => {
+        const ipc = window.__soundhoodIpc;
+        if (!ipc || !Array.isArray(ipc.calls)) return;
+        clearInterval(iv);
+        const push = ipc.calls.push.bind(ipc.calls);
+        ipc.calls.push = (...calls) => push(...calls.filter((c) => c !== "list_playlists"));
+      }, 0);
+    });
+    await expect(app.open()).rejects.toThrow(
+      new RegExp(`^/ did not start: waited ${IPC_SETTLE_MS} ms for the IPC command "list_playlists": .*\\(load 1; no request to the dev server failed or was left waiting, so it is not loaded again\\)$`),
+    );
+    expect(retries(testInfo), "no second load hid the hang").toEqual([]);
+  });
+
+  test("a page that shows nothing on its first load only, with every request answered: the load fails at once, it is not loaded again", async ({ page }, testInfo) => {
+    test.setTimeout(LOAD_WAIT_MS + 30_000);
+    let loads = 0;
+    // The entry module is answered, runs without an error and renders nothing, on the first load only.
+    await page.route(/\/src\/main\.tsx(\?.*)?$/, (route) =>
+      ++loads === 1 ? route.fulfill({ status: 200, contentType: "text/javascript", body: "export {};" }) : route.continue(),
+    );
+    const opened = loadPage(page, testInfo, {
+      url: "/",
+      ready: () => page.waitForFunction(() => !!document.getElementById("root")?.firstElementChild, null, { timeout: LOAD_WAIT_MS, polling: 50 }),
+    });
+    await expect(opened).rejects.toThrow(/^\/ did not start: page\.waitForFunction: Timeout 15000ms exceeded.*\(load 1; no request to the dev server failed or was left waiting, so it is not loaded again\)$/);
+    expect(loads).toBe(1);
+    expect(retries(testInfo)).toEqual([]);
+  });
+
+  test(`a load that stalls every time ends with its own error, though the test's timeout is shorter than the ${LOAD_ATTEMPTS} attempts`, async ({ app, page }, testInfo) => {
+    // Shorter than LOAD_ATTEMPTS x LOAD_WAIT_MS: the load's time is added to the test's while it runs.
+    test.setTimeout(30_000);
+    let seen = 0;
+    // Every request for the entry module is held, never answered nor failed.
+    await page.route(/\/src\/main\.tsx(\?.*)?$/, () => void ++seen);
+    await expect(app.open()).rejects.toThrow(
+      new RegExp(`^/ did not load in ${LOAD_ATTEMPTS} attempts; the last one page\\.waitForFunction: Timeout ${LOAD_WAIT_MS}ms exceeded.*still waiting for /src/main\\.tsx`),
+    );
+    expect(seen).toBe(LOAD_ATTEMPTS);
+    expect(retries(testInfo)).toHaveLength(LOAD_ATTEMPTS - 1);
   });
 
   test("a wait for IPC that never settles gives up on its own and names the command it waited for", async ({ app }) => {

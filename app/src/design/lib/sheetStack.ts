@@ -13,6 +13,8 @@ export interface SheetStack<T> {
   layer(entry: T): number;
   /** The newest open sheet. */
   top(): T | undefined;
+  /** Every open sheet, oldest first. */
+  list(): readonly T[];
   /** Calls `listener` after every change; returns the call that stops it. */
   subscribe(listener: () => void): () => void;
 }
@@ -39,6 +41,9 @@ export function createSheetStack<T>(): SheetStack<T> {
     },
     top() {
       return entries[entries.length - 1];
+    },
+    list() {
+      return entries;
     },
     subscribe(listener) {
       listeners.add(listener);

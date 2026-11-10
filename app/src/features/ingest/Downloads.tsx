@@ -19,7 +19,7 @@ function isEditable(el: EventTarget | null): boolean {
 
 /**
  * Ctrl+V outside a text field: a pasted link opens "Where should this go?" (ingest's own key), on
- * top of any sheet, but never under the first-launch setup or a menu.
+ * top of any sheet, never under the first-launch setup; an open list or menu closes as it opens.
  */
 function useLinkPaste(onLink: (text: string) => void) {
   const handler = useRef(onLink);

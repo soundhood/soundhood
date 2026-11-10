@@ -66,4 +66,11 @@ describe("createSheetStack", () => {
     stack.open("a");
     expect(listener).toHaveBeenCalledTimes(2);
   });
+
+  it("lists the open entries oldest first", () => {
+    const stack = createSheetStack<string>();
+    for (const s of ["sort", "menu", "folder"]) stack.open(s);
+    stack.close("menu");
+    expect(stack.list()).toEqual(["sort", "folder"]);
+  });
 });

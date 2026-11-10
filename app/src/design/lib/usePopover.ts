@@ -1,8 +1,48 @@
-// Shared popover behaviour for Dropdown, MultiSelect and MenuButton: close on a pointer press
-// outside, place the popover below its button or flip it up (and right-align it) when the visible
-// area has no room, and a type-ahead that finds the option starting with the typed letters.
-import { useEffect, useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
+// Shared popover behaviour for Dropdown, MultiSelect, MenuButton and the row menu: a layer while it
+// is open (usePopoverLayer), close on a pointer press outside, place the popover below its button or
+// flip it up (and right-align it) when the visible area has no room, and a type-ahead that finds the
+// option starting with the typed letters.
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { clipBox } from "./dom";
+import { openPopovers, type OpenPopover } from "./popoverStack";
+
+/**
+ * Makes an open popover a layer (popoverStack.ts): the keys heard on the window leave what is behind
+ * it alone (topLayer, Sheet.tsx), a sheet that opens closes it first, and Esc closes it, wherever the
+ * focus is, before anything else hears the key (the sheet it is in, the selection, the search).
+ * `anchor` is the control that opened it; `close(true)` puts the focus back there.
+ */
+export function usePopoverLayer(
+  open: boolean,
+  panel: RefObject<HTMLElement | null>,
+  anchor: () => HTMLElement | null,
+  close: (refocus: boolean) => void,
+) {
+  const latest = useRef({ anchor, close });
+  useLayoutEffect(() => {
+    latest.current = { anchor, close };
+  });
+  const [self] = useState<OpenPopover>(() => ({
+    panel,
+    anchor: () => latest.current.anchor(),
+    close: (refocus) => latest.current.close(refocus),
+  }));
+  useLayoutEffect(() => {
+    if (!open) return;
+    openPopovers.open(self);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing || openPopovers.top() !== self) return;
+      e.preventDefault();
+      e.stopPropagation();
+      self.close(true);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      openPopovers.close(self);
+    };
+  }, [open, self]);
+}
 
 /** Calls onOutside for a pointer press outside `root` while `open`. */
 export function useOutsidePress(open: boolean, root: RefObject<HTMLElement | null>, onOutside: () => void) {
