@@ -86,7 +86,12 @@ test.describe("held Enter", { tag: "@desktop" }, () => {
     await expect(report(page)).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press("Escape");
     await expect(report(page)).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "More for Late Night" }).filter({ visible: true })).toBeFocused();
+    // The report's opener went with the songs: the focus is on the screen's heading, which presses
+    // nothing; the playlist's More is then reached as a user would.
+    await expect(page.locator(".ScreenHeader h1").filter({ visible: true })).toBeFocused();
+    const more = page.getByRole("button", { name: "More for Late Night" }).filter({ visible: true });
+    await more.focus();
+    await expect(more).toBeFocused();
     await hold(page, "Enter", 20);
     await page.waitForTimeout(400);
     await expect(dialog(page, "Delete this playlist?"), "no item was picked by a repeat").toHaveCount(0);

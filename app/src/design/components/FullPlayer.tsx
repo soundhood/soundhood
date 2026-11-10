@@ -7,7 +7,9 @@
 // component lays out in two columns: artwork; then where it plays from, the title in display size,
 // the artist, facts (length, format...) and the action row. The transport stays in the player bar.
 // The layout switch is CSS only (a container query on the player). When it closes with the focus in
-// it, the focus goes back to what opened it, else to the main area (useFocusReturn).
+// it, the focus goes back to what opened it, else to the main area (useFocusReturn). Opened, the
+// focus goes to the title shown (h2 or h1, tabindex -1: focusMainArea), never to a control, so Space
+// stays play and pause.
 import { useEffect, useEffectEvent, useRef, type ReactNode } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { formatTime } from "../lib/time";
@@ -92,7 +94,7 @@ export function FullPlayer(p: FullPlayerProps) {
           </span>
         )}
         <div className="FullPlayer-meta">
-          <h2 className="FullPlayer-title" aria-live="polite">
+          <h2 className="FullPlayer-title" aria-live="polite" tabIndex={-1}>
             {p.title}
           </h2>
           <div className="FullPlayer-artist">{p.artist}</div>
@@ -104,7 +106,9 @@ export function FullPlayer(p: FullPlayerProps) {
               <span className="t-overline">Playing from {p.source.kind}</span>
               <strong>{p.source.name}</strong>
             </div>
-            <h1 aria-live="polite">{p.title}</h1>
+            <h1 aria-live="polite" tabIndex={-1}>
+              {p.title}
+            </h1>
             <div className="FullPlayer-artist">{p.artist}</div>
           </div>
           {p.facts && p.facts.length > 0 && (

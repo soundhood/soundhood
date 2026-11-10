@@ -345,7 +345,7 @@ for (const [size, resize] of SIZES) {
       await expectOnTop(page, "Settings");
     });
 
-    test("the delete report closed after its opener went: the focus goes to the list, not the page", async ({ app, page }, testInfo) => {
+    test("the delete report closed after its opener went: the focus goes to the main area, not the page", async ({ app, page }, testInfo) => {
       await app.open();
       await goTo(page, "Folders");
       await page.locator(".ListRow").filter({ visible: true }).filter({ hasText: "Evenings" }).first().click();

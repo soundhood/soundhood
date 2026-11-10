@@ -463,8 +463,7 @@ opens: typing into its field never moves the focus again. Focus is trapped in th
 control that has it goes away (a link removed from Links waiting) it moves to the control that takes
 its place, else the one before it, else the sheet itself; Esc closes; focus returns to what opened
 it, or, when that is gone or disabled (Settings' Add once its link is taken), to the sheet below,
-and with no sheet below to the main area (the list on screen, else the screen header's first
-control): never to the page. A sheet opened from another one (Settings, then "Where should this go?", the log or the
+else to the main area (the screen's heading): never to the page. A sheet opened from another one (Settings, then "Where should this go?", the log or the
 links waiting; the queue sheet, then New playlist or "Clear the queue?") goes on top of it with its
 own backdrop, whatever order the app mounts them in: the newest open sheet is the one drawn on top, the
 one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about. `role="dialog"`,
@@ -550,8 +549,8 @@ the setup ends (Done, or Skip on its last step) the focus goes to the main area.
   `--bg-2` (checked by `tools/contrast-lint.mjs`); UI boundaries 3:1 or better.
 - A 2 px aqua outline on `:focus-visible` everywhere, never removed. A control that hides its own
   outline hands the same ring to the box that holds it: the search field's frame while its input has
-  the keyboard (Tab, Ctrl+K, "/"), a playlist card's whole face. The one exception is a sheet's own
-  panel, which takes the focus on open only so its title is read out (Modal / Sheet, above).
+  the keyboard (Tab, Ctrl+K, "/"), a playlist card's whole face. Two exceptions, with nothing to
+  press: a sheet's own panel on open (Modal / Sheet, above) and a screen's heading after a navigation.
   `tools/screenshot/focus.spec.mjs` tabs through Playlists, an open playlist and Settings at every
   size and checks every stop's ring.
 - Roving tabindex in lists; every icon button has an `aria-label`; the now-playing title and toasts are
@@ -565,14 +564,14 @@ the setup ends (Done, or Skip on its last step) the focus goes to the main area.
   a held Enter on Edit tags opens the editor without saving it. Space typed in a field, Enter in a
   text area, and the arrows, Page Up and Down, Home and End in lists and sliders still repeat
   (`tools/screenshot/presses.spec.mjs`).
-- The focus never falls to the page: a sheet gives it back to what opened it (Modal / Sheet), and so
-  do the full player, the selection bar and the first-launch setup going with the focus in them
-  (`useFocusReturn`) and a row menu (Popovers): back to what had it when they came, else the main area: the
-  screen's first meaningful control (`focusMainArea`: its list's current or first row, a card grid's
-  first card, else its header's first control). After any navigation that takes the focused control
-  away (Enter on a card or a row, Back, the tab digits, "4" for Playing) the focus goes there on the
-  new screen (`useScreenFocus`); a focus that is still somewhere, a sidebar item or the search field,
-  stays (`focus.spec.mjs`).
+- The focus never falls to the page: a sheet, the full player, the selection bar, the setup and a
+  row menu going with it give it back to what had it (Modal / Sheet; `useFocusReturn`; Popovers),
+  else to where the screen starts (`focusMainArea`). After a navigation (Enter on a card or a row,
+  Back, 1 to 4, a click or tap on a card, on Back, on a sidebar item or tab) it goes to the new
+  screen's heading or the full player's title (`tabindex="-1"`, no scrolling; `useScreenFocus`),
+  never to a button, card or row: Space stays play and pause, Ctrl+E with nothing chosen edits the
+  playing song, no row's More shows, Tab leads in, a grid scrolled back to keeps its place. A sidebar
+  item reached with the keyboard keeps it, as does the search field (`navigation.spec.mjs`).
 - The layout survives 130 % text size (photographed in the visual suite).
 - `prefers-reduced-motion` and `prefers-contrast: more` are honoured (above).
 

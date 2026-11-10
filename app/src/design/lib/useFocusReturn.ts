@@ -1,11 +1,12 @@
 // The focus never falls to the page when a surface that held it goes: the full player, the selection
 // bar, the first-launch setup. It goes back to what had it when the surface came (the button that
 // opened the player, the row that started Select mode) or, when that is gone, hidden or disabled, to
-// the main area (focusMainArea). A sheet does the same itself (Sheet.tsx), with the sheet below as a
-// step between. Nor when the screen in the main area changes under it (useScreenFocus): Enter on a
-// card or a row, Back, a tab digit, Playing.
+// where the screen starts (focusMainArea: its heading). A sheet does the same itself (Sheet.tsx),
+// with the sheet below as a step between. Nor when the screen in the main area changes under it
+// (useScreenFocus): Enter on a card or a row, Back, a tab digit, Playing, a click on a card, on Back
+// or on a navigation item.
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import { focusIfAble, focusMainArea } from "./dom";
+import { focusIfAble, focusMainArea, isTypingTarget } from "./dom";
 
 /**
  * While `active`, `box` is a surface that may hold the focus. When it goes with the focus inside it
@@ -34,22 +35,37 @@ export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true
 }
 
 /**
- * `screen` names what the main area shows (a tab, an opened list, Playing). When it changes and the
- * focus went with the old screen (the card, row or Back that had it is gone, so it is on the page),
- * the focus goes to the new screen's first meaningful control (focusMainArea): its list's current or
- * first row, a card grid's first card, else its header's first control. It runs once the commit has
- * finished, after any surface that gives the focus back itself (the full player) has done so; a
- * focus that is somewhere (a sidebar item clicked, the search field typed in) stays there.
+ * A navigation control of the shell's frame (a sidebar item, a bottom tab, the player bar's button)
+ * pressed with the pointer: no keyboard user put the focus there (it does not match :focus-visible).
+ * One reached with the keyboard, the arrows in the bottom tabs among them, keeps it: that is where
+ * the user is.
+ */
+function pointerPressedNav(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement) || el.closest(".Shell-main") || !el.closest(".Shell-frame")) return false;
+  return !isTypingTarget(el) && !el.matches(":focus-visible");
+}
+
+/**
+ * `screen` names what the main area shows (a tab, an opened list, Playing). When it changes, the
+ * focus goes to where the new screen starts (focusMainArea: its heading, the full player's on
+ * Playing), never to a control, if it went with the old screen (the card, row or Back that had it is
+ * gone, so it is on the page) or stayed on the frame's navigation item a click or tap pressed. It
+ * runs once the commit has finished, after any surface that gives the focus back itself (the full
+ * player) has done so. A focus that is somewhere (the search field typed in, a sidebar item reached
+ * with the keyboard, a sheet) stays there.
  */
 export function useScreenFocus(screen: string) {
   const seen = useRef(screen);
   useLayoutEffect(() => {
     if (seen.current === screen) return;
     seen.current = screen;
+    // What had the focus as the screen changed: the control that changed it, if it is still there.
+    const pressed = document.activeElement;
     queueMicrotask(() => {
+      // A sheet or the setup holds the focus and gives it back itself.
+      if (document.querySelector('[aria-modal="true"]')) return;
       const now = document.activeElement;
-      if (now && now !== document.body) return;
-      focusMainArea();
+      if (!now || now === document.body || (now === pressed && pointerPressedNav(now))) focusMainArea();
     });
   }, [screen]);
 }

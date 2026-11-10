@@ -29,22 +29,32 @@ export function focusIfAble(el: HTMLElement | null | undefined): boolean {
   return el.ownerDocument.activeElement === el;
 }
 
+/** A screen's heading, which takes the focus where the screen starts (tabindex -1: no Tab stop). */
+const SCREEN_HEADING = ':is(h1, h2)[tabindex="-1"]';
+
 /**
- * Puts the focus on the first meaningful control of the screen in the shell's main area, for when
- * what had it is gone (a sheet's opener, the screen it was on) and no sheet is left to take it: the
- * list on screen (the row Tab would reach: the current or the first), or a card grid's first card,
- * else the screen header's first control, else the main area's first one (the full player's). Never
- * a text field (on a phone that would open the keyboard). True when the focus landed.
+ * Puts the focus where the screen in the shell's main area starts, for when what had it is gone (the
+ * card, row or Back pressed; a sheet's opener) and no sheet is left to take it: the screen's heading
+ * (ScreenHeader's, the full player's on Playing), else the main area itself while it holds the focus.
+ * Never a control, so nothing the user did not choose is pressed or acted on: Space stays play and
+ * pause, Ctrl+E edits the playing song, no row's More shows, and Tab leads into the screen. Without
+ * scrolling: a grid scrolled back to keeps its place. True when the focus landed.
  */
 export function focusMainArea(doc: Document = document): boolean {
   const main = doc.querySelector<HTMLElement>(".Shell-main");
   if (!main) return false;
-  const shown = (el: HTMLElement) => el.getClientRects().length > 0;
-  const row = [...main.querySelectorAll<HTMLElement>('[role="listbox"] [tabindex="0"]')].find(shown);
-  const card = [...main.querySelectorAll<HTMLElement>('[role="list"] > [role="listitem"]')].find(shown);
-  const header = main.querySelector<HTMLElement>(".ScreenHeader");
-  const controls = [...(card ? focusables(card).slice(0, 1) : []), ...(header ? focusables(header) : []), ...focusables(main)];
-  return [row, ...controls.filter((el) => !isTypingTarget(el))].some((el) => focusIfAble(el));
+  const heading = [...main.querySelectorAll<HTMLElement>(SCREEN_HEADING)].find((el) => el.getClientRects().length > 0);
+  if (focusIfAble(heading)) return true;
+  // No heading on screen (the selection bar in its place on a narrow shell): the main area, which is
+  // no Tab stop and takes no click focus once it lets the focus go.
+  if (main.hasAttribute("tabindex")) return focusIfAble(main);
+  main.tabIndex = -1;
+  if (focusIfAble(main)) {
+    main.addEventListener("blur", () => main.removeAttribute("tabindex"), { once: true });
+    return true;
+  }
+  main.removeAttribute("tabindex");
+  return false;
 }
 
 export interface Box {

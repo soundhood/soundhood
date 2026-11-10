@@ -20,11 +20,13 @@ export interface ScreenHeaderProps {
 // The actions come last in the document, after the search field, and the grid draws them at the end
 // of the title's row (shell.css): Tab reaches the field first, as on the desktop, where it heads the
 // sidebar, and a screen reader hears the title, the counts and the field before the buttons.
+// The title takes the focus after a navigation (focusMainArea) as where the screen starts: no Tab
+// stop (tabindex -1), no ring (base.css), and nothing to press.
 export function ScreenHeader({ title, meta, actions, search, chips, className }: ScreenHeaderProps) {
   return (
     <header className={cx("ScreenHeader", className)}>
       <div className="ScreenHeader-row">
-        <h1>{title}</h1>
+        <h1 tabIndex={-1}>{title}</h1>
         {meta != null && <span className="ScreenHeader-meta">{meta}</span>}
       </div>
       {search}

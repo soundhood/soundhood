@@ -62,6 +62,14 @@ img {
   outline-offset: 2px;
 }
 
+/* A screen's heading (and the main area while no heading shows) takes the focus after a navigation
+   only as where the screen starts, as a sheet's panel does when it opens: no Tab stop, nothing to
+   press, so no ring (the ring belongs to the controls). */
+:is(h1, h2)[tabindex="-1"]:focus-visible,
+.Shell-main:focus-visible {
+  outline: none;
+}
+
 ::selection {
   background: var(--aqua-dim);
   color: var(--fg-0);
