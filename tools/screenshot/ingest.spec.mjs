@@ -383,7 +383,13 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
       m.store.has = (k) => k === "text_scale" || has(k);
     });
     await page.goto("/");
-    await expect(toast(page, "Settings could not be read: the downloader stays off (see the log)")).toBeVisible();
+    // In plain words, what could not be read and what that means; the raw error only in the log.
+    const unreadable = toast(page, "The settings (music folder and downloader) could not be read");
+    await expect(unreadable).toHaveText(
+      "The settings (music folder and downloader) could not be read, so no library is open and the downloader is off until you turn it on. Choose the folder in Settings.",
+    );
+    await expect(unreadable).not.toContainText("store unreadable");
+    await expect(page.getByText("No library yet")).toBeVisible();
     expect(await page.evaluate(() => window.__soundhoodShare("https://youtu.be/AbCdEfGhIjK"))).toBe(false);
     await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
     await expect(where(page)).toHaveCount(0);
@@ -394,6 +400,39 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     // The log keeps the reason behind the plain sentence.
     await expect(status(page)).toContainText("store unreadable");
     expect(await ipcCount(page, "downloads")).toBe(0);
+  });
+
+  test("the download helper's Update and Network check show only once the stored switch is read, and only while it is on", async ({ app, page }) => {
+    const helperButtons = () => sheet(page).getByRole("button").filter({ hasText: /^(Update|Check)$/ });
+    const net = () => page.evaluate(() => window.__soundhoodIpc.calls.filter((c) => /soundhood-ytdl\|(ytdlp_update|netcheck)$/.test(c)));
+    // Stored off, read slowly: Settings opens once the platform is known, before the switch is read.
+    await beforeLoad(page, () => {
+      const m = window.__soundhoodMock;
+      m.store.set("downloader_enabled", false);
+      m.store.set("onboarding_done", true);
+      m.delay["plugin:store|get"] = 400;
+      window.__switchRead = false;
+      const get = m.store.get.bind(m.store);
+      m.store.get = (k) => {
+        if (k === "downloader_enabled") window.__switchRead = true;
+        return get(k);
+      };
+    });
+    await page.goto("/");
+    await expect.poll(() => page.evaluate(() => window.__soundhoodIpc.calls.includes("platform")), { timeout: 15_000 }).toBe(true);
+    await page.getByRole("button", { name: "Settings", exact: true }).filter({ visible: true }).first().tap();
+    await expect(sheet(page)).toBeVisible();
+    expect(await page.evaluate(() => window.__switchRead), "the stored switch is not read yet").toBe(false);
+    await expect(sheet(page).getByRole("switch", { name: "Downloader" })).toBeVisible();
+    expect(await helperButtons().count(), "nothing of the helper to tap before the switch is known").toBe(0);
+    await app.settled("list_playlists");
+    // Read: off, so still nothing; nothing reached the network.
+    await expect(sheet(page).getByRole("switch", { name: "Downloader" })).toHaveAttribute("aria-checked", "false");
+    expect(await helperButtons().count()).toBe(0);
+    expect(await net()).toEqual([]);
+    // Turned on: Update and Check are there.
+    await sheet(page).getByRole("switch", { name: "Downloader" }).tap();
+    await expect(helperButtons()).toHaveText(["Update", "Check"]);
   });
 
   test("a refused phone download stops the queue", async ({ app, page }) => {

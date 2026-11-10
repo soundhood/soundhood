@@ -1,7 +1,8 @@
 // Settings, YouTube: the downloader switch, and while it is on: the last failed download (an error
 // row with Copy log and Retry), a link field with Add and Paste (both open "Where should this go?"),
 // the download queue and the links waiting, and on the phone the in-app helper's version with
-// Update and the network check (the PC's helper ships with the installer).
+// Update and the network check (the PC's helper ships with the installer), shown only once startup
+// has read the stored switch.
 import { Button, ErrorRow, SettingGroup, SettingRow, SwitchRow, TextField, ValueRow } from "../../design";
 import { useApp } from "../../app/context";
 
@@ -57,7 +58,9 @@ export function YouTubeGroup({ onShowLinks }: { onShowLinks: () => void }) {
               <ValueRow label="Links waiting" help="Queued here or on your other device" value={waiting} onClick={onShowLinks} />
             </>
           )}
-          {isMobile && (
+          {/* The helper's own network calls: only once startup has read the stored switch (until
+              then `downloader` is its default, not a choice), so nothing here can be tapped before. */}
+          {isMobile && prefs.loaded && (
             <>
               <SettingRow label="Download helper" help={proton.ytdlpVersion ? `yt-dlp ${proton.ytdlpVersion}` : "Reading its version"}>
                 <Button small onClick={() => void proton.updateYtdlp()} disabled={helperBusy}>

@@ -20,8 +20,13 @@ export const KEY_ONBOARDED = "onboarding_done";
 
 export const TEXT_SCALES = [1, 1.15, 1.3] as const;
 
-/** What startup says (a toast; the reason goes to the log) when the settings store cannot be read. */
-export const SETTINGS_UNREADABLE = "Settings could not be read: the downloader stays off (see the log)";
+/**
+ * What startup says (a toast; the reason goes to the log only) when the settings store cannot be
+ * read: what was not read, and what that means for the owner, in plain words. Startup stops before
+ * it reads the folder, so no library opens, and the downloader counts as off.
+ */
+export const SETTINGS_UNREADABLE =
+  "The settings (music folder and downloader) could not be read, so no library is open and the downloader is off until you turn it on. Choose the folder in Settings.";
 
 /** The setup's steps, in order. */
 export type OnboardStep = "library" | "lookups" | "helper";
