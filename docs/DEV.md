@@ -256,10 +256,10 @@ touch that file.
 | The desktop helper binaries break the Android build | the Android overlay empties `externalBin` | `app/src-tauri/tauri.android.conf.json` |
 | `addPluginListener` is denied by the ACL | `register_listener` and `remove_listener` are in every mobile plugin's `COMMANDS` and default permission set | `app/src-tauri/plugins/soundhood-ytdl/build.rs`, `.../permissions/default.toml` |
 | `tauri android init` wipes manifest edits and `MainActivity` | declarations live in plugin manifests; the rest is re-applied by the patch script | `app/src-tauri/plugins/*/android/src/main/AndroidManifest.xml`, `scripts/patch-android.py` |
-| The Android WebView refuses `asset://` file URLs | playback on the phone reads the file's bytes over IPC; artwork via the asset protocol is verified on the device | `app/src/App.tsx` (playback), `read_file_bytes` / `cover_art` in the host |
+| The Android WebView refuses `asset://` file URLs | playback on the phone reads the file's bytes over IPC; artwork via the asset protocol is verified on the device | `app/src/features/player/audioLoader.ts` and `app/src/hooks/usePlayer.ts` (playback), `read_file_bytes` / `cover_art` in the host |
 | Android draws pause, gear and bolt characters as colour emoji | icons are SVG only; the token lint rejects emoji ranges in TSX | `tools/token-lint.mjs` |
 | Android 15 forces edge-to-edge; content slides under the system bars | `enableEdgeToEdge()` before `super.onCreate`, then padding by the system-bar and cutout insets from Kotlin (never `env(safe-area-inset-*)`) | `MainActivity.kt`, template in `scripts/patch-android.py` |
-| The bottom block's height changes with the mini player and insets | a `ResizeObserver` publishes it as `--mBottomH` | `app/src/App.tsx` |
+| The bottom block's height changes with the mini player and insets | the mini player and the tabs are the last row of the shell's grid, sized by their content, so the main area always ends above them; nothing measures them | `app/src/design/components/shell.css` (`.Shell-frame`) |
 | Python on the phone cannot reach `::1` (`getLoopbackAddress()` is IPv6) | the in-app relay binds `127.0.0.1` explicitly | `LocalProxy.kt` (`start`) |
 | Wi-Fi advertises IPv6 that does not route; connections hang | the relay tries IPv4 addresses first | `LocalProxy.kt` (`connectAny`) |
 | Python's own DNS and TLS stall on the phone | every yt-dlp and rclone byte goes through the relay; never bypass it | `YtdlPlugin.kt` (`--proxy`), `Rclone.kt` (`HTTP_PROXY`) |
@@ -269,7 +269,7 @@ touch that file.
 | An APK signed with another key will not install, and uninstalling wipes app data | one key for every APK on the phone | [Signing](#signing) |
 | `cargo check --target aarch64-linux-android` fails in SQLite's build script | use cargo-ndk | [The Cargo workspace](#the-cargo-workspace) |
 | `tauri android init` puts the template's launcher icon back | regenerate every icon from the brand sources: from `app/`, `npx tauri icon ../app/src/design/brand/icon-manifest.json`, then delete the `icons/ios/` folder it also writes (iOS is deferred) | `app/src/design/brand/` ([DESIGN](DESIGN.md#app-icon)) |
-| Renaming the settings store loses every saved setting | the store file keeps its old name, `music-hood.json` | `app/src/App.tsx` (`Store.load`) |
+| Renaming the settings store loses every saved setting | the store file keeps its old name, `music-hood.json` (the keys: [the shell's README](../app/src/app/README.md#store-keys)) | `app/src/lib/store.ts` (`Store.load`) |
 
 Kotlin files named without a folder live under `app/src-tauri/plugins/soundhood-ytdl/android/src/main/java/`
 (the plugin) and `app/src-tauri/gen/android/app/src/main/java/` (`MainActivity.kt`).

@@ -63,22 +63,48 @@ Recorded inputs, replayed inside `cargo test`, never fetched live:
 ## Tooling and UI unit tests
 
 In `tools/`: `npm run typecheck`, `npm run lint`, `npm run test` (Vitest). The lints below have their
-own unit tests there, using synthetic values only.
+own unit tests there, using synthetic values only. The same Vitest run takes the UI's pure helpers
+in `app/src/**/*.test.ts`: the keyboard map, the queue model, the audio loader and the artwork tint.
 
 ## Visual suite
 
-Playwright drives the real UI build with Tauri's IPC mocked (`mockIPC`) over the **fixture library**:
+Playwright drives the app's real UI, on its Vite dev server in Chromium, with Tauri's IPC mocked
+(`mockIPC`) over the **fixture library**:
 50 tracks, 5 playlists, covers in aqua, purple and greyscale so colour checks are meaningful. It is
 the core's generated library, the one the Test library switch installs on a device, exported by
 `soundhood-tools harness-json` into `tools/screenshot/fixture-library.json`; a core test fails when
 that file is out of date ([the harness README](../tools/screenshot/README.md)).
 
-- Viewports 390x844 and 834x1194 (phone layout), 1280x800 and 1920x1080 (PC layout), in the default
-  mode only. Reduced motion, `prefers-contrast: more` and 130 % font size join in Phase 1, with the
-  design system.
+It has two parts, both in `tools/screenshot/` (the spec table is in
+[the harness README](../tools/screenshot/README.md)):
+
+- **The app's screens and flows.** Every other spec runs the whole app, at up to four sizes:
+  390x844 and 834x1194 with the mocked host saying `android` and a touch screen, 1280x800 and
+  1920x1080 with the host saying `windows` and a mouse. The layout follows the width alone, as in the
+  app, so 390x844 is the phone layout, 834x1194 the tablet layout (the rail) and the two wide sizes
+  the desktop layout; the platform only says what the host can do (Proton sync, the app's bin, the
+  path field on the phone; the folder picker and the Recycle Bin on the PC). Specs tagged `@phone`
+  run at the two narrow sizes, `@desktop` at the two wide ones. Each screen is photographed under one
+  name at every size, `<width>x<height>-<screen>.png`, so the parity grid can pair them; the rest of
+  the specs check behaviour without photographs.
+- **The component fixture pages.** `app/fixtures.html` serves one page per design-system component
+  (`/fixtures.html#TrackRow`; the list is `app/src/design/fixtures/pages.json`). It runs on the dev
+  server only and needs no host mock. `components.spec.mjs` photographs every page at the same four
+  sizes in the default mode, and at 390x844 and 1280x800 in three more modes: reduced motion,
+  `prefers-contrast: more`, and 130 % text, which sets `--text-scale: 1.3` on the root element
+  exactly as the Text size setting does. Each page also fails on sideways scroll and on any error or
+  warning in the console, and one test checks that `pages.json` lists every registered page.
+  Baselines: `__screenshots__/<os>/components/<Page>/<width>x<height>-<mode>.png`.
+- The screens themselves are photographed in the default mode only.
+- The settings sheet is photographed over Folders, never over the Playlists screen: its blurred
+  backdrop mixes the aqua and purple covers of the playlist cards into blue pixels, which the blue
+  scan would count.
 - Baselines are committed; a run fails when a screenshot differs from its baseline by more than 0.2 %.
-- Run: in `tools/`, `npm run test:visual`. When a change is intended, update the baselines with
-  `npm run test:visual -- --update-snapshots` and commit them with the change that caused them.
+- Run: in `tools/`, `npm run test:visual` (every spec), or one spec by name, for example
+  `npm run test:visual -- settings`, and one size with `--project=desktop-1280x800` (the project
+  names are in `playwright.config.mjs`). When a change is intended, rewrite the baselines with
+  `npm run test:visual:update` (the same filters work) and commit them with the change that caused
+  them.
 - Playwright prints one line per test (the `list` reporter, no HTML report). On failure the expected,
   actual and diff images of each failing screenshot are in `tools/screenshot/test-results/`; CI
   uploads that folder as the `visual-diff-report` artefact.
@@ -107,19 +133,21 @@ source the lint checks no names, so the CI secret must be set and the local file
 
 Committed screenshots and gate runs on real devices use the fixture library, never a real one.
 
-- **The developer section** holds the switches below. It is hidden: on the phone, tap the status line
-  in the top bar 7 times in a row (each tap within 1.5 s of the last) and it appears at the bottom of
-  the settings sheet; on the PC, press
-  Ctrl+Alt+Shift+D and it appears as a row under the top bar. The same gesture hides it again; the
-  app remembers whether it is shown.
-- **Test library** (the switch reads "Test library: on" or "off") installs the generated fixture
-  library on the device (under the app's own data) and points the app at it. While it is on, Proton sync (Sync now, Get new, Send new) is
-  switched off, so the test library never reaches the real Proton Drive. The same library can be
-  generated on the PC with `soundhood-tools fixture-lib <dir>`.
+- **The developer section** holds the switches below. It is hidden, at the bottom of Settings: on the
+  phone, open Settings and tap the version row in About ("Soundhood", "Version ...") 7 times in a
+  row, each tap within 1.5 s of the last; on the PC, press Ctrl+Alt+Shift+D. A toast says
+  "Developer tools on" (or off), the same gesture hides it again, and the app remembers whether it
+  is shown (store key `dev_mode`).
+- **Test library** (a switch; its help line says which library is shown) installs the generated
+  fixture library on the device (under the app's own data) and points the app at it; off goes back
+  to the library that was shown before, or to none. While it is on, the folder line in Settings reads
+  "test library", every list screen's header carries a "Test library" badge, and Proton sync (Sync
+  now, Get new, Send new) is switched off, so the test library never reaches the real Proton Drive.
+  The same library can be generated on the PC with `soundhood-tools fixture-lib <dir>`.
 - **Run self-test** runs the bundled fixture corpus through the installed app's own Rust code and
-  writes pass and fail counts to the log, so the phone is checked with the same rules as the PC.
-  **Copy log** shows the result. **Rebuild index** rebuilds the index from the files and logs the
-  time it took.
+  writes pass and fail counts to a toast and the log, so the phone is checked with the same rules as
+  the PC. **Copy log** (Settings, Tools) carries the result. **Rebuild index** rebuilds the index from
+  the files and logs the time it took.
 - Desktop screenshots come from the real WebView2 window, run under a test identity so the installed
   app's data is never touched ([DEV](DEV.md#desktop)). Start it with
   `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222 --disable-lcd-text"` and
@@ -208,9 +236,15 @@ The owner runs the same comparison with two copy-paste blocks
 
 - Every phase commits screenshots under `docs/evidence/<phase>/`: the Windows app at 1280x800 and
   1920x1080 and the phone, side by side per screen, all taken with the **fixture library**.
+- Phase 1 uses three folders under `docs/evidence/phase-1/`: `after/` holds the visual suite's
+  screen baselines at the four sizes (`<width>x<height>-<screen>.png`), `parity/` the parity grid
+  made from them (below), and `gate/` the gate's screenshots of the real WebView2 window and the
+  phone, with a README saying how and from which build they were taken, as
+  `docs/evidence/phase-0/gate/` does. Phase 0's folders stay as they are.
 - The side-by-side images come from the parity grid. In `tools/`:
   `npm run evidence:parity -- --in <folder of screenshots> --out <folder>` (optional `--phone 390x844`
-  and `--desktop 1280x800`, the defaults). It reads screenshots named as the visual suite names them,
+  and `--desktop 1280x800`, the defaults), for example
+  `npm run evidence:parity -- --in screenshot/__screenshots__/win32 --out ../docs/evidence/phase-1/parity`. It reads screenshots named as the visual suite names them,
   `<width>x<height>-<screen>.png`, and for every screen that exists at both sizes writes
   `parity-<screen>.png`: the phone on the left and the desktop on the right, both scaled to the
   smaller of the two heights (never enlarged), on the canvas colour `#0f0f0f` with a 16 px gap
