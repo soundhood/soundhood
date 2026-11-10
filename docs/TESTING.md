@@ -64,7 +64,8 @@ Recorded inputs, replayed inside `cargo test`, never fetched live:
 
 In `tools/`: `npm run typecheck`, `npm run lint`, `npm run test` (Vitest). The lints below have their
 own unit tests there, using synthetic values only. The same Vitest run takes the UI's pure helpers
-in `app/src/**/*.test.ts`: the keyboard map, the queue model, the audio loader and the artwork tint.
+in `app/src/**/*.test.ts`: the keyboard map, the queue model, the audio loader, the artwork tint,
+the toasts' list and where a popover goes.
 
 ## Visual suite
 

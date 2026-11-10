@@ -231,13 +231,13 @@ never replaces its paths in the middle of a press (that once swallowed clicks).
 
 **IconButton.** A round hit target (`--hit`) around a 20 or 24 px icon. Resting `--fg-1`, hover
 `--fg-0` with a 4 % wash, press scale 0.92, `is-on` aqua (shuffle or repeat on, the queue pane open).
-`aria-label` is required; `aria-pressed` for toggles. Like every button, a held key is one press: the
-repeated keydowns of a held Enter never press it again (Accessibility, below).
+`aria-label` is required; `aria-pressed` for toggles. Like every control, a held key is one press
+(Accessibility, below).
 
 **Button.** A 40 px pill (32 px `is-small`). Variants: default (`--bg-2`), `is-primary` (aqua fill,
 ink text; counts as the screen's one aqua fill), `is-danger` (danger fill, ink text), `is-text`
 (transparent), `is-link` (aqua text, for one action in an empty state or a toast). Disabled: `--bg-2`
-with `--fg-disabled` text. A held key is one press.
+with `--fg-disabled` text.
 
 **PlayButton.** The round aqua play/pause: 64 px in the full player, 40 px in the player bar. Its
 glyph cross-fades between play and pause.
@@ -274,9 +274,10 @@ and `/` focus it.
 `role="combobox"` on the button with `aria-expanded` and `aria-controls`, `role="listbox"` and
 `role="option"` with `aria-selected`; Up and Down move, Enter or Space picks (a held key picks once),
 Esc closes, typing jumps to the first option starting with the typed letters. MultiSelect keeps the
-popover open and toggles options; its button shows "None", one name, or "N chosen". The popover flips
-upward when there is no room below. The open list is a layer (Overlays, Layers). Never a native
-`<select>`.
+popover open and toggles options; its button shows "None", one name, or "N chosen". The open list is
+a popover (Overlays, Popovers): drawn in the shell's overlay layer against its button, so every
+option can be scrolled to, seen and picked wherever the button sits, and a layer (Overlays, Layers).
+Never a native `<select>`.
 
 ### Lists
 
@@ -310,10 +311,10 @@ the row is part of it: Play next, Add to queue, Add to playlist, Go to artist an
 only; Go to artist is disabled on that artist's own list), Remove from the open playlist (only while
 one is open and holds the songs), and Delete as a danger item. It is the MenuButton's popover (the
 same look and keys: Up, Down, Home, End, Enter or Space, typed letters, Esc and Tab close; a held key
-runs one item), drawn in the shell's overlay layer against the button or at the pointer, kept inside
-the shell, because a row of a virtual list cannot hold a popover. Open, it is a layer (Overlays,
-Layers). It closes when the list scrolls or the window changes size,
-and the focus returns to the row. The full player's "more" offers the same items for the playing song
+runs one item), drawn in the shell's overlay layer against the button or at the pointer with the
+popovers' one placement rule (Overlays, Popovers), because a row of a virtual list cannot hold a
+popover. Open, it is a layer (Overlays, Layers). It closes when the list scrolls or the window
+changes size, and the focus returns to the row. The full player's "more" offers the same items for the playing song
 (FullPlayer, below).
 
 **ListRow.** The row for artists, folders, playlists and search results: thumb, name over a meta line
@@ -359,8 +360,10 @@ the 64 px aqua play button, next, repeat); a bottom row of queue, lyrics, add to
 artist (which closes the player), Edit tags and Delete; Play next, Add to queue and Remove from a
 playlist make no sense for the song already playing and are left out. Its keys and ARIA are the
 MenuButton's, as the row menu's.
-The background is a gradient from the artwork tint into `--bg-0`. Swipe down or Esc closes it. On a
-shell wide enough for the player bar the same component lays out in two columns (artwork; then where it
+The background is a gradient from the artwork tint into `--bg-0`. Swipe down or Esc closes it (after
+closing its More menu, when that is open); closed with the focus in it, the focus goes back to what
+opened it (the player bar's open button, the mini player, the Playing item), else to the main area.
+On a shell wide enough for the player bar the same component lays out in two columns (artwork; then where it
 plays from, the title in display size, the artist, facts such as length and format, and the action row)
 and leaves the transport to the player bar.
 
@@ -429,7 +432,21 @@ or shared link, a button, a menu item) closes every open list or menu first, so 
 drawn over a newer sheet, and when that sheet closes the focus goes back to the control that opened
 the list or menu. Nothing opens under the first-launch setup: a link shared to the phone while it is
 up waits, and its sheet opens when the setup closes. `topLayer` (Sheet.tsx) is the one question every
-key asks; `docs/SHORTCUTS.md` has the keys.
+key asks; `docs/SHORTCUTS.md` has the keys. A list or menu belongs to the sheet or setup its button
+is in: a sheet opening with one of its own lists open leaves that one open.
+
+**Popovers.** A Dropdown's or MultiSelect's open list, a MenuButton's menu and a song's row menu are
+drawn in the shell's overlay layer (the Shell provides it), above every sheet and under the toasts,
+never inside the sheet body or pane their button sits in, so nothing that scrolls clips them. One
+placement rule (`placePopover`): below the button, start-aligned (a row menu end-aligned with its
+button, or at the pointer); above it only when it does not fit below and there is more room above;
+its height capped to the room on the side it opens to, 8 px from the shell's edge, and it then
+scrolls inside (its scrolling never moves what is behind it); right-aligned when it would leave the
+shell on the right, and never outside it. A list or MenuButton's menu follows its button while it is
+open (a sheet still sliding in, a resize) and closes when its button scrolls out of sight. Home, End
+and type-ahead scroll the active option into view inside the list. With the owner's 29 playlists the
+Playlists list of "Where should this go?" shows every one, at every size (`reach.spec.mjs`). Outside
+a shell (a fixture page) a popover sits in place, under its button.
 
 **Modal / Sheet.** Every dialog is one component: on the phone a bottom sheet (rounded top `--r-xl`, a
 32 x 4 grabber in `--fg-2`, swipe down or tap the backdrop to close), on wider shells a centred panel
@@ -454,9 +471,13 @@ one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about
 `--shadow-float`, body-sm text and at most one text action: Undo (a tier-2 playlist change, a song
 taken out of the queue), Retry (a failed download), Cancel (the phone's running download) or Settings
 (a link that arrived while the downloader is off). Stays 4 s (longer while hovered or focused), at
-most two at once, the newest at the bottom. The same words again within 2 s (no action, not a
-download's) show once: the toast already there starts its 4 s again. A download toast stays while the
-download runs, with a purple progress line on its bottom edge. `role="status"` (polite).
+most two at once, the newest at the bottom. Every toast is a toast of its own, shown as the newest:
+what the user caused is said every time, in the same words or not (A pressed twice queues the song
+twice and shows two "Added ... to the queue"; A, B, C, then A again shows that last A at the bottom).
+Only a notice sent with a key stands for an earlier one of the same key, which comes back as the
+newest with its 4 s started again; today one notice has a key, the unreadable settings at startup.
+A download toast stays while the download runs, with a purple progress line on its bottom edge.
+`role="status"` (polite).
 
 **SettingsSheet.** One component on every device: the phone's settings sheet and the desktop's
 Ctrl+comma dialog. Groups in this order, each an overline heading over rows: Library, Playback, YouTube,
@@ -498,7 +519,9 @@ the selection cannot use them. The menu there starts with Select all (or Select 
 every other action, Edit tags among them, so every action stays reachable without a row of six
 glyphs. Play and Add to queue are not on it; the rows' menu has them for a
 selection. It stays in view at the top of the list; below the desktop width it takes the screen
-header's place, on the desktop it sits above the list. Esc leaves Select mode.
+header's place, on the desktop it sits above the list. Esc leaves Select mode (after closing its More
+menu, when that is open); the focus then goes back to what had it when Select mode began (the row
+Ctrl+clicked, the Select button), else to the main area, never to the page.
 
 **Where should this go? sheet.** After a link is shared or pasted, or from the sidebar's Download item
 with an empty link: the link, the folder it lands in (a Dropdown with "New folder"), the playlists it
@@ -511,7 +534,8 @@ sent otherwise), YouTube helper (Enable downloader, off; "Keep download helper u
 mark on the first step, no illustrations; EmptyState styling. Skipped by the upgrade rule when an
 existing install is found ([DECISIONS](DECISIONS.md)), except that an existing install with no music
 folder set is shown the Library step alone. On the phone the Library step is a path field with the
-standard Music folder filled in; Android's All-files permission is asked when the app starts.
+standard Music folder filled in; Android's All-files permission is asked when the app starts. When
+the setup ends (Done, or Skip on its last step) the focus goes to the main area.
 
 ## Accessibility
 
@@ -525,10 +549,19 @@ standard Music folder filled in; Android's All-files permission is asked when th
   size and checks every stop's ring.
 - Roving tabindex in lists; every icon button has an `aria-label`; the now-playing title and toasts are
   live regions.
-- A held key is one press: buttons, icon buttons, the play button, chips, a menu's items and a list's
-  options ignore the auto-repeated keydowns of a held Enter (or Space where it acts on keydown), so
-  holding Enter on Remove removes one link even when the focus lands on the next Remove
+- A held key is one press, on every control, by one rule on the window (`heldKeys.ts`, installed by
+  the Shell, heard in the capture phase before any handler): the auto-repeated keydowns of a held
+  Enter or Space are dropped on every control that acts on them (buttons of every kind, the mini
+  player's play among them; switches; checkboxes; a list's options and the list; menus and their
+  items; tabs; song rows; links), and those of a held Enter in a text field, where Enter submits or
+  saves. Holding Enter on Remove removes one link even when the focus lands on the next Remove, and
+  a held Enter on Edit tags opens the editor without saving it. Space typed in a field, Enter in a
+  text area, and the arrows, Page Up and Down, Home and End in lists and sliders still repeat
   (`tools/screenshot/presses.spec.mjs`).
+- The focus never falls to the page: a sheet gives it back to what opened it (Modal / Sheet), and so
+  do the full player, the selection bar and the first-launch setup when they go with the focus in
+  them (`useFocusReturn`): back to what had it when they came, else to the main area (the list on
+  screen, else the screen header's first control).
 - The layout survives 130 % text size (photographed in the visual suite).
 - `prefers-reduced-motion` and `prefers-contrast: more` are honoured (above).
 

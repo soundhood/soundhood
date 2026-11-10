@@ -10,8 +10,10 @@ and Esc closes it first. Ctrl+K and "/" never move the focus to the search field
 (the phone's tabs too), Ctrl+A and the list keys never act on the screen behind. Ctrl+, and a pasted
 link may open a sheet on top of another sheet, never under the first-launch setup; an open list or
 menu closes first, and the focus comes back to it when the sheet closes. A held key is one press:
-holding Enter on a button, a menu item or a list option acts once. On the phone there is no keyboard
-layer: a tap plays, and there is no double-tap.
+holding Enter or Space on any control (a button, a switch, a checkbox, a song row, a menu item, a
+list option) acts once, and holding Enter in a field (Edit tags) submits once, never again in the
+sheet the first press opened; the arrows, Page Up and Down, Home and End keep repeating. On the
+phone there is no keyboard layer: a tap plays, and there is no double-tap.
 
 "The selection" means the songs you have chosen (Ctrl+click, Shift+click, or Select mode), or else
 the row that has the keyboard focus.

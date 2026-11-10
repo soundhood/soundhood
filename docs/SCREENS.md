@@ -204,7 +204,9 @@ A link arrives in one of four ways: **Ctrl+V** anywhere outside a text field, th
 the sidebar or the rail (an empty link field, with the focus in it), **Add** or **Paste** in Settings,
 or a link shared to the phone app. Each opens **Where should this go?**: the link, the folder it lands
 in (a list of the folders and "New folder", whose name is checked before anything is made), the
-playlists every file it brings joins, and **Cancel**, **Queue** and **Download**. The folder and
+playlists every file it brings joins (a list that opens over the sheet and shows every playlist,
+however many: it scrolls inside when they do not all fit), and **Cancel**, **Queue** and
+**Download**. The folder and
 playlists start from the remembered choice, which each Download on the PC updates. Opened from
 Settings it comes over Settings, which dims under its backdrop (one dialog reads as open at a time)
 and is back when it closes. A list or menu that is open when a link arrives closes first, so nothing
@@ -263,9 +265,10 @@ Every dialog is the same sheet: a bottom sheet on the phone, a centred panel on 
   cleanly undid a playlist change, else in a report. Every Undo takes the first press; a second press
   while it runs does nothing.
 
-Toasts sit at the bottom centre, above the mini player or the player bar, at most two at a time.
-Each stays 4 seconds, longer while the pointer or the focus is on it. The same words twice within a
-moment show once.
+Toasts sit at the bottom centre, above the mini player or the player bar, at most two at a time,
+the newest at the bottom. Each stays 4 seconds, longer while the pointer or the focus is on it.
+Everything you do is confirmed every time: adding a song to the queue twice shows two toasts. Only
+the notice that the settings could not be read shows once, however often startup meets it.
 
 ## First-launch setup
 
