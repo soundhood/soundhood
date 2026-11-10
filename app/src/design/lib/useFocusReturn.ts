@@ -9,7 +9,7 @@
 // Enter on a card or a row, Back, a tab digit, Playing, a click on a card, on Back or on a
 // navigation item.
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import { focusIfAble, focusMainArea, isTypingTarget } from "./dom";
+import { focusIfAble, focusMainArea, isControlTarget, isTypingTarget } from "./dom";
 import { focusLayerStart } from "./layers";
 import { lastInput } from "./lastInput";
 
@@ -43,8 +43,12 @@ export function giveFocusBack(o: Opening): void {
  * keeps the focus on the button pressed). When it goes with the focus inside it, fallen to the page,
  * or still on the opener a pointer pressed, the focus goes back by the rule (giveFocusBack); a focus
  * that is somewhere else by then (a sheet that opened, a field clicked) stays there.
+ * `take`: a surface that stays beside what opened it and can hold the focus itself (the selection
+ * bar, `tabindex="-1"`, no ring). As it comes it takes the focus when that fell to the page, sits on
+ * an opener hidden under it, or sits on a control a pointer pressed (Select on the desktop), so Space
+ * plays and pauses and never presses that control again; an opener the keyboard pressed keeps it.
  */
-export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true) {
+export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true, take = false) {
   const noted = useRef<Opening>({ opener: null, pointer: false });
   useLayoutEffect(() => {
     if (!active) return;
@@ -54,6 +58,11 @@ export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true
     // after the surface may have taken the focus itself (the selection bar): that is not its opener.
     if (!(had && el?.contains(had))) noted.current = noteOpening(had);
     const opening = noted.current;
+    if (take && el && !(had && el.contains(had))) {
+      const gone = !had || had === document.body || (had instanceof HTMLElement && had.getClientRects().length === 0);
+      const pressed = opening.pointer && had === opening.opener && isControlTarget(had);
+      if (gone || pressed) el.focus({ preventScroll: true });
+    }
     const ours = (at: Element | null) => !at || at === document.body || !!el?.contains(at) || (opening.pointer && at === opening.opener);
     return () => {
       const at = document.activeElement;
@@ -75,7 +84,7 @@ export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true
         giveFocusBack(opening);
       });
     };
-  }, [active, box]);
+  }, [active, box, take]);
 }
 
 /**

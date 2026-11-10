@@ -9,12 +9,14 @@
 // for the screen (`narrow`), never the selection's: a button never turns into another under a
 // finger as songs are chosen; it is only disabled while the selection cannot use it. Every action
 // stays reachable. When it comes and the control that had the focus is hidden under it (Select,
-// where the bar takes the header's place below the desktop width), the bar itself takes the focus
-// (no Tab stop, no ring): Tab goes on into its controls, Space still plays and pauses, Esc leaves.
+// where the bar takes the header's place below the desktop width) or was pressed with a pointer
+// (Select on the desktop), the bar itself takes the focus (no Tab stop, no ring): Tab goes on into
+// its controls, Space still plays and pauses, Esc leaves. Select pressed with the keyboard on the
+// desktop keeps it.
 // When it goes with the focus in it, or still on Select a pointer pressed, the focus goes by the one
 // rule (useFocusReturn): back to what began Select mode (the row, Select) when the keyboard did,
 // else to the screen's heading, so Space never turns Select mode on again.
-import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { cx } from "../lib/cx";
 import { useFocusReturn } from "../lib/useFocusReturn";
 import { Button } from "./Button";
@@ -62,12 +64,9 @@ export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit,
     return () => window.removeEventListener("keydown", h);
   }, []);
   const root = useRef<HTMLDivElement>(null);
-  useFocusReturn(root);
-  // After useFocusReturn has noted what had the focus: Select, hidden now under 1080 px.
-  useLayoutEffect(() => {
-    const at = document.activeElement;
-    if (!at || at === document.body || (at instanceof HTMLElement && at.getClientRects().length === 0)) root.current?.focus({ preventScroll: true });
-  }, []);
+  // It takes the focus Select had when Select is hidden under it (below 1080 px) or a pointer
+  // pressed it (the desktop), and gives it back by the one rule when it goes.
+  useFocusReturn(root, true, true);
 
   const all = total > 0 && count >= total;
   const selectLabel = all ? "Select none" : "Select all";

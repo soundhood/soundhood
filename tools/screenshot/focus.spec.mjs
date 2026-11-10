@@ -340,10 +340,44 @@ test.describe("a song's row menu and the focus", { tag: "@desktop" }, () => {
 
 // Select pressed where the selection bar takes the header's place (under 1080 px): Select is hidden
 // then, and the bar takes the focus it had (never the page): Tab goes on into the bar. On the
-// desktop Select stays and keeps it. Esc leaves Select mode with the focus back on Select when the
-// keyboard pressed it, on the screen's heading when a pointer did (Space then plays and pauses,
-// never Select again). At 1280x800 and 760x520 (from the 1280x800 project), 834x1194 and 390x844.
+// desktop Select stays: pressed with the keyboard it keeps the focus; pressed with a pointer the bar
+// takes it too (no ring), so Space plays and pauses and never presses Select again. Esc leaves
+// Select mode with the focus back on Select when the keyboard pressed it, on the screen's heading
+// when a pointer did. At 1920x1080, 1280x800, 1080x800 and 760x520 (from the 1280x800 project),
+// 834x1194 and 390x844.
 test.describe("Select and the focus", { tag: ["@desktop", "@phone"] }, () => {
+  // On the desktop, where Select stays beside the bar: pressed with a pointer, the bar takes the
+  // focus (no ring), Space plays and pauses, Select mode and the songs chosen stay.
+  for (const size of [null, { width: 1080, height: 800 }]) {
+    test(`Select pressed with a pointer on the desktop: the bar has the focus, Space plays and pauses${size ? ` (${size.width}x${size.height})` : ""}`, async ({ app, page }, testInfo) => {
+      const name = testInfo.project.name;
+      test.skip(!name.startsWith("desktop-"), "the desktop, where Select stays beside the bar");
+      test.skip(!!size && name !== "desktop-1280x800", "1080 wide from the 1280x800 project");
+      if (size) await page.setViewportSize(size);
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await playSong(app, page, "Lunar Comets");
+      const select = page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).first();
+      const bar = page.getByRole("toolbar", { name: "Selection" });
+      const pause = page.locator('button[aria-label="Pause"], button[aria-label="Play"]').filter({ visible: true }).first();
+      // Select, then a song chosen with the keyboard (the focus stays where the click left it).
+      await select.click();
+      await expect(bar).toBeVisible();
+      expect(await focusPlace(page), "the selection bar").toBe("main: Selection");
+      expect(await bar.evaluate((el) => getComputedStyle(el).outlineStyle), "no ring").toBe("none");
+      const before = await pause.getAttribute("aria-label");
+      await page.keyboard.press(" ");
+      await expect(pause, "Space plays or pauses").not.toHaveAttribute("aria-label", before);
+      await expect(bar, "Select mode stays").toBeVisible();
+      expect(await focusPlace(page), "the focus stays on the bar").toBe("main: Selection");
+      // A song chosen with a click: Space there plays and pauses too, the choice stays.
+      await row(page, "Paper Bloom").click();
+      await expect(bar).toContainText("1 chosen");
+      await page.keyboard.press(" ");
+      await expect(bar, "the choice stays").toContainText("1 chosen");
+    });
+  }
+
   for (const size of [null, { width: 760, height: 520 }]) {
     test(`Select pressed: the focus on the selection bar, or still on Select where it shows${size ? ` (${size.width}x${size.height})` : ""}`, async ({ app, page }, testInfo) => {
       test.skip(testInfo.project.name === "desktop-1920x1080", "1280x800 stands for the desktop");
@@ -363,7 +397,8 @@ test.describe("Select and the focus", { tag: ["@desktop", "@phone"] }, () => {
         await expect(bar).toBeVisible();
         const wide = (page.viewportSize()?.width ?? 0) >= 1080;
         const at = await focusPlace(page);
-        if (wide) expect(at, `Select by ${how}, on the desktop: Select keeps the focus`).toBe("main: Select");
+        if (wide && how === "keyboard") expect(at, `Select by ${how}, on the desktop: Select keeps the focus`).toBe("main: Select");
+        else if (wide) expect(at, `Select by ${how}, on the desktop: the selection bar`).toBe("main: Selection");
         else {
           expect(at, `Select by ${how}: the selection bar`).toBe("main: Selection");
           await page.keyboard.press("Tab");
