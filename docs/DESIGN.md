@@ -522,8 +522,8 @@ the selection cannot use them. The menu there starts with Select all (or Select 
 every other action, Edit tags among them, so every action stays reachable without a row of six
 glyphs. Play and Add to queue are not on it; the rows' menu has them for a selection. It stays in
 view at the top of the list; below the desktop width it takes the screen header's place and the
-focus Select had (`tabindex="-1"`, no ring), on the desktop it sits above the list. Esc (after its
-More menu, when open) or Leave ends Select mode; the focus then goes by the focus rule (Accessibility).
+focus Select had (`tabindex="-1"`, no ring); on the desktop it sits above the list and takes the
+focus of a Select a pointer pressed. Esc or Leave ends Select mode; then the focus rule (Accessibility).
 
 **Where should this go? sheet.** After a link is shared or pasted, or from the sidebar's Download item
 with an empty link: the link, the folder it lands in (a Dropdown with "New folder"), the playlists it

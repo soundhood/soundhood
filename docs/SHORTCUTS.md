@@ -20,14 +20,15 @@ screen (Enter on a card or a row, Back, 1 to 4, a click on a card, on Back or on
 leaves the focus on the new screen's heading (the full player's title on Playing), never on a
 button, a card or a row: Space still plays and pauses, Ctrl+E with nothing chosen edits the playing
 song, and Tab goes on into the screen, from the first card or row in view when the heading is out of
-sight (Back to a scrolled list). What opens over a screen from a control (a sheet, a list or menu,
-Select mode, the queue, Playing) gives the focus back by one rule when it closes: opened with a
-click or a tap (even on a button the keyboard had reached), the focus goes to the heading under it
-(to the sheet, for what opened in a sheet), so Space plays and pauses and never opens it again;
-opened with the keyboard, it goes back to what opened it. A sidebar item you reached with the
-keyboard keeps the focus, and so does the search field you type in. The first-launch setup keeps Tab
-inside it, as a sheet does. On the phone there is no keyboard layer: a tap plays, and there is no
-double-tap.
+sight (Back to a scrolled list). Select pressed with a click or a tap gives the focus to the
+selection bar (no ring), so Space keeps playing and pausing in Select mode. What opens over a screen
+from a control (a sheet, a list or menu, Select mode, the queue, Playing) gives the focus back by
+one rule when it closes: opened with a click or a tap (even on a button the keyboard had reached),
+the focus goes to the heading under it (to the sheet, for what opened in a sheet), so Space plays
+and pauses and never opens it again; opened with the keyboard, it goes back to what opened it. A
+sidebar item you reached with the keyboard keeps the focus, and so does the search field you type
+in. The first-launch setup keeps Tab inside it, as a sheet does. On the phone there is no keyboard
+layer: a tap plays, and there is no double-tap.
 
 "The selection" means the songs you have chosen (Ctrl+click, Shift+click, or Select mode), or else
 the row that has the keyboard focus because you moved it there (the arrows, Tab, a click); after a
