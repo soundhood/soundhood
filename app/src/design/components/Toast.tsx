@@ -126,9 +126,9 @@ function usePlaceChange(box: RefObject<HTMLDivElement | null>, stack: string) {
   const [quietAt, setQuietAt] = useState(0);
   useLayoutEffect(() => {
     const el = box.current;
-    const stack = el?.offsetParent;
-    if (!el || !stack) return;
-    const top = stack.getBoundingClientRect().top + el.offsetTop;
+    const list = el?.offsetParent;
+    if (!el || !list) return;
+    const top = list.getBoundingClientRect().top + el.offsetTop;
     const at = `${Math.round(top)} ${Math.round(top + el.offsetHeight)}`;
     if (at === place.current.at) return;
     place.current = { at, movedAt: performance.now() };
