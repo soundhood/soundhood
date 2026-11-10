@@ -8,8 +8,10 @@
 // pressed something (lastInput.ts), and Tab from an off-screen heading (mainTab.ts).
 //
 // RightPane: the desktop's 320 px pane under the artwork tint, holding the queue. It is a surface its
-// toggle opens and closes: when it goes, the focus goes by the one rule (useFocusReturn.ts), so a
-// toggle pressed with the pointer never keeps the focus for Space to press again.
+// toggle opens and closes, beside what opened it, by the one rule (useFocusReturn.ts): opened by a
+// click on its toggle, the pane takes the focus itself (`tabindex="-1"`, no ring) as the selection
+// bar does; closed by one, the focus goes to the screen's heading. So a toggle pressed with the
+// pointer never keeps the focus for Space to press again. Q and Enter on the toggle keep theirs.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { holdKeysAsOnePress } from "../lib/heldKeys";
@@ -93,9 +95,9 @@ export interface RightPaneProps {
 
 export function RightPane({ label, children, className }: RightPaneProps) {
   const box = useRef<HTMLElement>(null);
-  useFocusReturn(box);
+  useFocusReturn(box, true, "pressed");
   return (
-    <aside ref={box} className={cx("RightPane", className)} aria-label={label}>
+    <aside ref={box} className={cx("RightPane", className)} aria-label={label} tabIndex={-1}>
       {children}
     </aside>
   );

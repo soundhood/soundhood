@@ -648,3 +648,77 @@ test.describe("the focus rule, by how a surface opened and closed @desktop", { t
     }
   }
 });
+
+// The queue pane beside the list (1080 px and wider): a click on Queue that opens it gives the
+// focus to the pane itself (no ring), as Select gives it to the selection bar; a click that closes
+// it, the screen's heading, also when the pane was open from the start or opened with Q. So Space
+// plays and pauses and never toggles the pane. Q and Enter on Queue keep the focus where it was.
+test.describe("the queue pane and the focus @desktop", { tag: "@desktop" }, () => {
+  const queueButton = (page) => page.getByRole("button", { name: "Queue", exact: true }).filter({ visible: true }).first();
+  const pane = (page) => page.locator(".RightPane");
+  const inPane = (page) =>
+    page.evaluate(() => (document.activeElement?.matches(".RightPane") ? "the pane" : `${document.activeElement?.tagName} ${document.activeElement?.getAttribute("aria-label") ?? ""}`));
+
+  for (const size of [null, { width: 1080, height: 800 }]) {
+    const label = size ? ` (${size.width}x${size.height})` : "";
+    test(`opened with a click: the pane has the focus and Space plays and pauses; closed with a click: the heading${label}`, async ({ app, page }, testInfo) => {
+      test.skip(!!size && testInfo.project.name !== "desktop-1280x800", "1080 wide from the 1280x800 project");
+      if (size) await page.setViewportSize(size);
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await playSong(app, page, "Lunar Comets");
+      await queueButton(page).click();
+      await expect(pane(page)).toBeVisible();
+      await expect.poll(() => inPane(page), "opened with a click").toBe("the pane");
+      expect(await pane(page).evaluate((el) => getComputedStyle(el).outlineStyle), "no ring").toBe("none");
+      const before = await playing(page);
+      await page.keyboard.press(" ");
+      await expect.poll(() => playing(page), "Space plays or pauses").toBe(!before);
+      await expect(pane(page), "Space leaves the pane open").toBeVisible();
+      await queueButton(page).click();
+      await expect(pane(page)).toHaveCount(0);
+      await expect.poll(() => focusFacts(page), "closed with a click").toEqual(onHeading("Late Night"));
+      await spaceToggles(page, "after the pane closed with a click");
+      await expect(pane(page), "Space leaves the pane closed").toHaveCount(0);
+    });
+
+    test(`open from the start, closed with a click: the heading, and Space plays and pauses${label}`, async ({ app, page }, testInfo) => {
+      test.skip(!!size && testInfo.project.name !== "desktop-1280x800", "1080 wide from the 1280x800 project");
+      if (size) await page.setViewportSize(size);
+      await page.addInitScript(() => window.__soundhoodMock.store.set("queue_pane_open", true));
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      // The song in the list (the pane lists it too once it plays).
+      const song = page.locator(".Shell-main .TrackRow", { hasText: "Lunar Comets" });
+      await song.click();
+      await expect(song).toHaveClass(/is-playing/);
+      await app.settled("cover_art");
+      await expect(pane(page)).toBeVisible();
+      await queueButton(page).click();
+      await expect(pane(page)).toHaveCount(0);
+      await expect.poll(() => focusFacts(page), "closed with a click").toEqual(onHeading("Late Night"));
+      await spaceToggles(page, "after the remembered pane closed with a click");
+      await expect(pane(page), "Space leaves the pane closed").toHaveCount(0);
+    });
+  }
+
+  test("Q and Enter on Queue keep the focus where it was, open and closed", async ({ app, page }, testInfo) => {
+    test.skip(testInfo.project.name === "desktop-1920x1080", "1280x800 stands for the desktop");
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await row(page, "Paper Bloom").first().focus();
+    await page.keyboard.press("q");
+    await expect(pane(page)).toBeVisible();
+    expect((await focusFacts(page)).kind, "Q from a row: the row").toBe("row");
+    await page.keyboard.press("q");
+    await expect(pane(page)).toHaveCount(0);
+    expect((await focusFacts(page)).kind, "Q again: the row").toBe("row");
+    await queueButton(page).focus();
+    await page.keyboard.press("Enter");
+    await expect(pane(page)).toBeVisible();
+    await expect(queueButton(page), "Enter on Queue: Queue").toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(pane(page)).toHaveCount(0);
+    await expect(queueButton(page), "Enter again: Queue").toBeFocused();
+  });
+});

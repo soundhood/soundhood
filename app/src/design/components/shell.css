@@ -553,3 +553,9 @@
   box-shadow: inset 1px 0 0 var(--line);
   transition: background var(--dur-xl) var(--ease-standard);
 }
+
+/* Opened by a click on its toggle, the pane takes the focus as the selection bar does: no Tab stop,
+   nothing to press, so no ring; the ring belongs to its controls. */
+.RightPane:focus-visible {
+  outline: none;
+}
