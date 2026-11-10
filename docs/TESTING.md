@@ -86,7 +86,12 @@ It has three parts, all in `tools/screenshot/` (the spec table is in
   path field on the phone; the folder picker and the Recycle Bin on the PC). Specs tagged `@phone`
   run at the two narrow sizes, `@desktop` at the two wide ones. Each screen is photographed under one
   name at every size, `<width>x<height>-<screen>.png`, so the parity grid can pair them; the rest of
-  the specs check behaviour without photographs.
+  the specs check behaviour without photographs. The suite never retries a test (`retries: 0`). It
+  retries only a page's load: when a request to the dev server fails while the app or a fixture page
+  loads (Windows refuses a socket now and then under many parallel connections,
+  `net::ERR_NO_BUFFER_SPACE`), or nothing is drawn within 15 s, the harness loads the page again, at
+  most three times in all, and logs each retry (`harness.mjs`, `loadPage`; proved by
+  `harness.spec.mjs`).
 - **The screens in three more modes.** The screen captures (`screens.spec.mjs` and the `queue` and
   `settings` captures, tagged `@modes`) run again at 390x844 and 1280x800 with reduced motion,
   `prefers-contrast: more`, and 130 % text, which is the Text size setting stored at 1.3, so the app

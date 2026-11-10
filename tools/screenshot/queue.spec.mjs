@@ -150,8 +150,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect.poll(async () => (await storeOf(page)).queue_pane_open).toBe(true);
     // The next start reads it back (the mocked store starts afresh with each page load).
     await page.addInitScript(() => window.__soundhoodMock.store.set("queue_pane_open", true));
-    await page.reload();
-    await app.settled("list_playlists");
+    await app.open();
     await expect(page.locator(".RightPane")).toBeVisible();
     await page.locator(".RightPane").getByRole("button", { name: "Hide the queue" }).click();
     await expect(page.locator(".RightPane")).toHaveCount(0);
