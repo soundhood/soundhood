@@ -69,6 +69,7 @@ function AppRoot() {
     isMobile,
     notices,
     downloader: prefs.downloader,
+    prefsLoaded: prefs.loaded,
     openSettings: () => phone.setMSettings(true),
     folder: lib.folder,
     folderRef: lib.folderRef,

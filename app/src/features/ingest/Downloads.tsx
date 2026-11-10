@@ -147,7 +147,10 @@ function WhereSheet({ draft }: { draft: QueueDraft }) {
               value={newName}
               onChange={(e) => setNewName(e.currentTarget.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") confirm(true);
+                // Enter confirms the name (a refused one says why); it never starts the download.
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                if (newName.trim()) dl.checkDraftFolder(newName);
               }}
             />
           </SettingRow>

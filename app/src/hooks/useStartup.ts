@@ -30,6 +30,7 @@ import {
   decideOnboarding,
   type Prefs,
 } from "./usePrefs";
+import { songCount } from "../features/library/trackInfo";
 
 type StartupArgs = {
   setPlatform: Setter<string>;
@@ -153,10 +154,12 @@ export function useStartup({
         setAllTracks(found);
         setPlaylist("(all)");
         setQuery("");
-        setStatus(`Found ${found.length} tracks`);
+        setStatus(`Found ${songCount(found.length)}`);
         await loadPlaylists(saved);
         await refreshLastChange(saved);
       } catch (err) {
+        // Whatever was not read keeps its default; a link shared meanwhile is let through on it.
+        prefs.load({});
         setStatus(`Auto-load failed: ${String(err)}`);
       }
     })();

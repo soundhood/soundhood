@@ -4,6 +4,11 @@
 // the chosen playlists. What happens is said by toasts (the running download's own toast is
 // DownloadToast, which reads dlBusy, dlProgress, dlSeconds and run) and the log; a download that ran
 // and failed also leaves `failure`, which Settings and the sheet show as an error row with Retry.
+//
+// The downloader switch (Settings, YouTube) decides on every path: startDownload, which every
+// download goes through (the sheet's Download, a queued link, the queue runner, Retry), refuses while
+// it is off; switching it off ends a running queue after the download in flight and drops the Retry
+// of a failed one; and a link shared before startup has read the stored switch waits until it has.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
@@ -12,7 +17,9 @@ import { checkFolderName, folderNameRefusal } from "../folderName";
 import { firstUrl, isPlaylistLink } from "../lib/links";
 import { DEFAULT_DOWNLOAD_TARGET, KEY_DOWNLOAD_PLAYLISTS, KEY_DOWNLOAD_TARGET, KEY_SHARE_QUEUE, storePromise } from "../lib/store";
 import type { PhoneDownloadResult, PlaylistFile, QueueDraft, QueuedLink, Setter, Track } from "../lib/types";
+import { journaled } from "../lib/journal";
 import type { Notices } from "./useNotices";
+import { songCount } from "../features/library/trackInfo";
 
 // The yt-dlp listeners live in their own file; the shell imports them from here, as before.
 export { useYtdlpEvents } from "./useYtdlpEvents";
@@ -34,6 +41,8 @@ type DownloadsArgs = {
   notices: Notices;
   /** Settings, YouTube: the download UI shows (and links are taken) only while this is on. */
   downloader: boolean;
+  /** Startup has read the stored settings (until then `downloader` is only a default). */
+  prefsLoaded: boolean;
   openSettings: () => void;
   folder: string;
   folderRef: MutableRefObject<string>;
@@ -49,6 +58,7 @@ export function useDownloads({
   isMobile,
   notices,
   downloader,
+  prefsLoaded,
   openSettings,
   folder,
   folderRef,
@@ -97,9 +107,13 @@ export function useDownloads({
   const [queueDraft, setQueueDraft] = useState<QueueDraft | null>(null);
   const [draftError, setDraftError] = useState<string>("");
 
+  // The switch as it is now, for code that runs later than the render that saw it (a queue run's
+  // next link, a Retry pressed after the switch went off).
+  const downloaderRef = useRef(downloader);
+  downloaderRef.current = downloader;
   /** False (and a toast saying where to turn it on) while the downloader is off. */
   function downloaderReady(): boolean {
-    if (downloader) return true;
+    if (downloaderRef.current) return true;
     notify({ text: "The downloader is off. Turn it on in Settings, under YouTube.", action: { label: "Settings", onClick: openSettings } });
     return false;
   }
@@ -131,6 +145,10 @@ export function useDownloads({
   function confirmQueueDraft(downloadNow: boolean, target?: string) {
     const d = queueDraft;
     if (!d) return;
+    if (!downloaderReady()) {
+      closeDraft();
+      return;
+    }
     const url = firstUrl(d.url);
     if (!url) { setDraftError("No link found in that text"); return; }
     if (isChannelLink(url)) { refuseChannelLink(); setDraftError(CHANNEL_REFUSAL); return; }
@@ -162,13 +180,34 @@ export function useDownloads({
       notify({ text: dlBusy ? "Link queued: a download is running" : "Link queued" });
     }
   }
+  /** "Enter" in the sheet's New folder field: checks the name (the error row says why not); no download. */
+  function checkDraftFolder(name: string): boolean {
+    const check = checkFolderName(name || DEFAULT_DOWNLOAD_TARGET);
+    setDraftError(check.ok ? "" : folderNameRefusal(name, check.reason));
+    return check.ok;
+  }
   const queueLinkRef = useRef(queueLink);
   queueLinkRef.current = queueLink;
+  // A link shared before startup has read the stored switch waits here, then goes the way the stored
+  // switch says (off: the toast saying where to turn it on).
+  const prefsLoadedRef = useRef(prefsLoaded);
+  prefsLoadedRef.current = prefsLoaded;
+  const heldShareRef = useRef<string | null>(null);
   useEffect(() => {
     // Called by MainActivity.kt when another app shares text/a link into Soundhood.
-    (window as any).__soundhoodShare = (text: string) => queueLinkRef.current(text);
+    (window as any).__soundhoodShare = (text: string) => {
+      if (prefsLoadedRef.current) return queueLinkRef.current(text);
+      heldShareRef.current = text;
+      return true;
+    };
     return () => { delete (window as any).__soundhoodShare; };
   }, []);
+  useEffect(() => {
+    const held = heldShareRef.current;
+    if (!prefsLoaded || held === null) return;
+    heldShareRef.current = null;
+    queueLinkRef.current(held);
+  }, [prefsLoaded]);
   async function pasteLink() {
     try {
       const t = await navigator.clipboard.readText();
@@ -302,6 +341,8 @@ export function useDownloads({
   }
 
   async function startDownload(url: string, target: string, playlists: string[], queued: QueuedLink | null): Promise<boolean> {
+    // The one check every download passes: nothing reaches the helper while the switch is off.
+    if (!downloaderReady()) return false;
     // Never download "somewhere": without a Music root there is no playlist to land in.
     const lib = folderRef.current || "";
     if (!lib) {
@@ -379,14 +420,15 @@ export function useDownloads({
     try {
       const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
       setAllTracks(found);
-      appendLog([`Found ${found.length} tracks`]);
+      appendLog([`Found ${songCount(found.length)}`]);
       await loadPlaylists(lib);
       const targets = active.playlists;
       if (exitCode === 0 && filePaths.length && targets.length) {
         const paths = filePaths.filter((fp) => found.some((x) => x.path === fp));
         if (paths.length) {
+          // Through the journal, like every playlist write: never between a write and its report.
           for (const name of targets) {
-            await invoke<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths } });
+            await journaled<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths } });
           }
           await loadPlaylists(lib);
           setDlLogs((prev) => prev + `[soundhood] ${paths.length} file${paths.length === 1 ? "" : "s"} added to: ${targets.join(", ")}\n`);
@@ -428,6 +470,13 @@ export function useDownloads({
     nextQueued();
   }
   function nextQueued() {
+    // Switched off while the last one ran: the run ends here, quietly (the switch said so already).
+    if (!downloaderRef.current) {
+      queueRunRef.current = [];
+      runTotalRef.current = 0;
+      setRun(null);
+      return;
+    }
     const item = queueRunRef.current.shift();
     if (!item) {
       if (run || runTotalRef.current) notify({ text: "Queue done" });
@@ -442,6 +491,17 @@ export function useDownloads({
   }
   const nextQueuedRef = useRef(nextQueued);
   nextQueuedRef.current = nextQueued;
+  // Switched off: a queue run stops after the download in flight, and a failed one's Retry goes.
+  useEffect(() => {
+    if (downloader) return;
+    const running = queueRunRef.current.length > 0 || runTotalRef.current > 0;
+    queueRunRef.current = [];
+    runTotalRef.current = 0;
+    setRun(null);
+    setFailure(null);
+    if (running) notify({ text: "Downloader off: the queue stops after this download" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [downloader]);
   const finishDownloadRef = useRef(finishDownload);
   finishDownloadRef.current = finishDownload;
 
@@ -511,6 +571,7 @@ export function useDownloads({
     loadQueueFromLibrary,
     queueLink,
     confirmQueueDraft,
+    checkDraftFolder,
     pasteLink,
     addQueueInput,
     copyQueuedLink,

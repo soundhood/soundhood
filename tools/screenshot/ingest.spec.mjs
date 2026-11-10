@@ -2,8 +2,9 @@
 // field) opens "Where should this go?" and downloads into the remembered folder and playlists, as
 // the old download box did (the owner's migration rule); the sidebar's Download item; the running
 // download's toast; a refused download stops the queue with an error row; channel links; the
-// downloader switch; the links waiting with copy and remove; the narrow window. On the phone: a
-// shared link, a refused queue, Cancel.
+// downloader switch (switched off, nothing more starts: not the queue's next link, not a Retry);
+// Enter in the New folder field; the links waiting with copy and remove; the narrow window. On the
+// phone: a shared link, a refused queue, Cancel.
 import { readFileSync } from "node:fs";
 import { expect, test } from "./harness.mjs";
 import { openSettings, settingRow, status } from "./ui.mjs";
@@ -225,6 +226,71 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await paste(page, VIDEO);
     await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
     await expect(where(page)).toHaveCount(0);
+  });
+
+  test("the downloader switched off mid-run: the queue stops after the download in flight", async ({ app, page }) => {
+    const [a, b, c] = ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"].map((id) => `https://www.youtube.com/watch?v=${id}`);
+    await beforeLoad(
+      page,
+      (links) => window.__soundhoodMock.store.set("share_queue", links.map((url, i) => ({ url, added: 3 - i }))),
+      [a, b, c],
+    );
+    await app.open();
+    await openSettings(app, page);
+    await sheet(page).getByRole("button", { name: "Download queue (3)" }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    await sheet(page).getByRole("switch", { name: "Downloader" }).click();
+    await expect.poll(async () => (await storeOf(page)).downloader_enabled).toBe(false);
+    await expect(toast(page, "Downloader off: the queue stops after this download")).toBeVisible();
+
+    // The download in flight ends as usual; the next one never starts.
+    await emit(page, "ytdlp:done", 0);
+    await expect.poll(async () => (await storeOf(page)).share_queue.map((q) => q.url)).toEqual([b, c]);
+    await page.waitForTimeout(1000);
+    expect(await ipcCount(page, "downloads")).toBe(1);
+    await expect(page.locator(".Toast").filter({ hasText: /^Downloading/ })).toHaveCount(0);
+  });
+
+  test("switched off after a download failed, its Retry starts nothing and says where to turn it on", async ({ app, page }) => {
+    await app.open();
+    await paste(page, VIDEO);
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    await emit(page, "ytdlp:stderr", "ERROR: [youtube] AbCdEfGhIjK: Video unavailable");
+    await emit(page, "ytdlp:done", 1);
+    const failed = toast(page, "Download failed");
+    await expect(failed.getByRole("button", { name: "Retry" })).toBeVisible();
+    await openSettings(app, page);
+    await sheet(page).getByRole("switch", { name: "Downloader" }).click();
+    await expect.poll(async () => (await storeOf(page)).downloader_enabled).toBe(false);
+    await sheet(page).getByRole("button", { name: "Close", exact: true }).click();
+    await failed.getByRole("button", { name: "Retry" }).click();
+    await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
+    await page.waitForTimeout(500);
+    expect(await ipcCount(page, "downloads")).toBe(1);
+  });
+
+  test("Enter in the New folder field checks the name and never starts the download", async ({ app, page }) => {
+    await app.open();
+    await downloadItem(page).click();
+    await where(page).getByRole("textbox", { name: "Link" }).fill(VIDEO);
+    await where(page).getByRole("combobox", { name: "Folder" }).click();
+    await page.getByRole("option", { name: "New folder" }).click();
+    const name = where(page).getByRole("textbox", { name: "New folder name" });
+    await name.fill("../Outside");
+    await name.press("Enter");
+    await expect(where(page).locator(".ErrorRow")).toBeVisible();
+    await name.fill("Live Sets");
+    await name.press("Enter");
+    await expect(where(page).locator(".ErrorRow")).toHaveCount(0);
+    await page.waitForTimeout(300);
+    await expect(where(page)).toBeVisible();
+    expect(await ipcCount(page, "downloads")).toBe(0);
+    expect((await storeOf(page)).share_queue ?? []).toEqual([]);
+    // The download starts from its own button, into the folder named.
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    expect(await page.evaluate(() => window.__soundhoodMock.downloads[0].targetFolder)).toBe("Live Sets");
   });
 
   test("Links waiting: each link with where it goes, Copy (only says copied when it was) and Remove", async ({ app, page }) => {

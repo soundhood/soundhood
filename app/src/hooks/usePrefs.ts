@@ -71,6 +71,9 @@ export function usePrefs() {
   // On until startup has read the store: an existing install (the common case) never sees the
   // download UI blink out and back.
   const [downloader, setDownloaderState] = useState<boolean>(true);
+  // Startup has read the store: until then `downloader` is that default, and a link shared into the
+  // app waits (useDownloads) rather than being taken on it.
+  const [loaded, setLoaded] = useState<boolean>(false);
   const [lookups, setLookupsState] = useState<boolean>(false);
   const [helperUpdates, setHelperUpdatesState] = useState<boolean>(false);
   // The setup's remaining steps; null or empty: not shown.
@@ -86,15 +89,17 @@ export function usePrefs() {
   return {
     textScale,
     downloader,
+    loaded,
     lookups,
     helperUpdates,
     onboarding,
-    /** Startup: the stored values, without writing them back. */
+    /** Startup: the stored values, without writing them back (none when the store could not be read). */
     load(v: { textScale?: number; downloader?: boolean; lookups?: boolean; helperUpdates?: boolean }) {
       if (v.textScale !== undefined && (TEXT_SCALES as readonly number[]).includes(v.textScale)) setTextScaleState(v.textScale);
       if (v.downloader !== undefined) setDownloaderState(v.downloader);
       if (v.lookups !== undefined) setLookupsState(v.lookups);
       if (v.helperUpdates !== undefined) setHelperUpdatesState(v.helperUpdates);
+      setLoaded(true);
     },
     setOnboarding,
     setTextScale(v: number) {
