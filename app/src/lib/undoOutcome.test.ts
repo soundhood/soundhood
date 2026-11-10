@@ -73,12 +73,26 @@ describe("undoOutcome", () => {
     expect(no.toast).toBe("Not undone: this change was undone already");
   });
 
-  it("a partial undo of one playlist change says how much was left", () => {
+  it("one playlist change a later change touched: the report counts, the toast says why in plain words", () => {
     const add: Change = { batch: "a", label: "Added 1 track to Focus" };
     const out = undoOutcome([add], [{ change: add, report: refusedAt("_Playlists/Focus.m3u8") }], false);
     expect(out.title).toBe("Undo: 0 restored, 1 left as they are (see the log)");
     expect(out.rows[0].before).toBe("Focus");
-    expect(out.toast).toBe(out.title);
+    expect(out.toast).toBe("Not undone: Focus changed again after this. Undo the newer change first.");
+  });
+
+  it("left as it was for another reason, or partly put back: the toast keeps the counts", () => {
+    const add: Change = { batch: "a", label: "Added 1 track to Focus" };
+    const inUse: BatchReport = { batch: "u", applied: [], skipped: [{ path: "_Playlists/Focus.m3u8", reason: "file in use" }], failed: [], aborted: false };
+    expect(undoOutcome([add], [{ change: add, report: inUse }], false).toast).toBe("Undo: 0 restored, 1 left as they are (see the log)");
+    const part: BatchReport = { ...refusedAt("_Playlists/Focus.m3u8"), applied: back("A - X").applied };
+    expect(undoOutcome([add], [{ change: add, report: part }], false).toast).toBe("Undo: 1 restored, 1 left as they are (see the log)");
+  });
+
+  it("two files a later change touched are both named", () => {
+    const del: Change = { batch: "d", label: "Deleted 2 tracks" };
+    const both: BatchReport = { ...refusedAt("Evenings/A - X.opus"), skipped: ["Evenings/A - X.opus", "Evenings/B - Y.opus"].map((path) => ({ path, reason: "changed since, not undone" })) };
+    expect(undoOutcome([del], [{ change: del, report: both }], false).toast).toBe("Not undone: A - X and B - Y changed again after this. Undo the newer change first.");
   });
 });
 

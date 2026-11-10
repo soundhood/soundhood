@@ -250,7 +250,8 @@ Every dialog is the same sheet: a bottom sheet on the phone, a centred panel on 
 - **Playlist changes** (add, remove, a drop on the sidebar, a playlist deleted, playlists made from
   folders) end in a toast with **Undo**, which undoes that change by its own id and nothing else,
   also when newer changes came after it or a report is open; a playlist changed since is left as it
-  is, and the toast says so. A gesture that changed nothing says so without Undo ("Already in Late
+  is, and the toast says so in plain words ("Not undone: Late Night changed again after this. Undo
+  the newer change first."). A gesture that changed nothing says so without Undo ("Already in Late
   Night", "Late Night already exists", "Every folder already has its playlist"). Taking a song out of
   the queue ends in a toast with Undo too, though the queue is not journaled.
 - **Tag edits, moves and deletes** end in a report: what was done ("Moved 3 songs to Archive",

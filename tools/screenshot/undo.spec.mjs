@@ -156,7 +156,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect(await history(page)).toEqual(["Removed 1 track from Late Night", "Removed 1 track from Late Night"]);
     await expect(row(page, "Quiet Bloom")).toHaveCount(0);
     await expect(row(page, "Static Garden")).toHaveCount(0);
-    await expect(toast(page, "Undo: 0 restored, 1 left as they are (see the log)")).toBeVisible();
+    await expect(toast(page, "Not undone: Late Night changed again after this. Undo the newer change first.")).toBeVisible();
     await expect(report(page)).toHaveCount(0);
   });
 

@@ -31,6 +31,27 @@ function bareName(p: string): string {
   return displayName(p.slice(p.replace(/\\/g, "/").lastIndexOf("/") + 1));
 }
 
+/** The reason the core gives for an entry a later change touched (core/src/ingest/tagwrite.rs). */
+export const CHANGED_SINCE = "changed since, not undone";
+
+/** "A", "A and B", "A, B and C". */
+function andList(words: readonly string[]): string {
+  return words.length < 2 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+/**
+ * The plain line for an undo that put nothing back because a later change touched everything it
+ * would have put back (a newer removal from the same playlist): "Not undone: Late Night changed
+ * again after this. Undo the newer change first."; "" for any other outcome.
+ */
+function changedAgain(r: BatchReport): string {
+  const left = [...(r.skipped ?? [])];
+  if (r.applied?.length || r.failed?.length || r.aborted || left.length === 0) return "";
+  if (left.some((s) => s.reason !== CHANGED_SINCE)) return "";
+  const names = [...new Set(left.map((s) => bareName(s.path)))];
+  return `Not undone: ${andList(names)} changed again after this. Undo the newer change first.`;
+}
+
 /** One line per distinct reason: "2 skipped: already in Evenings". */
 export function reasonLines(rows: readonly BatchRow[]): string[] {
   const counts = new Map<string, number>();
@@ -61,7 +82,10 @@ export type UndoOutcome = {
   reasons: string[];
   /** Every change was put back. */
   clean: boolean;
-  /** The line a toast shows for an undo started from a toast. */
+  /**
+   * The line a toast shows for an undo started from a toast: refused because a later change touched
+   * the same thing, it says so in plain words and what to do (changedAgain).
+   */
   toast: string;
   /** The line the log keeps when the undo stopped early; "" when it did not. */
   stopped: string;
@@ -109,7 +133,7 @@ export function undoOutcome(changes: readonly Change[], steps: readonly UndoStep
   const clean = undone === total;
   let toast: string;
   if (clean) toast = `Undone: ${steps.map((s) => labelOf(s, isMobile)).join("; ")}`;
-  else if (total === 1) toast = stopped || title;
+  else if (total === 1) toast = stopped || changedAgain(merged) || title;
   else toast = `${title} (see the log)`;
 
   return { title, rows, reasons: [...(stopped ? [stopped] : []), ...reasonLines(rows)], clean, toast, stopped, merged };
