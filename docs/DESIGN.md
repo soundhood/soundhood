@@ -255,11 +255,11 @@ pressed `--bg-3` with `--fg-0`. `aria-pressed`. A row of chips scrolls sideways 
 **Badge.** An 18 px pill: purple fill with light text (the smart-playlist bolt), or `is-outline` lilac
 text (Generated lyrics).
 
-**SearchField.** A 40 px field on `--bg-1` with a search icon and, while it has text, a clear button.
-Esc clears it, then leaves it. On the phone and the tablet it sits under the screen title of
-Playlists, Artists and Folders, and of an open list, which it then filters; on the desktop it lives in
-the sidebar. Typing anywhere on a list screen with a mouse and keyboard does not hijack focus; Ctrl+K
-and `/` focus it.
+**SearchField.** A 40 px field on `--bg-1` with a search icon and, while it has text, a clear
+button. Esc clears it; empty, Esc does what it does elsewhere (closes Playing, leaves Select mode)
+and the focus goes to the screen's heading. On the phone and the tablet it sits under the title of
+Playlists, Artists, Folders and an open list, which it filters; on the desktop, in the sidebar.
+Typing never hijacks focus; Ctrl+K and `/` focus it (held, one press).
 
 **TextField.** A 40 px input on `--bg-2` with a 1 px line; the placeholder in `--fg-1`. Its Enter
 ends in it: where Enter submits and the sheet closes, it never presses what the focus goes back to.
@@ -355,10 +355,8 @@ the 64 px aqua play button, next, repeat); a bottom row of queue, lyrics, add to
 artist (which closes the player), Edit tags and Delete; Play next, Add to queue and Remove from a
 playlist make no sense for the song already playing and are left out. Its keys and ARIA are the
 MenuButton's, as the row menu's. The background is a gradient from the artwork tint into `--bg-0`.
-Swipe down or Esc closes it (after closing its More menu, when that is open). Opened with a pointer,
-closing it (Esc, "1", Close) is a navigation like any other: the focus goes to the heading under it.
-Opened with the keyboard and closed with the focus in it, the focus goes back to what opened it (the
-player bar's button, the mini player, the Playing item), else to the main area (`useFocusReturn`).
+Swipe down or Esc closes it (after closing its More menu, when that is open); the focus then goes by
+the focus rule (Accessibility), a click on the player bar's button counting as a pointer's.
 On a shell wide enough for the player bar the same component lays out in two columns (artwork; then where it
 plays from, the title in display size, the artist, facts such as length and format, and the action row)
 and leaves the transport to the player bar.
@@ -425,11 +423,11 @@ list or menu is open none of them acts behind it (Ctrl+K and "/" leave the searc
 phone's tabs included, Ctrl+A, the list keys, Q and Ctrl+L do nothing), its letters jump within it,
 and Esc closes it first, wherever the focus is. A sheet that opens by any path (Ctrl+comma, a pasted
 or shared link, a button, a menu item) closes every open list or menu first, so a popover is never
-drawn over a newer sheet, and when that sheet closes the focus goes back to the control that opened
-the list or menu. Nothing opens under the first-launch setup: a link shared to the phone while it is
-up waits, and its sheet opens when the setup closes. `topLayer` (Sheet.tsx) is the one question every
-key asks; `docs/SHORTCUTS.md` has the keys. A list or menu belongs to the sheet or setup its button
-is in: a sheet opening with one of its own lists open leaves that one open.
+drawn over a newer sheet, and the control that opened the list or menu counts as that sheet's
+opener. Nothing opens under the first-launch setup: a link shared to the phone while it is up waits,
+and its sheet opens when the setup closes. `topLayer` (Sheet.tsx) is the one question every key
+asks; `docs/SHORTCUTS.md` has the keys. A list or menu belongs to the sheet or setup its button is
+in: a sheet opening with one of its own lists open leaves that one open.
 
 **Popovers.** A Dropdown's or MultiSelect's open list, a MenuButton's menu and a song's row menu are
 drawn in the shell's overlay layer (the Shell provides it), above every sheet and under the toasts,
@@ -438,33 +436,32 @@ placement rule (`placePopover`): below the button, start-aligned (a row menu end
 button, or at the pointer); above only when it does not fit below and there is more room above, so
 on the side where it fits whole when one does; capped (8 px from the shell's edge, then scrolling
 inside, never moving what is behind it) only when it fits on neither; a menu at the pointer instead
-slides over the pointer until it fits whole; right-aligned when it would leave the shell on the right,
-never outside it. A list or MenuButton's menu follows its button while it is open (a sheet still
-sliding in, a resize) and closes when its button scrolls out of sight; a row menu closes when the list
-scrolls or the window changes size, never on its own scroll, and either way the focus goes back to
-the button or row (else the main area). Home, End and type-ahead scroll the active option into view
-inside the list. With the owner's 29 playlists "Where should this go?" shows every one, at every
-size (`reach.spec.mjs`). Outside a shell (a fixture page) a popover sits in place.
+slides over the pointer until it fits whole; right-aligned when it would leave the shell on the
+right, never outside it. A list or MenuButton's menu follows its button while it is open (a sheet
+still sliding in, a resize) and closes when its button scrolls out of sight; a row menu closes when
+the list scrolls or the window changes size, never on its own scroll; either way the focus goes by
+the focus rule (Accessibility). Home, End and type-ahead scroll the active option into view inside
+the list. With the owner's 29 playlists "Where should this go?" shows every one, at every size
+(`reach.spec.mjs`). Outside a shell (a fixture page) a popover sits in place.
 
 **Modal / Sheet.** Every dialog is one component: on the phone a bottom sheet (rounded top `--r-xl`, a
 32 x 4 grabber in `--fg-2`, swipe down or tap the backdrop to close), on wider shells a centred panel
-(at most 640 px wide, `--r-xl`, `--shadow-float`). A title (h2) and a close button; a body that
-scrolls; a footer with the actions right-aligned: the primary as the aqua pill (40 px), a destructive
-action as the danger pill, Cancel as a text button. On open the focus moves to the sheet itself, so
-its title is read out, and the panel draws no focus ring for it (the ring belongs to the controls
-inside); a sheet built around one field starts in that field instead (Edit tags, New playlist, "Where
-should this go?" opened with an empty link). Where the focus starts is decided once, when the sheet
-opens: typing into its field never moves the focus again. Focus is trapped in the sheet; when the
-control that has it goes away (a link removed from Links waiting) it moves to the control that takes
-its place, else the one before it, else the sheet itself; a focus given to anything behind the sheet
-(a focus given back in the full player) or fallen to the page from anywhere (a toast that had it
-left) comes back to what had it in the sheet, else the sheet; Esc closes; focus returns to
-what opened it, or, when that is gone or disabled (Settings' Add once its link is taken), to the
-sheet below, else to the main area (the screen's heading): never to the page. A sheet opened from another one (Settings, then "Where should this go?", the log or the
-links waiting; the queue sheet, then New playlist or "Clear the queue?") goes on top of it with its
-own backdrop, whatever order the app mounts them in: the newest open sheet is the one drawn on top, the
-one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about. `role="dialog"`,
-`aria-modal`, labelled by its title.
+(at most 640 px wide, `--r-xl`, `--shadow-float`). A title (h2) and a close button; a body that scrolls;
+a footer with the actions right-aligned: the primary as the aqua pill (40 px), a destructive action as
+the danger pill, Cancel as a text button. On open the focus moves to the sheet itself, so its title is
+read out, and the panel draws no focus ring for it (the ring belongs to the controls inside); a sheet
+built around one field starts in that field instead (Edit tags, New playlist, "Where should this go?"
+opened with an empty link). Where the focus starts is decided once, when the sheet opens: typing into
+its field never moves the focus again. Focus is trapped in the sheet; when the control that has it goes
+away (a link removed from Links waiting) it moves to the control that takes its place, else the one
+before it, else the sheet itself; a focus given to anything behind the sheet (a focus given back in the
+full player) or fallen to the page from anywhere (a toast that had it left) comes back to what had it in
+the sheet, else the sheet; Esc closes; the focus then goes by the focus rule (Accessibility: Settings'
+Add, disabled once its link is taken, sends it to the sheet). A sheet opened from another one (Settings,
+then "Where should this go?", the log or the links waiting; the queue sheet, then New playlist or "Clear
+the queue?") goes on top of it with its own backdrop, whatever order the app mounts them in: the newest
+open sheet is the one drawn on top, the one the focus, Tab and Esc work in, and the one the keyboard
+shortcuts ask about. `role="dialog"`, `aria-modal`, labelled by its title.
 
 **Toast.** Bottom centre, above the mini player or the player bar, `--bg-3`, `--r-md`,
 `--shadow-float`, body-sm text and at most one text action: Undo (a tier-2 playlist change, a song
@@ -473,13 +470,14 @@ taken out of the queue), Retry (a failed download), Cancel (the phone's running 
 while hovered or focused). The stack holds two: at most two toasts exist, the newest at the bottom; a
 third pushes the oldest out, dismissed with its timer, never shown later (A, B, C, A shows C and A,
 then nothing). An Undo toast pushed out is simply gone: its change stays in the journal, undoable
-from Settings (Undo last change, newest first). Every action ignores presses for 400 ms after its own
-toast came, moved or changed its action (`aria-disabled`), never for another toast's change or a
-download's progress: a double tap never presses what came or slid under it (Retry under Cancel). A
-toast leaves before its action runs (a refused Undo comes back, pushing nothing out); for 400 ms the
-rest of a double click on it reaches nothing behind it, and its focus goes to the sheet on top, else
-the screen's heading. Every toast is
-its own, the newest, in the same words or not (A pressed twice shows two "Added ... to the queue").
+from Settings (Undo last change, newest first). Every action ignores presses for 400 ms after its
+own toast came, moved or changed its action (`aria-disabled`), never for another toast's change or a
+download's progress: a double tap never presses what came or slid under it. A move never stretches
+that window and arms one only 100 ms after the last ended and 600 ms after a press it ignored, so
+arriving toasts never starve an action. A toast leaves before its action runs (a refused Undo comes
+back, pushing nothing out); the rest of that double click (its later clicks, as the system counts
+them) reaches nothing, and its focus goes to the sheet on top, else the heading. Every toast is its
+own, the newest, in the same words or not (A pressed twice shows two "Added ... to the queue").
 Only a notice sent with a key stands for an earlier one of that key, back as the newest with its 4 s
 started again (today only the unreadable settings at startup). A download toast stays while the
 download runs, with a purple progress line, and is not pushed out while another can go. `role="status"`.
@@ -524,9 +522,8 @@ the selection cannot use them. The menu there starts with Select all (or Select 
 every other action, Edit tags among them, so every action stays reachable without a row of six
 glyphs. Play and Add to queue are not on it; the rows' menu has them for a selection. It stays in
 view at the top of the list; below the desktop width it takes the screen header's place and the
-focus Select had (`tabindex="-1"`, no ring), on the desktop it sits above the list. Esc leaves
-Select mode (after closing its More menu, when that is open); the focus then goes back to what had
-it when Select mode began (the row Ctrl+clicked, the Select button), else to the main area.
+focus Select had (`tabindex="-1"`, no ring), on the desktop it sits above the list. Esc (after its
+More menu, when open) or Leave ends Select mode; the focus then goes by the focus rule (Accessibility).
 
 **Where should this go? sheet.** After a link is shared or pasted, or from the sidebar's Download item
 with an empty link: the link, the folder it lands in (a Dropdown with "New folder"), the playlists it
@@ -562,18 +559,21 @@ area.
   items; tabs; song rows; links), and those of a held Enter in a text field, where Enter submits or
   saves. Holding Enter on Remove removes one link even when the focus lands on the next Remove, and
   a held Enter on Edit tags opens the editor without saving it. The repeats of a key whose press ran
-  a shortcut do nothing at all (a held Space on a heading never scrolls). Space typed in a field,
+  a shortcut do nothing at all (a held Space never scrolls, a held "/" types no "/"). Space in a field,
   Enter in a text area, and the arrows, Page Up and Down, Home and End in lists and sliders still
   repeat (`tools/screenshot/presses.spec.mjs`).
-- The focus never falls to the page: a sheet, the full player, the selection bar, the setup and a
-  row menu going with it give it back to what had it (Modal / Sheet; `useFocusReturn`; Popovers),
-  else to where the screen starts (`focusMainArea`). After a navigation (Enter on a card or a row,
-  Back, 1 to 4, a click or tap on a card, on Back, on a sidebar item or tab) it goes to the new
-  screen's heading or the full player's title (`tabindex="-1"`, no scrolling; `useScreenFocus`),
-  never to a button, card or row: Space stays play and pause, Ctrl+E with nothing chosen edits the
-  playing song, no row's More shows, Tab leads in, a grid scrolled back to keeps its place, and Tab
-  from a heading out of sight goes to the first card or row in view (`mainTab.ts`). A sidebar item
-  reached with the keyboard keeps it, as does the search field (`navigation.spec.mjs`).
+- The focus never falls to the page. **The focus rule** for all that opens over a screen with an
+  opener (a sheet, a list or menu, Select mode, the queue pane, Playing; `useFocusReturn.ts`):
+  opened with the keyboard, back to the opener while it can take it; opened with a pointer (even on
+  a control the keyboard had reached) or with the opener gone, to where the layer under it starts
+  (the sheet below, else the screen's heading), so Space never presses the opener again. After a
+  navigation (Enter on a card or a row, Back, 1 to 4, a click or tap on a card, on Back, on a
+  sidebar item or tab) it goes to the new screen's heading or the full player's title
+  (`tabindex="-1"`, no scrolling; `useScreenFocus`), never to a button, card or row: Space stays
+  play and pause, Ctrl+E with nothing chosen edits the playing song, no row's More shows, Tab leads
+  in, a grid scrolled back to keeps its place, and Tab from a heading out of sight goes to the first
+  card or row in view (`mainTab.ts`). A sidebar item reached with the keyboard keeps it, as does the
+  search field.
 - The layout survives 130 % text size (photographed in the visual suite).
 - `prefers-reduced-motion` and `prefers-contrast: more` are honoured (above).
 

@@ -9,20 +9,22 @@ Ctrl+L); in a list or menu no key heard on the window answers at all, the letter
 and Esc closes it first. Ctrl+K and "/" never move the focus to the search field behind, and 1 to 4
 (the phone's tabs too), Ctrl+A and the list keys never act on the screen behind. Ctrl+, and a pasted
 link may open a sheet on top of another sheet, never under the first-launch setup; an open list or
-menu closes first, and the focus comes back to it when the sheet closes. A held key is one press:
+menu closes first, and its control counts as what opened the sheet. A held key is one press:
 holding Enter or Space on any control (a button, a switch, a checkbox, a song row, a menu item, a
 list option) acts once, and holding Enter in a field (Edit tags) submits once, never again in the
 sheet the first press opened; a held shortcut acts once and its repeats do nothing else (a held
-Space never scrolls the screen); the arrows, Page Up and Down, Home and End keep repeating. Enter
+Space never scrolls the screen, a held "/" types no "/" into the field it found); the arrows, Page Up and Down, Home and End keep repeating. Enter
 that submits a field (New playlist, "Where should this go?", Edit tags) acts there only, never on
 the button the focus goes back to. Whatever changes the screen (Enter on a card or a row, Back, 1
 to 4, a click on a card, on Back or on a sidebar item) leaves the focus on the new screen's heading
 (the full player's title on Playing), never on a button, a card or a row: Space still plays and
 pauses, Ctrl+E with nothing chosen edits the playing song, and Tab goes on into the screen, from
-the first card or row in view when the heading is out of sight (Back to a scrolled list). Playing
-opened with a click or a tap is a screen like the others: closing it (Esc, 1 to 3, its Close)
-leaves the focus on the heading under it; opened with Enter on its button, the focus goes back to
-that button. A sidebar item you reached with the keyboard keeps the focus, and so does the search
+the first card or row in view when the heading is out of sight (Back to a scrolled list). What opens
+over a screen from a control (a sheet, a list or menu, Select mode, the queue, Playing) gives the
+focus back by one rule when it closes: opened with a click or a tap (even on a button the keyboard
+had reached), the focus goes to the heading under it (to the sheet, for what opened in a sheet), so
+Space plays and pauses and never opens it again; opened with the keyboard, it goes back to what
+opened it. A sidebar item you reached with the keyboard keeps the focus, and so does the search
 field you type in. The first-launch setup keeps Tab inside it, as a sheet does. On the phone there
 is no keyboard layer: a tap plays, and there is no double-tap.
 
@@ -47,7 +49,7 @@ Ctrl+arrows also work while a slider has the focus.
 |---|---|
 | 1, 2, 3, 4 | Playlists, Artists, Folders, Playing |
 | Ctrl+K or / | Focus the search field |
-| Esc | Close the open list, menu or sheet (the one on top), else clear the search |
+| Esc | Close the open list, menu or sheet (the one on top), else clear the search; in an empty search field, close Playing or leave Select mode, with the focus going to the screen's heading |
 | Ctrl+, | Settings |
 | Q | Show or hide the queue |
 

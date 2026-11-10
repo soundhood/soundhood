@@ -221,11 +221,14 @@ sheet opens when the setup closes (never under it).
   **Cancel** on the phone (the PC host cannot cancel yet). When it ends a toast says what arrived
   ("Downloaded 1 and added to 1 playlist"). Cancel and Retry, like every toast action, ignore a press
   within 400 ms of their toast coming or changing, so a double tap never cancels the download its
-  first tap retried, nor retries the one it cancelled.
+  first tap retried, nor retries the one it cancelled. One download runs at a time, on the PC and
+  the phone: its songs join its own playlists only, and Undo last change waits until they have.
 - **Failures.** A download that fails gives a toast with Retry and the error row in Settings,
   YouTube. A queue stops at the first failure ("Queue stopped: ...") and that link stays queued. Its
   Retry downloads that link alone; then a toast says how many links still wait ("2 links still
-  waiting in the queue") until Download queue runs them.
+  waiting in the queue") until Download queue runs them. A Retry pressed while another download runs
+  starts nothing: its error row stays, and a toast says "Not retried: a download is running", with
+  Retry.
   Whole channels are refused (a toast, or in the sheet a "Not taken" row with the reason), and so is
   a download before a music folder is chosen.
 
@@ -275,8 +278,9 @@ the newest at the bottom; a third pushes the oldest out for good, and an Undo to
 gone (its change can still be undone with Undo last change in Settings). Each stays 4 seconds from
 when it shows, longer while the pointer or the focus is on it. A toast's action (Undo, Retry,
 Cancel) ignores a press for 400 ms after its own toast came, moved or changed, so a double click
-never presses the toast that slides under it, and the rest of a double click on a toast that left
-reaches nothing behind it. Everything you do is confirmed every time: adding a song to the queue
+never presses the toast that slides under it (toasts arriving one after another never keep it from a
+press), and the rest of a double click on a toast that left, however slow, reaches no other toast
+and nothing behind it. Everything you do is confirmed every time: adding a song to the queue
 twice shows two toasts. Only the notice that the settings could
 not be read shows once, however often startup meets it.
 
