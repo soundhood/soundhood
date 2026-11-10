@@ -31,7 +31,8 @@ npm run test:visual                  # every spec: compare with the committed ba
 npm run test:visual -- settings      # one spec: the spec files whose name holds "settings"
 npm run test:visual -- settings --project=desktop-1280x800   # and one size
 npm run test:visual:update           # rewrite the baselines after an intended UI change (same filters)
-npm run evidence:after               # copy the screen baselines to docs/evidence/phase-0/after/
+npm run evidence:after               # copy the parity screens' baselines to docs/evidence/phase-1/after/
+npm run evidence:after -- --phase 2  # the same into another phase's folder (never an earlier one)
 npm run evidence:parity -- --in <dir> --out <dir>   # phone and desktop side by side per screen
 npm test                             # unit tests, including ui-logic.test.mjs and pixels.test.mjs
 ```
@@ -101,9 +102,9 @@ there and a line in `pages.json`, then `npm run test:visual:update -- components
 | `channel-links.json` | the channel-link vectors and the one refusal sentence, shared by the UI's unit tests, `ingest.spec.mjs` and the phone plugin's Rust tests |
 | `parity.mjs`, `parity-grid.mjs` | the parity grid (`npm run evidence:parity`): pairs `390x844-<screen>.png` with `1280x800-<screen>.png`, draws each pair side by side at one height on `#0f0f0f` with a 16 px gap (`parity-<screen>.png`) and stacks them (`parity-all.png`); lists screens found at one size only ([TESTING](../../docs/TESTING.md#evidence-rules)) |
 | `pixels.mjs` | counts the pixels that changed between two screenshots outside the regions a flow may change |
-| `copy-evidence.mjs` | `npm run evidence:after`: copies the screen baselines (the PNGs at the top of `__screenshots__/<os>/`, not `components/`) to `docs/evidence/phase-0/after/` and removes the ones there that no longer have a baseline; it has not been pointed at a Phase 1 folder |
+| `copy-evidence.mjs` | `npm run evidence:after -- [--phase <n>] [--os <name>]`: copies the default-mode baselines of the parity screens (playlists, artists, folders, tracks, playing, queue, search, settings) at the four sizes from `__screenshots__/<os>/` to `docs/evidence/phase-<n>/after/` (default the current phase, 1) and removes any other PNG there; flow captures, `screen-modes/` and `components/` stay out. It fails when one of the 32 is missing and refuses a phase before the current one, whose folder is a record. Its choices are unit-tested in `copy-evidence.test.mjs` |
 | `ui-logic.test.mjs` | unit tests of the UI's pure helpers in `app/src` (channel links, why a queue stopped, the test library's name, Copy log text, undo wording, folder names) |
-| `fixture.test.mjs`, `parity.test.mjs`, `pixels.test.mjs` | unit tests of the fixture data, the parity grid and the pixel count |
+| `fixture.test.mjs`, `parity.test.mjs`, `pixels.test.mjs`, `copy-evidence.test.mjs` | unit tests of the fixture data, the parity grid, the pixel count and the evidence copy |
 | `__screenshots__/<os>/` | committed baselines, one set per OS (fonts differ); only `win32` exists so far. The screens at the top, the fixture pages under `components/<Page>/<width>x<height>-<mode>.png` |
 
 Evidence: `docs/evidence/phase-0/before-0.1.0/` holds the screens of the last build before the
