@@ -2,7 +2,7 @@
 // first-launch setup shows (the migration rule, usePrefs.decideOnboarding), then load the last
 // imported library. Before Phase 1 a phone with no folder started on the standard Music folder;
 // now the setup's Library step offers that folder instead.
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -74,8 +74,14 @@ export function useStartup({
   refreshLastChange,
   prefs,
 }: StartupArgs) {
+  // Startup runs once per app: React's StrictMode (the dev server) runs this effect twice, and a
+  // second run would read the settings, scan the folder and send its notices (the unreadable
+  // settings toast) all over again.
+  const started = useRef(false);
   // Auto-load last imported library on startup
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     (async () => {
       // Until the settings are read, a failure is the store's: the downloader then stays off.
       let prefsRead = false;

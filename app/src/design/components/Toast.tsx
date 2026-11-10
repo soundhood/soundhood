@@ -1,9 +1,10 @@
 // Toasts: bottom centre, above the mini player or the player bar, --bg-3, body-sm text and at most
 // one text action (Undo for a playlist change). Each stays 4 s, and keeps the clock stopped while
 // it is hovered or focused; persistent ones (a running download, with a purple progress line on
-// the bottom edge) stay until dismissed. At most two show at once, the newest at the bottom. A toast
-// identical to one shown a moment ago is that toast again, never a second copy (toastList.ts).
-// role="status" (polite).
+// the bottom edge) stay until dismissed. At most two show at once, the newest at the bottom. Every
+// toast shown is a toast of its own, the newest, even in the same words: what the user caused is
+// said every time. Only a notice sent with a `key` stands for an earlier one of that key (shown
+// again as the newest; toastList.ts). role="status" (polite).
 //
 //   <ToastProvider>              holds the toasts (wrap the app)
 //     <Shell overlays={<ToastViewport />} ... />   draws them inside the shell
@@ -29,6 +30,11 @@ export interface ToastOptions {
   progress?: number;
   /** Stays until dismissed (or updated to persistent: false). */
   persistent?: boolean;
+  /**
+   * One notice however often it is sent (the unreadable settings at startup): a toast with the same
+   * key stands for the earlier one, which comes back as the newest. Never for what the user caused.
+   */
+  key?: string;
 }
 
 export interface ToastApi {
@@ -47,7 +53,7 @@ const MAX_VISIBLE = 2;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<readonly Entry[]>([]);
   // The list as the calls left it, so show() can answer with the id of the toast that shows (a new
-  // one, or the identical one shown a moment ago).
+  // one, or the earlier one of the same key).
   const list = useRef<readonly Entry[]>([]);
   const next = useRef(1);
   const api = useMemo<ToastApi>(() => {
@@ -98,7 +104,7 @@ function ToastItem({ toast, dismiss }: { toast: Entry; dismiss: () => void }) {
   const expire = useEffectEvent(dismiss);
   const held = hovered || focused || !!toast.persistent;
 
-  // Its 4 s start again when its words change or the same toast is shown again (toast.at).
+  // Its 4 s start again when its words change or a notice of its key is shown again (toast.at).
   useEffect(() => {
     if (held) return;
     const t = setTimeout(() => expire(), SHOW_MS);

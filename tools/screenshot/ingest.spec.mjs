@@ -376,19 +376,25 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
       // One read fails (an unreadable store file): startup's catch runs before the switch is read.
       const get = m.store.get.bind(m.store);
       const has = m.store.has.bind(m.store);
+      window.__failedReads = 0;
       m.store.get = (k) => {
-        if (k === "text_scale") throw new Error("store unreadable");
+        if (k === "text_scale") {
+          window.__failedReads++;
+          throw new Error("store unreadable");
+        }
         return get(k);
       };
       m.store.has = (k) => k === "text_scale" || has(k);
     });
     await page.goto("/");
     // In plain words, what could not be read and what that means; the raw error only in the log.
-    // Once: the dev server's StrictMode starts the app twice, and both starts fail the same way.
+    // Once: startup runs once, even where the dev server's StrictMode runs its effect twice, and the
+    // notice carries a key, so a second one would stand for the first.
     const unreadable = page.locator(".Toast").filter({ hasText: "The settings (music folder and downloader) could not be read" });
     await expect(unreadable).toHaveCount(1);
     await page.waitForTimeout(500);
     await expect(unreadable, "one toast, never two of the same").toHaveCount(1);
+    expect(await page.evaluate(() => window.__failedReads), "startup read the settings once").toBe(1);
     await expect(unreadable).toHaveText(
       "The settings (music folder and downloader) could not be read, so no library is open and the downloader is off until you turn it on. Choose the folder in Settings.",
     );

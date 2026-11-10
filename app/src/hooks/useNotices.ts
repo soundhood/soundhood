@@ -19,6 +19,9 @@ export interface Notice {
   action?: { label: string; onClick: () => void };
 }
 
+/** The key of the unreadable-settings notice: however often startup sends it, it shows once. */
+export const SETTINGS_UNREADABLE_KEY = "settings-unreadable";
+
 export type Notices = ReturnType<typeof useNotices>;
 
 /** Where a status line goes. */
@@ -82,7 +85,7 @@ export function useNotices() {
           return;
         case "toast": {
           const [shown, ...why] = text.split("\n");
-          toast.show({ text: shown });
+          toast.show({ text: shown, key: shown === SETTINGS_UNREADABLE ? SETTINGS_UNREADABLE_KEY : undefined });
           logRef.current([`[error] ${[shown, ...why].join(": ")}`]);
           return;
         }
