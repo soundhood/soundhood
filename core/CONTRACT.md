@@ -306,8 +306,8 @@ Behaviour behind the same shapes:
   host emits `core:batch` with the `BatchReport`; `undo_last` always emits its report. A single op that was
   already in effect (same tag values, already a member, not a member, playlist exists) returns Ok
   (`playlist_create`: the existing playlist) and emits nothing: nothing was journaled.
-- `core:batch` is emitted **before** the command that made the batch returns, and **only** for a batch a
-  command the UI invoked made. The UI runs its writes one at a time (`app/src/lib/journal.ts`) and takes a
+- `core:batch` is emitted **before** the command that made the batch returns, and **only** for a batch made
+  by a command the UI invoked. The UI runs its writes one at a time (`app/src/lib/journal.ts`) and takes a
   `core:batch` that arrives while one runs for that write's own report, the id its Undo uses. A batch the
   host starts on its own (a future ingest, a sync) must not emit `core:batch`: it uses another event, or
   `core:batch` gains a field naming its origin and the UI learns to read it, in the same change.
