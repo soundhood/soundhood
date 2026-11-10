@@ -75,7 +75,7 @@ the core's generated library, the one the Test library switch installs on a devi
 `soundhood-tools harness-json` into `tools/screenshot/fixture-library.json`; a core test fails when
 that file is out of date ([the harness README](../tools/screenshot/README.md)).
 
-It has two parts, both in `tools/screenshot/` (the spec table is in
+It has three parts, all in `tools/screenshot/` (the spec table is in
 [the harness README](../tools/screenshot/README.md)):
 
 - **The app's screens and flows.** Every other spec runs the whole app, at up to four sizes:
@@ -87,6 +87,13 @@ It has two parts, both in `tools/screenshot/` (the spec table is in
   run at the two narrow sizes, `@desktop` at the two wide ones. Each screen is photographed under one
   name at every size, `<width>x<height>-<screen>.png`, so the parity grid can pair them; the rest of
   the specs check behaviour without photographs.
+- **The screens in three more modes.** The screen captures (`screens.spec.mjs` and the `queue` and
+  `settings` captures, tagged `@modes`) run again at 390x844 and 1280x800 with reduced motion,
+  `prefers-contrast: more`, and 130 % text, which is the Text size setting stored at 1.3, so the app
+  sets `--text-scale: 1.3` on the root element itself (the harness checks it, and that the media
+  query matches). Baselines: `__screenshots__/<os>/screen-modes/<screen>/<width>x<height>-<mode>.png`,
+  a folder the parity grid and the evidence copy never read. A 130 % capture with text cut short,
+  overlapping or pushed sideways is a bug to fix in the CSS, not a baseline.
 - **The component fixture pages.** `app/fixtures.html` serves one page per design-system component
   (`/fixtures.html#TrackRow`; the list is `app/src/design/fixtures/pages.json`). It runs on the dev
   server only and needs no host mock. `components.spec.mjs` photographs every page at the same four
@@ -95,14 +102,14 @@ It has two parts, both in `tools/screenshot/` (the spec table is in
   exactly as the Text size setting does. Each page also fails on sideways scroll and on any error or
   warning in the console, and one test checks that `pages.json` lists every registered page.
   Baselines: `__screenshots__/<os>/components/<Page>/<width>x<height>-<mode>.png`.
-- The screens themselves are photographed in the default mode only.
 - The settings sheet is photographed over Folders, never over the Playlists screen: its blurred
   backdrop mixes the aqua and purple covers of the playlist cards into blue pixels, which the blue
   scan would count.
 - Baselines are committed; a run fails when a screenshot differs from its baseline by more than 0.2 %.
 - Run: in `tools/`, `npm run test:visual` (every spec), or one spec by name, for example
-  `npm run test:visual -- settings`, and one size with `--project=desktop-1280x800` (the project
-  names are in `playwright.config.mjs`). When a change is intended, rewrite the baselines with
+  `npm run test:visual -- settings`, and one size with `--project=desktop-1280x800`, or one size in
+  one mode with `--project=desktop-1280x800-text-130` (the project names are in
+  `playwright.config.mjs`). When a change is intended, rewrite the baselines with
   `npm run test:visual:update` (the same filters work) and commit them with the change that caused
   them.
 - Playwright prints one line per test (the `list` reporter, no HTML report). On failure the expected,
@@ -236,22 +243,28 @@ The owner runs the same comparison with two copy-paste blocks
 
 - Every phase commits screenshots under `docs/evidence/<phase>/`: the Windows app at 1280x800 and
   1920x1080 and the phone, side by side per screen, all taken with the **fixture library**.
-- Phase 1 uses three folders under `docs/evidence/phase-1/`: `after/` holds the visual suite's
-  screen baselines at the four sizes (`<width>x<height>-<screen>.png`), `parity/` the parity grid
-  made from them (below), and `gate/` the gate's screenshots of the real WebView2 window and the
-  phone, with a README saying how and from which build they were taken, as
+- Phase 1 uses three folders under `docs/evidence/phase-1/`: `after/` holds the default-mode
+  baselines of the parity screens (playlists, artists, folders, tracks, playing, queue, search,
+  settings) at the four sizes (`<width>x<height>-<screen>.png`), copied by `npm run evidence:after`
+  in `tools/` (`-- --phase <n>` for another phase; an earlier phase's folder is never rewritten),
+  `parity/` the parity grid made from them (below), and `gate/` the gate's screenshots of the real
+  WebView2 window and the phone, with a README saying how and from which build they were taken, as
   `docs/evidence/phase-0/gate/` does. Phase 0's folders stay as they are.
 - The side-by-side images come from the parity grid. In `tools/`:
   `npm run evidence:parity -- --in <folder of screenshots> --out <folder>` (optional `--phone 390x844`
   and `--desktop 1280x800`, the defaults), for example
-  `npm run evidence:parity -- --in screenshot/__screenshots__/win32 --out ../docs/evidence/phase-1/parity`. It reads screenshots named as the visual suite names them,
+  `npm run evidence:parity -- --in ../docs/evidence/phase-1/after --out ../docs/evidence/phase-1/parity`. It reads screenshots named as the visual suite names them,
   `<width>x<height>-<screen>.png`, and for every screen that exists at both sizes writes
   `parity-<screen>.png`: the phone on the left and the desktop on the right, both scaled to the
   smaller of the two heights (never enlarged), on the canvas colour `#0f0f0f` with a 16 px gap
   between and around them, no text. `parity-all.png` stacks every screen in name order. It lists the
   screens found at only one of the two sizes (each one a parity exception until it exists at both)
-  and fails when no screen pairs up. Phase 1 closes with Playlists, Artists, Folders, Playing, Queue,
-  Search and Settings at both sizes and nothing listed as one-sided.
+  and fails when no screen pairs up. The parity grid covers the parity screens: Phase 1 closes with
+  Playlists, Artists, Folders, an open playlist (tracks), Playing, Queue, Search and Settings at both
+  sizes, and a grid made from `after/` lists nothing as one-sided. A grid made from the whole baseline
+  folder also pairs the flow captures, and lists `after-playlist-add` as desktop only: that flow (a
+  playlist add changes nothing on screen but its toast) is checked on the desktop by nature, not a
+  parity exception.
 - Never commit a screenshot, log or trace that shows a real library, a real path or a device
   identifier. Screenshots of a real library go only into the private owner report.
 - Every acceptance item is either **agent-verified** (proved by a test, a log line or a screenshot;

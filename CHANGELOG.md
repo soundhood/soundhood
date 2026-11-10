@@ -37,8 +37,9 @@ files does not change.
   as playlist, Clear; Repeat (all, one, off). In the right pane on a wide window, a sheet elsewhere.
 - Search in one field: the whole library in groups (songs, artists, playlists, folders) with chips;
   with a list open, it filters that list.
-- A menu on every song (Play next, Add to queue, Add to playlist, Go to artist, Edit tags, Delete), and
-  songs dragged onto a playlist in the sidebar are added to it.
+- A menu on every song (Play next, Add to queue, Add to playlist, Go to artist, Edit tags, Delete), the
+  same menu for the playing song under the full player's "more" button, and songs dragged onto a
+  playlist in the sidebar are added to it.
 - The keyboard list in [SHORTCUTS](docs/SHORTCUTS.md), all working on the PC.
 - One Settings panel on both devices (Ctrl+comma on the PC): Library, YouTube with a Downloader
   switch, Proton Drive on the phone, Appearance with Text size, Tools with Copy log and View log,

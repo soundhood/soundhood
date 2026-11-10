@@ -125,13 +125,15 @@ and a song played from it plays on through the songs that match.
 
 **Phone.** The full player covers everything: a close button and "Playing from" with the list's kind
 and name, the artwork, the title (two lines at most) and the artist, the time line with its times,
-shuffle, previous, the large play/pause, next and repeat, then the queue button and Add to playlist.
-The background runs from a dark tint of the cover into the canvas. It opens from the mini player or
+shuffle, previous, the large play/pause, next and repeat, then the queue button, Add to playlist and
+a "more" menu for the playing song: Add to playlist, Go to artist (which leaves the player for the
+artist's songs), Edit tags and Delete song, the row menu's items less the ones about the queue and the
+open playlist. The background runs from a dark tint of the cover into the canvas. It opens from the mini player or
 the Playing tab, and closes with the close button, a swipe down or Esc, sliding back down.
 
 **Tablet and desktop.** Playing fills the main area in two columns: the artwork; then "Playing from"
 the list, the title in large type, the artist, its facts (length, format, folder, and its place in
-the queue, "4 of 12"), and the queue and Add to playlist buttons. The transport and the time line
+the queue, "4 of 12"), and the queue, Add to playlist and "more" buttons. The transport and the time line
 stay in the player bar. It opens from the player bar's open button, Playing in the sidebar or the
 rail, or 4 on the keyboard, and closes with the player bar's button, Esc, or any other screen.
 

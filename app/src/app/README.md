@@ -53,7 +53,7 @@ layout despite the name).
   `actions.openSettings()` opens it from anywhere (the sidebar, the rail, the phone's header button,
   the "downloader is off" toast). `useProton` refreshes while it is open (`phone.mSettings`). The
   Appearance switch "Show the queue beside the list" appears only when the sheet is given a
-  `queuePane` prop, which nothing passes yet.
+  `queuePane` prop, which `Overlays.tsx` passes where the right pane fits (`QueueUi`'s `paneFits`).
 - **Dialogs**: `features/tags/EditTagsDialog.tsx`, `features/dialogs/DeleteTracksDialog.tsx` and
   `DeletePlaylistDialog.tsx`, opened through `useDialogs`; `features/dialogs/WriteReport.tsx` draws
   the report `useTrackEdits` holds after a tag write, a move, a delete or an undo. The sheets any
