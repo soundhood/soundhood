@@ -245,6 +245,24 @@ pub async fn undo_last(app: AppHandle, library_dir: String) -> Result<BatchRepor
   .await
 }
 
+/// Undoes the change with this batch id (the `batch` of the report its own command sent), whether
+/// or not newer changes came after it. The report lists what was restored and what was refused (a
+/// file or playlist changed since); a change already undone, or not found, is refused as the error.
+#[tauri::command]
+pub async fn undo_batch(app: AppHandle, library_dir: String, batch: String) -> Result<BatchReport, String> {
+  with_core(&app, library_dir, move |app, core| {
+    undo_change(core, &batch, |r| emit_batch(app, r))
+  })
+  .await
+}
+
+/// `undo_batch`: like `undo_last`, its report is always sent, refusals and all.
+pub(crate) fn undo_change(core: &Core, batch: &str, emit: impl FnOnce(&BatchReport)) -> Result<BatchReport, String> {
+  let report = core.undo_batch(batch).map_err(reason)?;
+  emit(&report);
+  Ok(report)
+}
+
 /// "Rebuild index": drops this device's index and rebuilds it from the files alone.
 #[tauri::command]
 pub async fn rebuild_index(app: AppHandle, library_dir: String) -> Result<RefreshReport, String> {
@@ -400,6 +418,62 @@ mod tests {
     let sent = Cell::new(None);
     create_playlist(&core, &playlist_args(&core, "Brand New", &[]), recorder(&sent)).unwrap();
     assert_eq!(sent.get(), Some(true));
+  }
+
+  #[test]
+  fn undo_batch_undoes_that_change_and_leaves_a_newer_one() {
+    let (_tmp, fixture, core) = library();
+    let t = fixture
+      .tracks
+      .iter()
+      .find(|t| !t.title.is_empty() && !t.artist.is_empty())
+      .unwrap();
+    let file = core.lib.root.join(&t.rel);
+    let title_now = |core: &Core| {
+      let tracks = core.scan().unwrap();
+      let track = tracks.iter().find(|x| Path::new(&x.path) == file.as_path()).unwrap();
+      track.title.clone()
+    };
+    // The tag edit's own report carries its batch id (the UI keeps it from the core:batch event).
+    let edit = std::cell::RefCell::new(None);
+    let args = WriteTagsArgs {
+      path: abs(&core, &t.rel),
+      library_dir: core.lib.root.to_string_lossy().into_owned(),
+      title: "Another Title".into(),
+      artist: t.artist.clone(),
+    };
+    write_tags_of(&core, &args, |r| *edit.borrow_mut() = Some(r.batch.clone())).unwrap();
+    let edit = edit.into_inner().expect("the tag edit sent its report");
+    assert_eq!(title_now(&core), "Another Title");
+    // A newer change on top: a playlist add.
+    let fav = fixture.playlists.iter().find(|p| p.name == "Favourites").unwrap();
+    let outsider = fixture
+      .tracks
+      .iter()
+      .find(|t| !fav.entries.iter().any(|e| e.eq_ignore_ascii_case(&t.rel)))
+      .unwrap();
+    let m3u8 = core.lib.root.join("_Playlists/Favourites.m3u8");
+    add_to_playlist(&core, &playlist_args(&core, "Favourites", &[&outsider.rel]), |_| {}).unwrap();
+    let added = bytes(&m3u8);
+    let newest = core.last_change().unwrap().unwrap().batch;
+    assert_ne!(newest, edit);
+
+    let sent = Cell::new(None);
+    let report = undo_change(&core, &edit, recorder(&sent)).expect("an older change can be undone by its id");
+    assert_eq!(sent.get(), Some(true), "the undo's report goes to the UI");
+    assert_eq!(report.applied.len(), 1);
+    assert!(report.skipped.is_empty() && report.failed.is_empty());
+    assert_eq!(title_now(&core), t.title, "the tags are back");
+    assert_eq!(bytes(&m3u8), added, "the newer change is left as it is");
+    assert_eq!(core.last_change().unwrap().unwrap().batch, newest);
+
+    // Twice is refused with a plain reason, and so is an id the journal does not know.
+    let sent = Cell::new(None);
+    let err = undo_change(&core, &edit, recorder(&sent)).unwrap_err();
+    assert_eq!(err, "this change was undone already");
+    assert_eq!(sent.get(), None);
+    assert!(undo_change(&core, "no-such-batch", |_| panic!("nothing to send")).is_err());
+    assert_eq!(bytes(&m3u8), added);
   }
 
   #[test]

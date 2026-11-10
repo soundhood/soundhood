@@ -7,7 +7,7 @@ export type ChangeSummary = { batch: string; ts: number; label: string; count: n
 /** One applied entry of a batch, in plain words; paths are the file's place before and after. */
 export type BatchApplied = { label: string; path_before?: string | null; path_after?: string | null };
 
-/** The `core:batch` event payload and the result of `undo_last`. */
+/** The `core:batch` event payload and the result of `undo_last` and `undo_batch`. */
 export type BatchReport = {
   batch: string;
   applied: BatchApplied[];
@@ -15,6 +15,59 @@ export type BatchReport = {
   failed: { path: string; error: string }[];
   aborted: boolean;
 };
+
+/**
+ * One journaled change as the UI keeps it to undo it: the batch id from the report its own command
+ * sent (never the newest change read afterwards) and its words.
+ */
+export type Change = {
+  batch: string;
+  label: string;
+  /** The library paths its entries named (before and after), to show the label without extensions. */
+  paths?: string[];
+};
+
+/**
+ * The change a write's own report made, in the words `last_change` would use ("Made 5 playlists from
+ * folders", "<first> and 2 more"); null when it applied nothing.
+ */
+export function changeOf(r: BatchReport | null | undefined): Change | null {
+  const applied = r?.applied ?? [];
+  if (!r || applied.length === 0) return null;
+  const n = applied.length;
+  const first = applied[0].label;
+  let label = first;
+  if (n > 1 && applied.every((a) => a.label.startsWith("Created playlist "))) label = `Made ${n} playlists from folders`;
+  else if (n > 1) label = `${first} and ${n - 1} more`;
+  const paths = applied.flatMap((a) => [a.path_before, a.path_after]).filter((p): p is string => !!p);
+  return { batch: r.batch, label, paths };
+}
+
+/** An audio file's extension at the end of a name in a label ("Quiet Bloom - Anouk Lirr.ogg"). */
+const AUDIO_EXTENSION = /\.(mp3|m4a|mp4|aac|flac|ogg|oga|opus|wav|wma|webm|aiff?|alac)(?=$|[\s,;)])/gi;
+
+/**
+ * A change's words as the app shows them (the core's words, as the journal keeps them, stay in the
+ * log): songs, not tracks; file names without their extension; the bin by the name it has on this
+ * device ("the Recycle Bin" on a PC). `paths` are the library paths the entry names (before and
+ * after); without them (a `last_change` summary) the audio extensions the library holds are dropped.
+ */
+export function shownLabel(label: string, paths: readonly (string | null | undefined)[] | null, isMobile: boolean): string {
+  let s = label;
+  if (paths) {
+    for (const p of paths) {
+      if (!p) continue;
+      const name = p.slice(p.replace(/\\/g, "/").lastIndexOf("/") + 1);
+      const bare = name.replace(/\.[^./\\]+$/, "");
+      if (bare && bare !== name) s = s.split(name).join(bare);
+    }
+  } else {
+    s = s.replace(AUDIO_EXTENSION, "");
+  }
+  s = s.replace(/\b(\d+) tracks?\b/g, (_, n: string) => `${n} ${n === "1" ? "song" : "songs"}`);
+  return isMobile ? s : s.replace(/\bthe bin\b/g, "the Recycle Bin");
+}
+
 
 /** `rebuild_index`. */
 export type RefreshReport = { total: number; read: number; removed: number; millis: number };

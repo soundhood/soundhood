@@ -1,6 +1,7 @@
-// "Delete this track?" / "Delete N tracks?": the files go to the bin (the app's own bin on the
-// phone, the Recycle Bin on the PC), the playlists are updated, and the report that follows offers
-// Undo this batch; Undo last change in Settings brings them back too.
+// "Delete this song?" / "Delete N songs?": the files go to the bin (inside the library on the phone,
+// the Recycle Bin on the PC), the playlists are updated, and the report that follows offers Undo
+// this batch, which brings them all back (Undo last change in Settings takes back one per press, so
+// the dialog names it only for one song).
 import { Button, Sheet } from "../../design";
 import { useApp } from "../../app/context";
 import { displayName } from "../../lib/tracks";
@@ -17,7 +18,7 @@ export function DeleteTracksDialog({ tracks }: { tracks: Track[] }) {
     <Sheet
       open
       onClose={close}
-      title={many ? `Delete ${tracks.length} tracks?` : "Delete this track?"}
+      title={many ? `Delete ${tracks.length} songs?` : "Delete this song?"}
       footer={
         <>
           <Button variant="text" onClick={close}>
@@ -36,9 +37,9 @@ export function DeleteTracksDialog({ tracks }: { tracks: Track[] }) {
         {tracks.length > SHOWN && <li className="is-more">and {tracks.length - SHOWN} more</li>}
       </ul>
       <p className="SheetNote">
-        {isMobile
-          ? "The files go to the app's bin; Undo last change in Settings brings them back. Playlists are updated."
-          : "The files go to the Recycle Bin; Undo last change in Settings brings them back. Playlists are updated."}
+        {`The ${many ? "files go" : "file goes"} to ${isMobile ? "the bin" : "the Recycle Bin"}; ${
+          many ? "Undo this batch brings them back" : "Undo last change in Settings brings it back"
+        }. Playlists are updated.`}
       </p>
     </Sheet>
   );

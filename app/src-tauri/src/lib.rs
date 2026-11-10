@@ -34,6 +34,7 @@ pub fn run() {
       library::playlists_from_folders,
       library::last_change,
       library::undo_last,
+      library::undo_batch,
       library::rebuild_index,
       files::platform,
       files::read_file_bytes,

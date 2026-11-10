@@ -2,6 +2,8 @@
 // Online lookups, YouTube helper) and the downloader stays off until it is turned on; an existing
 // install (anything in the settings store) keeps working exactly as before: no setup, the downloader
 // on; one with no folder is asked for the folder alone. Photographed at every size (the first step).
+// A link shared into the phone before startup has read the stored downloader switch waits for it,
+// then goes the way the stored switch says.
 import { expect, test } from "./harness.mjs";
 import { openSettings, settle } from "./ui.mjs";
 
@@ -10,6 +12,30 @@ const beforeLoad = (page, fn, arg) => page.addInitScript(fn, arg);
 const storeOf = (page) => page.evaluate(() => Object.fromEntries(window.__soundhoodMock.store));
 const setup = (page) => page.locator(".Onboarding");
 const downloadItem = (page) => page.locator(".Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Download" });
+const toast = (page, text) => page.locator(".Toast").filter({ hasText: text }).last();
+const where = (page) => page.getByRole("dialog", { name: "Where should this go?" });
+
+/**
+ * A cold start with a link shared into the app: MainActivity hands it over the moment
+ * window.__soundhoodShare exists (it retries until then), with the downloader stored `on` or off.
+ */
+async function coldShare(page, on) {
+  await beforeLoad(
+    page,
+    (enabled) => {
+      const m = window.__soundhoodMock;
+      m.store.set("downloader_enabled", enabled);
+      m.store.set("onboarding_done", true);
+      window.__shared = [];
+      const t = setInterval(() => {
+        if (typeof window.__soundhoodShare !== "function") return;
+        clearInterval(t);
+        window.__shared.push(window.__soundhoodShare("https://www.youtube.com/watch?v=AbCdEfGhIjK"));
+      }, 1);
+    },
+    on,
+  );
+}
 
 /** A new install: nothing in the settings store; the folder picker answers `pick`. */
 async function newInstall(app, page) {
@@ -105,5 +131,24 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await setup(page).getByRole("button", { name: "Done" }).tap();
     await expect(setup(page)).toHaveCount(0);
     expect(await storeOf(page)).toMatchObject({ library_dir: app.data.root, onboarding_done: true, downloader_enabled: true });
+  });
+
+  test("a link shared before startup read the settings, with the downloader stored off: not taken", async ({ app, page }) => {
+    await coldShare(page, false);
+    await app.open();
+    expect(await page.evaluate(() => window.__shared)).toEqual([true]);
+    await page.waitForTimeout(500);
+    await expect(where(page)).toHaveCount(0);
+    expect(await page.evaluate(() => window.__soundhoodMock.downloads.length)).toBe(0);
+    expect((await storeOf(page)).downloader_enabled).toBe(false);
+    await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
+  });
+
+  test("a link shared before startup read the settings, with the downloader stored on: the sheet", async ({ app, page }) => {
+    await coldShare(page, true);
+    await app.open();
+    expect(await page.evaluate(() => window.__shared)).toEqual([true]);
+    await expect(where(page)).toBeVisible();
+    await expect(where(page).getByRole("textbox", { name: "Link" })).toHaveValue("https://www.youtube.com/watch?v=AbCdEfGhIjK");
   });
 });

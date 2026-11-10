@@ -2,8 +2,8 @@
 // pairs <size>-settings.png; over Playlists the blurred cover grid mixes aqua and purple into blue
 // pixels that fail the blue scan) and in the three other modes at 390x844 and 1280x800 (@modes),
 // Ctrl+comma, the text size, the log (View log, Copy log on every device, the change lines only in
-// what Copy log carries), a partial undo, the test library switch and what it turns off, the
-// self-test wording.
+// what Copy log carries), a partial undo, Make playlists from folders (how many it made; with
+// nothing to make, no Undo), the test library switch and what it turns off, the self-test wording.
 import { expect, test } from "./harness.mjs";
 import { goTo, openPlaylist, openSettings, playSong, report, row, settingRow, settle, status } from "./ui.mjs";
 
@@ -56,8 +56,8 @@ test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
     await expect(folderLine(page)).toHaveText(app.data.root);
     await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Nothing to undo");
     await expect(sheet(page).getByRole("button", { name: "Copy log" })).toBeVisible();
-    await expect(status(page)).toHaveText("Found 50 tracks");
-    await expect(sheet(page).locator(".VersionRow")).toContainText("Version 0.1.0");
+    await expect(status(page)).toHaveText("Found 50 songs");
+    await expect(sheet(page).locator(".VersionRow")).toContainText("Version 0.3.0");
     await expect(sheet(page)).toContainText("Inter typeface, SIL Open Font License 1.1");
     if (phone) {
       await expect(settingRow(page, "Download helper")).toContainText(`yt-dlp ${app.data.ytdlpVersion}`);
@@ -106,7 +106,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await openSettings(app, page);
     // Copy log is in Tools with or without a log; the add put no line in the visible log.
     await expect(sheet(page).getByRole("button", { name: "Copy log" })).toBeVisible();
-    await expect(status(page)).toHaveText("Found 50 tracks");
+    await expect(status(page)).toHaveText("Found 50 songs");
     await app.settled();
 
     // Download output still goes to the log, as before.
@@ -118,7 +118,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await log.getByRole("button", { name: "Copy log" }).click();
     await expect(toast(page, "Log copied")).toBeVisible();
     const copied = await page.evaluate(() => window.__copied[0]);
-    expect(copied.startsWith("appVersion: 0.1.0\n")).toBe(true);
+    expect(copied.startsWith("appVersion: 0.3.0\n")).toBe(true);
     const at = (s) => copied.indexOf(s);
     expect(at("[download] Destination")).toBeGreaterThan(at("sidecars:"));
     expect(at("[change] Added 1 track to Focus")).toBeGreaterThan(at("[download] Destination"));
@@ -150,7 +150,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await app.open();
     await addQuietBloomToFocus(page);
     await openSettings(app, page);
-    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 track to Focus");
+    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 song to Focus");
     await page.evaluate(() => {
       window.__soundhoodMock.undoSkipped = [{ path: "_Playlists/Focus.m3u8", reason: "changed since, not undone" }];
     });
@@ -158,7 +158,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     // Nothing closes silently: the report stays until Done, and an undo has no undo of its own.
     const r = report(page);
     await expect(r.getByRole("heading")).toHaveText("Undo: 0 restored, 1 left as they are (see the log)");
-    await expect(r.locator(".BatchRow.is-skipped")).toContainText("Focus.m3u8");
+    await expect(r.locator(".BatchRow.is-skipped .BatchRow-main")).toHaveText("Focus");
     await expect(r.locator(".BatchRow.is-skipped")).toContainText("changed since, not undone");
     await expect(r.getByRole("button", { name: "Undo this batch" })).toHaveCount(0);
     await page.waitForTimeout(5000);
@@ -166,6 +166,42 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await r.getByRole("button", { name: "Done" }).last().click();
     await expect(report(page)).toHaveCount(0);
     await expect(status(page)).toHaveText("[skipped] _Playlists/Focus.m3u8 - changed since, not undone");
+  });
+
+  test("Make playlists from folders says how many it made; with nothing to make, no Undo; its Undo is its own", async ({ app, page }) => {
+    const history = () => page.evaluate(() => window.__soundhoodMock.history.map((h) => h.summary.label));
+    await app.open();
+    // A tag edit first: no Undo below may take it back.
+    await openPlaylist(page, "Late Night");
+    await row(page, "Quiet Bloom").click({ modifiers: ["Control"] });
+    await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Edit tags" }).click();
+    const dialog = page.getByRole("dialog", { name: "Edit tags" });
+    await dialog.getByRole("textbox", { name: "Title" }).fill("Quiet Bloom (Night Edit)");
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await report(page).getByRole("button", { name: "Done" }).last().click();
+    await page.keyboard.press("Escape");
+    await goTo(page, "Folders");
+    await openSettings(app, page);
+    const make = settingRow(page, "Make playlists from folders").getByRole("button", { name: "Make" });
+
+    // Five folders without a playlist of their name: five made, said as five, with Undo.
+    await make.click();
+    const made = toast(page, "Created 5 playlist files in _Playlists");
+    await expect(made).toBeVisible();
+    expect(await history()).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg", "Made 5 playlists from folders"]);
+
+    // Again: nothing to make, nothing journaled, and no Undo to press.
+    await make.click();
+    const none = toast(page, "Every folder already has its playlist");
+    await expect(none).toBeVisible();
+    expect(await none.getByRole("button").count()).toBe(0);
+    expect(await history()).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg", "Made 5 playlists from folders"]);
+
+    // The first toast's Undo takes back the five playlists, and only them.
+    await made.getByRole("button", { name: "Undo" }).click();
+    await expect(toast(page, "Undone: Made 5 playlists from folders")).toBeVisible();
+    expect(await history()).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
+    await expect(report(page)).toHaveCount(0);
   });
 
   test("the test library: named, not printed; on follows the shown folder; off goes back", async ({ app, page }) => {
@@ -322,7 +358,7 @@ test.describe("tablet and phone: View log", { tag: "@phone" }, () => {
     // The phone plays from the file's bytes, and says so in the log.
     await expect(status(page)).toHaveText(/^Playing \(/);
     const log = await openLog(page);
-    await expect(log.locator(".LogText")).toContainText("Found 50 tracks");
+    await expect(log.locator(".LogText")).toContainText("Found 50 songs");
     await expect(log.locator(".LogText")).toContainText("Playing (");
   });
 });

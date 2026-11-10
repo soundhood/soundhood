@@ -2,7 +2,7 @@
 // of it through AppContext; the shell (AppShell) draws them. The hooks are called in this order on
 // purpose: React runs effects in call order, and effects that share state, listeners or settings keep
 // the order they had when all of this was one component (see the notes at the calls).
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "../design/index.css";
 import "./screens.css";
 import { ToastProvider } from "../design";
@@ -69,6 +69,7 @@ function AppRoot() {
     isMobile,
     notices,
     downloader: prefs.downloader,
+    prefsLoaded: prefs.loaded,
     openSettings: () => phone.setMSettings(true),
     folder: lib.folder,
     folderRef: lib.folderRef,
@@ -82,6 +83,7 @@ function AppRoot() {
   const playlists = usePlaylists({
     isMobile,
     setStatus,
+    notices,
     folderRef: lib.folderRef,
     setPlaylistFiles: lib.setPlaylistFiles,
     plView: lib.plView,
@@ -188,11 +190,6 @@ function AppRoot() {
 
   // The sheets the screens open (Overlays.tsx).
   const [picker, setPicker] = useState<Picker | null>(null);
-  // A toast's Undo may run after newer renders: it always uses the newest undo.
-  const editsRef = useRef(edits);
-  useLayoutEffect(() => {
-    editsRef.current = edits;
-  });
   const openSettings = phone.setMSettings;
   const actions = useMemo<AppActions>(
     () => ({
@@ -200,7 +197,6 @@ function AppRoot() {
       newPlaylist: (tracks: Track[] = []) => setPicker({ kind: "new", tracks }),
       moveToFolder: (tracks: Track[]) => tracks.length && setPicker({ kind: "move", tracks }),
       openSettings: () => openSettings(true),
-      undoLast: () => void editsRef.current.undoLast(),
     }),
     [openSettings],
   );

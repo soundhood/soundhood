@@ -32,9 +32,11 @@ const FIXTURE_ROOT =
  * - `downloads`: every ytdlp_download_audio call (desktop), `phoneDownload`: the next phone result;
  * - `downloadError`: a reason the next ytdlp_download_audio call is refused with, a plain string as
  *   the host's start errors arrive;
- * - `history`: the journal behind last_change / undo_last (core/CONTRACT.md "Host IPC (Phase 0)"),
- *   newest last; it starts empty, so the baselines have nothing to undo;
- * - `undoSkipped`: [{ path, reason }] makes the next undo_last leave the change as it is;
+ * - `history`: the journal behind last_change / undo_last / undo_batch (core/CONTRACT.md "Host IPC"),
+ *   newest last; it starts empty, so the baselines have nothing to undo; `undone`: the batch ids
+ *   undone so far (undo_batch refuses them again, as the core does);
+ * - `undoSkipped`: [{ path, reason }] makes every undo leave the change as it is while it is set;
+ * - `delay`: { command: ms } answers that command only after ms (a slow host, for double presses);
  * - `deleteRefused`: file names delete_track refuses ("file in use"); `writeTagsError`: the reason
  *   write_tags refuses with;
  * - `holdPhoneDownload`: the phone's download runs until `finishPhoneDownload()`; `cancels`: every
@@ -50,6 +52,8 @@ const mock = {
   phoneDownload: { exitCode: 0, files: [], log: "" },
   downloadError: "",
   history: [],
+  undone: [],
+  delay: {},
   deleteRefused: [],
   holdPhoneDownload: false,
   cancels: [],
@@ -79,16 +83,27 @@ const fixturePath = (abs) => `${fx.root}/${relOf(abs)}`;
 let batchSeq = 0;
 /**
  * Records one applied change the way the core journals it: `label` in the core's own words, the
- * report the host emits as core:batch, and how undo_last puts it back (its report labels are the
- * core's undo labels too).
+ * report the host emits as core:batch, and how an undo puts it back (its report labels are the
+ * core's undo labels too). `more`: further entries of the same batch ("Made N playlists from
+ * folders"). A command that changes nothing never gets here: like the host, it journals nothing and
+ * sends no report.
  */
-function journal(label, paths, undo) {
+function journal(label, paths, undo, more = []) {
   const batch = `fixture-batch-${++batchSeq}`;
-  const report = { batch, applied: [{ label, ...paths }], skipped: [], failed: [], aborted: false };
-  mock.history.push({ summary: { batch, ts: 1767225600000 + batchSeq, label, count: 1 }, undo });
-  // Like the host: every mutating command is followed by a core:batch event with its report.
-  setTimeout(() => emit("core:batch", report), 0);
+  const applied = [{ label, ...paths }, ...more];
+  const report = { batch, applied, skipped: [], failed: [], aborted: false };
+  const count = applied.length;
+  const shown = count > 1 && applied.every((a) => a.label.startsWith("Created playlist ")) ? `Made ${count} playlists from folders` : label;
+  mock.history.push({ summary: { batch, ts: 1767225600000 + batchSeq, label: shown, count }, undo });
+  // Like the host: the report goes out as core:batch before the command returns.
+  void emit("core:batch", report);
 }
+
+/** The core's word for an entry it will not undo: the file or playlist is not as the change left it. */
+const CHANGED_SINCE = "changed since, not undone";
+const refused = (path) => ({ skipped: [{ path, reason: CHANGED_SINCE }] });
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const playlistFile = (name) => `_Playlists/${name}.m3u8`;
 
 function writeTags({ path, title, artist }) {
   const rel = relOf(path);
@@ -97,6 +112,7 @@ function writeTags({ path, title, artist }) {
   const before = { title: t.title, artist: t.artist };
   Object.assign(t, { title, artist });
   journal(`Edited tags of ${fileName(rel)}`, { path_before: rel, path_after: rel }, () => {
+    if (t.rel !== rel || t.title !== title || t.artist !== artist) return refused(rel);
     Object.assign(t, before);
     return { label: `Restored tags of ${fileName(rel)}`, path_before: rel, path_after: rel };
   });
@@ -111,7 +127,10 @@ function playlistAdd({ name, paths }) {
   const added = paths.map(relOf).filter((rel) => !pl.entries.some((e) => e.toLowerCase() === rel.toLowerCase()));
   pl.entries.push(...added);
   const n = added.length;
+  if (n === 0) return structuredClone(pl); // already in it: the host answers Ok and journals nothing
+  const after = [...pl.entries];
   journal(`Added ${n} track${n === 1 ? "" : "s"} to ${name}`, { path_before: null, path_after: null }, () => {
+    if (!sameList(pl.entries, after)) return refused(playlistFile(name));
     pl.entries = before;
     return { label: `Restored playlist ${name}`, path_before: null, path_after: null };
   });
@@ -125,35 +144,76 @@ function playlistRemove({ name, paths }) {
   const gone = new Set(paths.map((p) => relOf(p).toLowerCase()));
   pl.entries = pl.entries.filter((e) => !gone.has(e.toLowerCase()));
   const n = before.length - pl.entries.length;
+  if (n === 0) return structuredClone(pl); // not in it: Ok, nothing journaled
+  const after = [...pl.entries];
   journal(`Removed ${n} track${n === 1 ? "" : "s"} from ${name}`, { path_before: null, path_after: null }, () => {
+    if (!sameList(pl.entries, after)) return refused(playlistFile(name));
     pl.entries = before;
     return { label: `Restored playlist ${name}`, path_before: null, path_after: null };
   });
   return structuredClone(pl);
 }
 
+const sortPlaylists = () => playlists.sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+const playlistNamed = (name) => playlists.find((p) => p.name.toLowerCase() === name.toLowerCase());
+
 function playlistCreate({ name }) {
-  if (playlists.some((p) => p.name.toLowerCase() === name.toLowerCase())) throw new Error(`a playlist ${name} exists`);
+  // A name that exists: the host answers that playlist untouched, Ok, nothing journaled.
+  const there = playlistNamed(name);
+  if (there) return structuredClone(there);
   const pl = { name, entries: [] };
   playlists.push(pl);
-  playlists.sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+  sortPlaylists();
   journal(`Created playlist ${name}`, { path_before: null, path_after: null }, () => {
+    if (!playlists.includes(pl) || pl.entries.length) return refused(playlistFile(name));
     playlists.splice(playlists.indexOf(pl), 1);
-    return { label: `Removed playlist ${name}`, path_before: null, path_after: null };
+    return { label: `Deleted playlist ${name} (in the bin)`, path_before: null, path_after: null };
   });
   return structuredClone(pl);
+}
+
+/** "Make playlists from folders": one per first-level folder that has none of its name, as one batch. */
+function playlistsFromFolders() {
+  const folders = [...new Set(tracks.map((t) => t.rel).filter((r) => r.includes("/")).map((r) => r.slice(0, r.indexOf("/"))))];
+  const made = folders
+    .filter((f) => !playlistNamed(f))
+    .map((f) => ({ name: f, entries: tracks.map((t) => t.rel).filter((r) => r.startsWith(`${f}/`)).sort() }));
+  if (made.length === 0) return structuredClone(playlists); // nothing to make: Ok, nothing journaled
+  playlists.push(...made);
+  sortPlaylists();
+  const entry = (pl) => ({ label: `Created playlist ${pl.name}`, path_before: null, path_after: null });
+  const shape = made.map((pl) => [...pl.entries]);
+  const undo = () => {
+    const changed = made.filter((pl, i) => !playlists.includes(pl) || !sameList(pl.entries, shape[i]));
+    if (changed.length) return { skipped: changed.map((pl) => ({ path: playlistFile(pl.name), reason: CHANGED_SINCE })) };
+    for (const pl of made) playlists.splice(playlists.indexOf(pl), 1);
+    return made.map((pl) => ({ label: `Deleted playlist ${pl.name} (in the bin)`, path_before: null, path_after: null }));
+  };
+  journal(entry(made[0]).label, { path_before: null, path_after: null }, undo, made.slice(1).map(entry));
+  return structuredClone(playlists);
 }
 
 /** The first-level folder a library path sits in, as scan_music_folder names it ("(root)" at the top). */
 const folderOfRel = (rel) => (rel.includes("/") ? rel.slice(0, rel.indexOf("/")) : "(root)");
 
-/** Every playlist entry naming `from` now names `to` (null: the entry goes); returns how to put them back. */
+/**
+ * Every playlist entry naming `from` now names `to` (null: the entry goes). Returns how to put the
+ * playlists it changed back: null when one of them changed since (the core refuses then).
+ */
 function repointEntries(from, to) {
-  const before = playlists.map((p) => [...p.entries]);
+  const touched = [];
   for (const p of playlists) {
+    if (!p.entries.some((e) => e.toLowerCase() === from.toLowerCase())) continue;
+    const before = [...p.entries];
     p.entries = p.entries.flatMap((e) => (e.toLowerCase() === from.toLowerCase() ? (to ? [to] : []) : [e]));
+    touched.push({ p, before, after: [...p.entries] });
   }
-  return () => playlists.forEach((p, i) => (p.entries = before[i]));
+  return () => {
+    const changed = touched.find((x) => !sameList(x.p.entries, x.after));
+    if (changed) return playlistFile(changed.p.name);
+    for (const x of touched) x.p.entries = x.before;
+    return null;
+  };
 }
 
 function moveTrack({ path, targetFolder }) {
@@ -165,7 +225,9 @@ function moveTrack({ path, targetFolder }) {
   const putBack = repointEntries(rel, to);
   Object.assign(t, { rel: to, playlist: targetFolder });
   journal(`Moved ${fileName(rel)} to ${targetFolder}`, { path_before: rel, path_after: to }, () => {
-    putBack();
+    if (t.rel !== to) return refused(to);
+    const stale = putBack();
+    if (stale) return refused(stale);
     Object.assign(t, { rel, playlist: folderOfRel(rel) });
     return { label: `Moved ${fileName(rel)} back to ${folderOfRel(rel)}`, path_before: to, path_after: rel };
   });
@@ -180,9 +242,10 @@ function deleteTrack({ path }) {
   if (mock.deleteRefused.includes(fileName(rel))) throw "file in use";
   const [t] = tracks.splice(at, 1);
   const putBack = repointEntries(rel, null);
-  journal(`Moved ${fileName(rel)} to the bin`, { path_before: rel, path_after: null }, () => {
+  journal(`Deleted ${fileName(rel)} (in the bin)`, { path_before: rel, path_after: null }, () => {
+    const stale = putBack();
+    if (stale) return refused(stale);
     tracks.splice(at, 0, t);
-    putBack();
     return { label: `Restored ${fileName(rel)} from the bin`, path_before: null, path_after: rel };
   });
   return null;
@@ -199,14 +262,33 @@ function playlistDelete({ name }) {
   return null;
 }
 
-function undoLast() {
+/** Undoes the journaled change at `at` in the history, as the core's undo batch reports it. */
+function undoAt(at) {
   const batch = `fixture-undo-${++batchSeq}`;
   // A test can make the undo leave entries as they are (changed since, file in use): nothing is put back.
-  const skipped = mock.undoSkipped ?? [];
-  const last = skipped.length ? null : mock.history.pop();
-  const report = { batch, applied: last ? [last.undo()] : [], skipped: structuredClone(skipped), failed: [], aborted: false };
-  setTimeout(() => emit("core:batch", report), 0);
+  const forced = mock.undoSkipped ?? [];
+  const entry = forced.length || at < 0 ? null : mock.history[at];
+  // The change's own check: an entry that is not as the change left it is refused, not forced.
+  const result = entry ? entry.undo() : { skipped: structuredClone(forced) };
+  const skipped = result.skipped ?? [];
+  if (entry && !skipped.length) {
+    mock.history.splice(at, 1);
+    mock.undone.push(entry.summary.batch);
+  }
+  const applied = skipped.length ? [] : [result].flat();
+  const report = { batch, applied, skipped, failed: [], aborted: false };
+  void emit("core:batch", report);
   return report;
+}
+
+const undoLast = () => undoAt(mock.history.length - 1);
+
+/** undo_batch: that change by its id, newer ones left as they are; refused like the core when undone or unknown. */
+function undoBatch({ batch }) {
+  if (mock.undone.includes(batch)) throw "this change was undone already";
+  const at = mock.history.findIndex((h) => h.summary.batch === batch);
+  if (at < 0) throw `no change ${batch} to undo`;
+  return undoAt(at);
 }
 
 const fromBase64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -252,6 +334,8 @@ function answer(cmd, args) {
       return playlistCreate(args.args);
     case "playlist_delete":
       return playlistDelete(args.args);
+    case "playlists_from_folders":
+      return playlistsFromFolders();
     case "move_track":
       return moveTrack(args.args);
     case "delete_track":
@@ -297,6 +381,8 @@ function answer(cmd, args) {
       return mock.history.at(-1)?.summary ?? null;
     case "undo_last":
       return undoLast();
+    case "undo_batch":
+      return undoBatch(args);
     case "rebuild_index":
       return { total: fx.tracks.length, read: fx.tracks.length, removed: 0, millis: 1500 };
     case "dev_fixture_root":
@@ -305,7 +391,7 @@ function answer(cmd, args) {
       return { passed: 2, failed: 0, lines: ["PASS fixture library builds", "PASS tags round-trip"] };
     case "diagnostics":
       return {
-        appVersion: "0.1.0",
+        appVersion: "0.3.0",
         platform: fx.platform,
         os: fx.platform === "android" ? "Android 15" : "Windows 11",
         deviceId: "00000000-0000-4000-8000-000000000000",
@@ -326,7 +412,10 @@ mockIPC(
     ipc.calls.push(cmd);
     ipc.lastAt = performance.now();
     try {
-      return answer(cmd, args ?? {});
+      // A slow host: the command runs when it is called, its answer arrives `delay` ms later.
+      const ms = mock.delay[cmd];
+      const value = answer(cmd, args ?? {});
+      return ms ? new Promise((resolve) => setTimeout(() => resolve(value), ms)) : value;
     } finally {
       ipc.pending--;
       ipc.lastAt = performance.now();

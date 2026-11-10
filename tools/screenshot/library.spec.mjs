@@ -28,7 +28,7 @@ test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
     // Nothing plays yet: Playing cannot be opened.
     await expect(page.locator(".BottomTabs-tab, .Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Playing" })).toBeDisabled();
     await openSettings(app, page);
-    await expect(status(page)).toHaveText("Found 50 tracks");
+    await expect(status(page)).toHaveText("Found 50 songs");
   });
 
   test("the sort order reorders the open list and is remembered", async ({ app, page }) => {
@@ -178,7 +178,7 @@ test.describe("mouse and keyboard (platform windows)", { tag: "@desktop" }, () =
     await goTo(page, "Playlists");
     await expect(card(page, "Focus")).toContainText("8 songs");
     await openSettings(app, page);
-    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 track to Focus");
+    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 song to Focus");
     await closeSettings(page);
     await toast(page).getByRole("button", { name: "Undo" }).click();
     await expect(card(page, "Focus")).toContainText("7 songs");

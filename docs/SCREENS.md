@@ -225,9 +225,10 @@ Every dialog is the same sheet: a bottom sheet on the phone, a centred panel on 
 - **Edit tags.** The file name, Title and Artist; **From filename** fills both from "Title - Artist"
   in the file name without saving; Cancel, **Save**. A write the core refuses keeps the dialog open
   with the reason in a "Not saved" row (Copy log, Retry).
-- **Delete this track? / Delete N tracks?** The songs (the first twelve, then "and N more"). The files
-  go to the bin (the Recycle Bin on the PC, the app's own bin on the phone) and playlists are
-  updated; Cancel, **Delete**.
+- **Delete this song? / Delete N songs?** The songs (the first twelve, then "and N more"). The files
+  go to the bin (the Recycle Bin on the PC, the bin on the phone) and playlists are updated; the
+  dialog names **Undo this batch** for several songs and **Undo last change** for one. Cancel,
+  **Delete**.
 - **Delete this playlist?** Only the playlist file goes to the bin; the songs stay where they are.
   Cancel, **Delete playlist**.
 - **New playlist.** A name; **Create**, which opens the new empty playlist, or **Create and add** when
@@ -240,15 +241,21 @@ Every dialog is the same sheet: a bottom sheet on the phone, a centred panel on 
 ## Reports after a write
 
 - **Playlist changes** (add, remove, a drop on the sidebar, a playlist deleted, playlists made from
-  folders) end in a toast with **Undo**. Taking a song out of the queue does too, though the queue is
-  not journaled.
+  folders) end in a toast with **Undo**, which undoes that change by its own id and nothing else,
+  also when newer changes came after it or a report is open; a playlist changed since is left as it
+  is, and the toast says so. A gesture that changed nothing says so without Undo ("Already in Late
+  Night", "Late Night already exists", "Every folder already has its playlist"). Taking a song out of
+  the queue ends in a toast with Undo too, though the queue is not journaled.
 - **Tag edits, moves and deletes** end in a report: what was done ("Moved 3 songs to Archive",
   "Saved the tags of ..."), the counts (done, skipped, failed, with the reasons), the songs with
   before and after, and **Undo this batch** and **Done**. It never closes by itself, and a tap beside it
-  does nothing. Undo this batch undoes the batch's changes newest first and stops, saying why, at a
-  change the batch did not make; its own report has no Undo.
-- **Undo last change** in Settings ends in a toast when it cleanly undid a playlist change, else in a
-  report.
+  does nothing. Undo this batch undoes exactly the batch's own changes, by their ids, newest first,
+  whatever came after them, and stops at the first one that is refused, naming it; the title counts
+  the changes really undone ("Undid 1 of 2 changes"), the rows name files without their extension and
+  the bin by this device's name. Its own report has no Undo.
+- **Undo last change** in Settings undoes the change it names, by its id, and ends in a toast when it
+  cleanly undid a playlist change, else in a report. Every Undo takes the first press; a second press
+  while it runs does nothing.
 
 Toasts sit at the bottom centre, above the mini player or the player bar, at most two at a time.
 Each stays 4 seconds, longer while the pointer or the focus is on it.

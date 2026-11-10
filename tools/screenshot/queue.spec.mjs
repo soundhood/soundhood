@@ -209,7 +209,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await fromRowMenu(page, "Paper Bloom", "Delete song");
-    await expect(page.getByRole("dialog", { name: "Delete this track?" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Delete this song?" })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     // The keyboard opens it too (ContextMenu on the row); Esc closes it and the row keeps the focus.
     await row(page, "Paper Bloom").focus();

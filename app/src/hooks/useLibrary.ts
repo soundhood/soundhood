@@ -9,6 +9,7 @@ import { KEY_LIBRARY_DIR, KEY_SORT, storePromise } from "../lib/store";
 import { UNTAGGED, relKey, sortTracks, splitArtists } from "../lib/tracks";
 import type { SortMode } from "../lib/tracks";
 import type { PlaylistFile, Setter, Track } from "../lib/types";
+import { songCount } from "../features/library/trackInfo";
 
 export type Library = ReturnType<typeof useLibrary>;
 
@@ -175,7 +176,7 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
       setStatus("Scanning…");
       const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
       setAllTracks(found);
-      setStatus(`Found ${found.length} tracks`);
+      setStatus(`Found ${songCount(found.length)}`);
       await loadPlaylists(lib);
     } catch (err) {
       setStatus(`Scan error: ${String(err)}`);
@@ -199,7 +200,7 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
       setPlView("");
       setArtistView("");
       setQuery("");
-      setStatus(`Found ${found.length} tracks`);
+      setStatus(`Found ${songCount(found.length)}`);
       await loadPlaylists(dir);
     } catch (err) {
       setStatus(`Scan error: ${String(err)}`);
@@ -227,7 +228,7 @@ export function useLibrary({ setStatus }: { setStatus: Setter<string> }) {
       setPlView("");
       setArtistView("");
       setQuery("");
-      setStatus(`Found ${found.length} tracks`);
+      setStatus(`Found ${songCount(found.length)}`);
       await loadPlaylists(picked);
       await refreshLastChange(picked);
     } catch (err) {

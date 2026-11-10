@@ -313,6 +313,9 @@ Removed: `fix_tags_from_filenames`.
 New:
 - `last_change {libraryDir}` → `{batch, ts, label, count} | null`
 - `undo_last {libraryDir}` → `BatchReport {batch, applied:[{label, path_before, path_after}], skipped:[{path, reason}], failed:[{path, error}], aborted}`
+- `undo_batch {libraryDir, batch}` → `BatchReport` (Phase 1): undoes the change with that batch id (the `batch` of the
+  `core:batch` report its own command sent), whether or not newer changes came after it; always emits its report.
+  A change already undone, or unknown, is the call's error ("this change was undone already").
 - `rebuild_index {libraryDir}` → `{total, read, removed, millis}`
 - `dev_fixture_root {enable}` → `{root}` (enable: generate under `<app data>/fixture-library` if absent and return its path; disable: `""`)
 - `self_test` → `{passed, failed, lines: string[]}`

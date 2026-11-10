@@ -67,17 +67,18 @@ On the PC the helper is yt-dlp plus deno (the JavaScript runtime yt-dlp needs).
 
 The Android download library, youtubedl-android, carries yt-dlp inside the app (together with Python,
 ffmpeg and QuickJS). Soundhood accepts that and says so here. Its yt-dlp changes only when the user
-taps **Update yt-dlp** in the settings sheet. That update is youtubedl-android's own: it downloads the
-newest yt-dlp release from GitHub over HTTPS and checks no checksum, so it rests on TLS alone. From
-Phase 2 the downloaded version is also checked against the pinned minimum.
+taps **Update** on the **Download helper** row in the settings sheet (Settings, YouTube). That update
+is youtubedl-android's own: it downloads the newest yt-dlp release from GitHub over HTTPS and checks
+no checksum, so it rests on TLS alone. From Phase 2 the downloaded version is also checked against
+the pinned minimum.
 
 ## When Soundhood uses the network
 
 Only for:
 
 - downloads the user started;
-- on the phone, **Update yt-dlp** when tapped; on the PC from Phase 2, **Update download helper**,
-  **Repair helper** and the version check described above;
+- on the phone, **Update** on the **Download helper** row when tapped; on the PC from Phase 2,
+  **Update download helper**, **Repair helper** and the version check described above;
 - on the phone, **Network check** when tapped: a diagnostic that looks up and connects to YouTube, to
   Cloudflare's public test hosts (`1.1.1.1`, `one.one.one.one`) and to one fixed Google address, partly
   outside the app's own relay, to tell a network problem from a YouTube one;
