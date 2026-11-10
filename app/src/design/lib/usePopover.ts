@@ -11,9 +11,10 @@ import { giveFocusBack, noteOpening, type Opening } from "./useFocusReturn";
 
 /**
  * How the popover that `open` shows was opened, and the call that gives the focus back when it
- * closes, by the one rule for every surface (useFocusReturn.ts): opened with the keyboard, to
- * `anchor`, the control that opened it; opened with a pointer, to where the layer under it starts
- * (the sheet it is in, else the screen's heading), so Space never opens it again.
+ * closes, by the one rule for every surface (useFocusReturn.ts): opened and closed with the
+ * keyboard, to `anchor`, the control that opened it; opened or closed with a pointer, to where the
+ * layer under it starts (the sheet it is in, else the screen's heading), so Space never opens it
+ * again.
  */
 export function usePopoverFocus(open: boolean, anchor: () => HTMLElement | null): () => void {
   const latest = useRef(anchor);

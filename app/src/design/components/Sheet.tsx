@@ -8,9 +8,10 @@
 // falls to the page (what had it inside went away, a toast that had it left) or anything gives it to
 // the screens or the player behind (a focus given back in the full player), the sheet takes it back,
 // to what had it inside when that is still there, else to the sheet itself. On close the focus goes
-// back by the one rule for every surface (giveFocusBack, useFocusReturn.ts): opened with the
-// keyboard, to what opened it; opened with a pointer, or when its opener is gone or disabled, to
-// where the layer under it starts (the sheet below, else the screen's heading): never to the page.
+// back by the one rule for every surface (giveFocusBack, useFocusReturn.ts): opened and closed with
+// the keyboard, to what opened it; opened or closed with a pointer, or when its opener is gone or
+// disabled, to where the layer under it starts (the sheet below, else the screen's heading): never
+// to the page.
 // A sheet opened while another is open goes on top of it, with its own backdrop, whatever order the
 // overlays slot mounts them in: the newest open sheet is the one drawn on top, the one Tab and Esc
 // work in, and the one the app's shortcuts ask about (topSheet, topLayer). A list or menu still open
@@ -138,10 +139,11 @@ function SheetPanel({
       openSheets.close(self);
       // A sheet closing under the one on top leaves the focus where it is, in that one.
       if (!wasTop && !focusInside) return;
-      // Opened with the keyboard: what opened it, unless it is gone or disabled now (Settings' Add,
-      // once its link is taken). Opened with a pointer, or with its opener gone: the sheet below, so
-      // Tab stays in it and Esc closes it next; with none below, the screen's heading (a report
-      // whose opener went with the songs it deleted), so Space never presses the opener again.
+      // Opened and closed with the keyboard: what opened it, unless it is gone or disabled now
+      // (Settings' Add, once its link is taken). Opened or closed with a pointer, or with its opener
+      // gone: the sheet below, so Tab stays in it and Esc closes it next; with none below, the
+      // screen's heading (a report whose opener went with the songs it deleted), so Space never
+      // presses the opener again.
       giveFocusBack(opening);
     };
   }, [openFocus, self, last]);

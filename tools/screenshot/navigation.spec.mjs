@@ -318,7 +318,8 @@ test.describe("closing Playing @desktop @phone", { tag: ["@desktop", "@phone"] }
         }
       }
       // With the keyboard: "4" (its opener goes with the screen: the heading), and Enter on the
-      // button (the button again, where the keyboard user was).
+      // button (the button again, where the keyboard user was, when the keyboard closed it too; a
+      // click on its Close is a pointer's close: the heading).
       for (const [close, run] of Object.entries(closers)) {
         await heading(page).focus();
         await page.keyboard.press("4");
@@ -331,7 +332,9 @@ test.describe("closing Playing @desktop @phone", { tag: ["@desktop", "@phone"] }
         await expect(fullPlayer(page)).toBeVisible();
         await run(page, touch);
         await expect(fullPlayer(page)).toHaveCount(0);
-        await expect(opener.button(page), `opened by Enter on its button, closed by ${close}: the button`).toBeFocused();
+        if (close === "its Close button")
+          await expect.poll(() => focusFacts(page), `opened by Enter on its button, closed by ${close}: the heading`).toEqual(onHeading("Late Night"));
+        else await expect(opener.button(page), `opened by Enter on its button, closed by ${close}: the button`).toBeFocused();
       }
     });
   }
@@ -530,4 +533,118 @@ test.describe("Esc in an empty search field @desktop @phone", { tag: ["@desktop"
     await expect(fullPlayer(page), "one Esc closes Playing").toHaveCount(0);
     await expect.poll(() => focusFacts(page), "never the page").not.toEqual({ at: "the page" });
   });
+});
+
+// The focus rule counts how a surface closed too (docs/DESIGN.md, Accessibility): the focus goes back
+// to the opener only when the keyboard both opened and closed it; a pointer's open or close gives it
+// to the screen's heading. A song row a pointer chose keeps the focus: Ctrl+click a row, then Esc or
+// Ctrl+click it again, and the arrows go on from that row.
+test.describe("the focus rule, by how a surface opened and closed @desktop", { tag: "@desktop" }, () => {
+  const SIZES = [null, { width: 1080, height: 800 }, { width: 760, height: 520 }];
+  const select = (page) => page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).first();
+  const bar = (page) => page.getByRole("toolbar", { name: "Selection" });
+  const queueButton = (page) => page.getByRole("button", { name: "Queue", exact: true }).filter({ visible: true }).first();
+  const playerButton = (page) => page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true }).first();
+  /** The title of the song row with the focus, or what has it otherwise. */
+  const focusedRow = (page) =>
+    page.evaluate(() => {
+      const el = document.activeElement;
+      const r = el?.closest?.('.Shell-main [role="option"]');
+      if (r && r === el) return r.querySelector(".TrackRow-title span:last-child")?.textContent ?? "a row";
+      return el === document.body ? "the page" : `${el?.tagName} ${(el?.getAttribute("aria-label") ?? el?.textContent ?? "").trim().slice(0, 30)}`;
+    });
+
+  for (const size of SIZES) {
+    const label = size ? ` (${size.width}x${size.height})` : "";
+    test(`Ctrl+click a song row, then Esc or Ctrl+click it again: the focus stays on the row and the arrows go on${label}`, async ({ app, page }, testInfo) => {
+      test.skip(testInfo.project.name === "desktop-1920x1080", "1280x800 stands for the desktop");
+      test.skip(!!size && testInfo.project.name !== "desktop-1280x800", "1080 and 760 wide from the 1280x800 project");
+      if (size) await page.setViewportSize(size);
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      const titles = (await page.locator('.Shell-main [role="option"] .TrackRow-title span:last-child').allTextContents()).map((t) => t.trim());
+      for (const [how, end] of [
+        ["Esc", (page) => page.keyboard.press("Escape")],
+        ["a second Ctrl+click", (page, r) => r.click({ modifiers: ["Control"] })],
+      ]) {
+        const name = titles[2];
+        const r = row(page, name).first();
+        await r.click({ modifiers: ["Control"] });
+        await expect(bar(page)).toBeVisible();
+        expect(await focusedRow(page), "Ctrl+click: the row").toBe(name);
+        await end(page, r);
+        await expect(bar(page), `${how} ends the choice`).toHaveCount(0);
+        await expect.poll(() => focusedRow(page), `after ${how}: still the row`).toBe(name);
+        await page.keyboard.press("ArrowDown");
+        await expect.poll(() => focusedRow(page), `ArrowDown after ${how}: the next row`).toBe(titles[3]);
+        await page.keyboard.press("ArrowUp");
+        await expect.poll(() => focusedRow(page)).toBe(name);
+      }
+    });
+  }
+
+  /** Opened with the keyboard, closed with a pointer: [its name, the steps]. */
+  const MIXED = [
+    ["Select pressed with Enter, left with its X", async (page) => {
+      await select(page).focus();
+      await page.keyboard.press("Enter");
+      await expect(bar(page)).toBeVisible();
+      await bar(page).getByRole("button", { name: "Leave Select mode" }).click();
+      await expect(bar(page)).toHaveCount(0);
+    }],
+    ["Select pressed with Enter, a row chosen with a click, left with its X", async (page) => {
+      await select(page).focus();
+      await page.keyboard.press("Enter");
+      await expect(bar(page)).toBeVisible();
+      await row(page, "Paper Bloom").first().click();
+      await expect(bar(page)).toContainText("1 chosen");
+      await bar(page).getByRole("button", { name: "Leave Select mode" }).click();
+      await expect(bar(page)).toHaveCount(0);
+    }],
+    ["Settings opened with Ctrl+comma from a row, closed with its Close", async (page) => {
+      await row(page, "Paper Bloom").first().focus();
+      await page.keyboard.press("Control+Comma");
+      const settings = page.getByRole("dialog", { name: "Settings" });
+      await expect(settings).toBeVisible();
+      await settings.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(settings).toHaveCount(0);
+    }],
+    ["Playing opened with Enter on the player bar's button, closed with a click on it", async (page) => {
+      await playerButton(page).focus();
+      await page.keyboard.press("Enter");
+      await expect(fullPlayer(page)).toBeVisible();
+      await page.locator(".Shell-bar").getByRole("button", { name: "Close the player" }).click();
+      await expect(fullPlayer(page)).toHaveCount(0);
+    }],
+    ["the queue opened with Q from a row, closed with the pointer", async (page) => {
+      await row(page, "Paper Bloom").first().focus();
+      await page.keyboard.press("q");
+      const sheet = page.getByRole("dialog", { name: "Queue" });
+      await expect(page.locator(".RightPane, .QueueSheet").filter({ visible: true })).toHaveCount(1);
+      if (await sheet.count()) await sheet.getByRole("button", { name: "Close", exact: true }).click();
+      else await queueButton(page).click();
+      await expect(page.locator(".RightPane, .QueueSheet")).toHaveCount(0);
+    }],
+  ];
+  for (const size of SIZES) {
+    for (const [what, steps] of MIXED) {
+      const label = size ? ` (${size.width}x${size.height})` : "";
+      test(`${what}: the heading, and Space plays and pauses${label}`, async ({ app, page }, testInfo) => {
+        test.skip(testInfo.project.name === "desktop-1920x1080", "1280x800 stands for the desktop");
+        test.skip(!!size && testInfo.project.name !== "desktop-1280x800", "1080 and 760 wide from the 1280x800 project");
+        if (size) await page.setViewportSize(size);
+        await app.open();
+        await openPlaylist(page, "Late Night");
+        await playSong(app, page, "Lunar Comets");
+        await page.mouse.move(2, 2);
+        await steps(page);
+        await expect.poll(() => focusFacts(page), what).toEqual(onHeading("Late Night"));
+        await spaceToggles(page, `after ${what}`);
+        await expect(bar(page), `Space after ${what} leaves Select mode off`).toHaveCount(0);
+        await expect(page.getByRole("dialog"), `Space after ${what} opens no sheet`).toHaveCount(0);
+        await expect(page.locator(".RightPane"), `Space after ${what} opens no queue`).toHaveCount(0);
+        await expect(fullPlayer(page), `Space after ${what} opens no Playing`).toHaveCount(0);
+      });
+    }
+  }
 });
