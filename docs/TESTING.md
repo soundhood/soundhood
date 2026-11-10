@@ -91,7 +91,9 @@ It has three parts, all in `tools/screenshot/` (the spec table is in
   loads (Windows refuses a socket now and then under many parallel connections,
   `net::ERR_NO_BUFFER_SPACE`), or nothing is drawn within 15 s, the harness loads the page again, at
   most three times in all, and logs each retry (`harness.mjs`, `loadPage`; proved by
-  `harness.spec.mjs`).
+  `harness.spec.mjs`). A load that drew nothing but threw an error of its own is never loaded again:
+  an app that crashes as it starts, even only now and then, fails the test with its error. A wait
+  for IPC to settle gives up after 15 s and names the command it waited for.
 - **The screens in three more modes.** The screen captures (`screens.spec.mjs` and the `queue` and
   `settings` captures, tagged `@modes`) run again at 390x844 and 1280x800 with reduced motion,
   `prefers-contrast: more`, and 130 % text, which is the Text size setting stored at 1.3, so the app

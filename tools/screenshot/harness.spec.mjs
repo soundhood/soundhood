@@ -1,9 +1,11 @@
 // The harness's own load (harness.mjs, loadPage): a load in which a request to the dev server fails
 // is loaded again, a bounded number of times, and logged. On Windows a socket can be refused while
 // many connections open and close (net::ERR_NO_BUFFER_SPACE): one module request of the app's ~140
-// fails and the page stays blank. Here the failure is injected: a route aborts the request.
+// fails and the page stays blank. Here the failure is injected: a route aborts the request. An app
+// that crashes as it starts is never loaded again, even when it would start the second time: the
+// load fails with the crash. A wait for IPC that never settles says which command it waited for.
 import { expect, test } from "./harness.mjs";
-import { LOAD_ATTEMPTS, LOAD_WAIT_MS, loadPage } from "./harness.mjs";
+import { IPC_SETTLE_MS, LOAD_ATTEMPTS, LOAD_WAIT_MS, loadPage } from "./harness.mjs";
 
 /** Aborts the first `times` requests whose path matches `pattern`; returns how many were seen. */
 async function failFirst(page, pattern, times) {
@@ -51,6 +53,32 @@ test.describe("app.open() and loadPage", { tag: "@desktop" }, () => {
     expect(seen).toBe(2);
     await expect(page.locator(".PlaylistCard")).toHaveCount(5);
     expect(retries(testInfo)).toEqual([expect.stringMatching(/^load 1 of \/ page\.waitForFunction: Timeout 15000ms exceeded/)]);
+  });
+
+  test("the app crashes as it starts on its first load only: the load fails with the crash, it is not loaded again", async ({ page }, testInfo) => {
+    test.setTimeout(LOAD_WAIT_MS + 30_000);
+    let loads = 0;
+    // The entry module throws on the first load and is served as it is after that, so a second
+    // load would start: an intermittent crash in the app itself, not a dev-server failure.
+    await page.route(/\/src\/main\.tsx(\?.*)?$/, (route) =>
+      ++loads === 1 ? route.fulfill({ status: 200, contentType: "text/javascript", body: 'throw new Error("startup crash on the first load");' }) : route.continue(),
+    );
+    // As app.open() waits for the app's first content.
+    const opened = loadPage(page, testInfo, {
+      url: "/",
+      ready: () => page.waitForFunction(() => !!document.getElementById("root")?.firstElementChild, null, { timeout: LOAD_WAIT_MS, polling: 50 }),
+    });
+    await expect(opened).rejects.toThrow("/ did not start: startup crash on the first load (load 1, not loaded again)");
+    expect(loads, "the entry module was asked for once").toBe(1);
+    expect(retries(testInfo), "no second load hid the crash").toEqual([]);
+  });
+
+  test("a wait for IPC that never settles gives up on its own and names the command it waited for", async ({ app }) => {
+    test.setTimeout(IPC_SETTLE_MS + 30_000);
+    await app.open();
+    await expect(app.settled("no_such_command")).rejects.toThrow(
+      new RegExp(`^waited ${IPC_SETTLE_MS} ms for the IPC command "no_such_command": 0 pending; called so far: .*list_playlists`),
+    );
   });
 
   test("a fixture page (the components spec's load) is loaded again the same way", async ({ page }, testInfo) => {

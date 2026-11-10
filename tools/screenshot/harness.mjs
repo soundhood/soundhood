@@ -47,16 +47,34 @@ function mockBundle() {
   return bundle;
 }
 
-/** Resolves once the app has been quiet on IPC for `quietMs` and `mustHave` (if any) was called. */
+/** How long IPC may take to settle before the wait gives up and says what it waited for. */
+export const IPC_SETTLE_MS = 15_000;
+
+/**
+ * Resolves once the app has been quiet on IPC for `quietMs` and `mustHave` (if any) was called.
+ * Gives up after IPC_SETTLE_MS with a message that names the command it waited for and what the
+ * page did call, rather than running into the test's own timeout.
+ */
 async function ipcSettled(page, mustHave = null, quietMs = 300) {
-  await page.waitForFunction(
-    ([cmd, quiet]) => {
+  try {
+    await page.waitForFunction(
+      ([cmd, quiet]) => {
+        const ipc = window.__soundhoodIpc;
+        return !!ipc && ipc.pending === 0 && (!cmd || ipc.calls.includes(cmd)) && performance.now() - ipc.lastAt > quiet;
+      },
+      [mustHave, quietMs],
+      { polling: 50, timeout: IPC_SETTLE_MS },
+    );
+  } catch (e) {
+    if (page.isClosed() || e?.name !== "TimeoutError") throw e;
+    const seen = await page.evaluate(() => {
       const ipc = window.__soundhoodIpc;
-      return !!ipc && ipc.pending === 0 && (!cmd || ipc.calls.includes(cmd)) && performance.now() - ipc.lastAt > quiet;
-    },
-    [mustHave, quietMs],
-    { polling: 50 },
-  );
+      return ipc ? { pending: ipc.pending, calls: [...new Set(ipc.calls)] } : null;
+    });
+    const what = mustHave ? `the IPC command "${mustHave}"` : "IPC to go quiet";
+    const state = seen ? `${seen.pending} pending; called so far: ${seen.calls.join(", ") || "nothing"}` : "the IPC mock is not there";
+    throw new Error(`waited ${IPC_SETTLE_MS} ms for ${what}: ${state}`);
+  }
 }
 
 /** How many times a page is loaded before the load counts as broken for good. */
@@ -74,11 +92,17 @@ export const LOAD_WAIT_MS = 15_000;
  * `onRetry(reason)` runs before the next load so the caller can drop what the broken one reported
  * (its page errors, its console errors). Only the load is repeated: a test's own steps start after
  * this returns. A request cut short because the page navigated (net::ERR_ABORTED) is not a failure.
+ * A load that `ready()` gives up on is loaded again only when it threw no error of its own: an app
+ * that crashes while it starts, even only sometimes, fails at once with its error, never hidden by
+ * a second load that happens to start (a failed request leaves no page error, so it still reloads).
  */
 export async function loadPage(page, testInfo, { url, ready, onRetry = () => {} }) {
   const origin = new URL(testInfo.project.use.baseURL).origin;
   for (let attempt = 1; ; attempt++) {
     const failed = [];
+    const crashed = [];
+    const onCrash = (e) => crashed.push(e.message);
+    page.on("pageerror", onCrash);
     let signal;
     const failure = new Promise((resolve) => (signal = resolve));
     const onFailed = (request) => {
@@ -105,8 +129,10 @@ export async function loadPage(page, testInfo, { url, ready, onRetry = () => {} 
       problem = String(e?.message ?? e).split("\n")[0];
     } finally {
       page.off("requestfailed", onFailed);
+      page.off("pageerror", onCrash);
     }
     if (failed.length) problem = `failed: ${failed.join(", ")}`;
+    else if (problem && crashed.length) throw new Error(`${url} did not start: ${crashed[0]} (load ${attempt}, not loaded again)`);
     if (!problem) return;
     if (attempt >= LOAD_ATTEMPTS) throw new Error(`${url} did not load in ${LOAD_ATTEMPTS} attempts; the last one ${problem}`);
     const line = `load ${attempt} of ${url} ${problem}; loading it again`;
