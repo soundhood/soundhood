@@ -198,3 +198,17 @@ bar at every width, so Space stays play/pause and the choice stays. Held "/" and
 an empty search field does what Esc does elsewhere at that moment. Each fix has a test that fails on
 `46f87a3` (78 of 78) and passes on `87a8895`; 31 older tests that expected the opener after a pointer
 open now expect the heading, each with a keyboard variant that still expects the opener.
+
+## Round 10 (`a76d617`)
+
+All four reviewers signed this commit, the first round in which they all did.
+
+| Reviewer | Result |
+|---|---|
+| Break the library | **signed**. Real double clicks on a toast's Undo, gaps 300 to 600 ms, over another toast and over a song row: one undo, nothing played or chosen; each Undo only its own change; playlist writes only through the journal. Minor (new): a toast that slid during its own first 400 ms became pressable 400 ms after it came, which could be about 40 ms after the slide |
+| Break the build | **signed**. Fresh preparation, every gate; visual 991 twice; stress 1,152 and 728 runs at 14 and 16 workers, no flake, no React warnings, no reload; no Rust or CI change |
+| Break the network | **signed**. One download at a time on PC and phone in both orders; "Not retried: a download is running" with Retry; Undo locked through the filing; the slot comes back on every path that takes it (38 of 38); a real end is never dropped; command set and bundle unchanged; no network without a user action. Minors (older): a toast saying only "Refresh error" when the second of two playlist adds failed; a queue stopped on a channel link did not say the rest are waiting; a second end during filing, which the host cannot send, would be filed |
+| Break the design | **signed**. The shared focus rule holds through chains (row menu, Add to playlist, New playlist), lists in Settings, the queue pane and sheet across a resize; Select by pointer, Esc in an empty search field, held "/" and Ctrl+K, real double clicks; every round-9 minor fixed at five sizes; at most one aqua fill per screen; 90 of 90 baselines. Minors: Ctrl+click a row then Esc moved the focus off the row (new); Esc twice in the search field in Select mode dropped the choice (new); quick repeated clicks on a fresh toast were all ignored (new); SHORTCUTS was wrong about Esc in an empty search field with Playing open (new); Cancel unpressable with a toast arriving every 250 ms (older); a click on the Queue button left the focus there, so Space closed the queue (older); Select by Enter, left with the mouse, put the focus back on an off-screen Select (older) |
+
+Because four of the minors came from fix pass 9, a scoped fix pass 10 follows, then a focused round 11.
+From round 11 on, only a major reopens the review; minors go to `docs/OPEN.md`.
