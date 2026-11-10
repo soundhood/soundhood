@@ -123,7 +123,9 @@ A result matches when its name holds every word typed, ignoring case and accents
 title, artist and file name. Under All each group shows its first few (five songs, three of the
 rest) and "Show all N", which picks that group's chip. A song plays in the order of the whole
 library; any other result opens its list, the field empties, and Back returns to the search
-(narrower shells). Esc clears the field.
+(narrower shells). Esc clears the field; in an empty field it closes Playing (the focus then on the
+heading of the screen under it), else it puts the focus on the screen's heading, and Select mode and
+the songs chosen stay.
 
 **Filtering an open list.** While a list is open the same field filters it ("Search in <list>"),
 and a song played from it plays on through the songs that match.
@@ -152,7 +154,8 @@ With nothing added it says that songs added with Play next or Add to queue show 
 
 **Where it shows.** On a desktop shell at least 600 px tall it is the right pane, opened and closed
 by the player bar's queue button or Q, with a "Hide the queue" button on its heading; open or closed
-is remembered. Everywhere else (the phone, the tablet, a short window) it is a sheet over the screen,
+is remembered. Opened by a click on the queue button, the pane takes the focus itself; closed by a
+click, the focus goes to the screen's heading, so Space plays and pauses and never toggles it. Everywhere else (the phone, the tablet, a short window) it is a sheet over the screen,
 opened by the queue button of the mini player, the player bar or the full player.
 
 **What it does.** A tap, a click or Enter plays a row. Rows reorder by dragging the handle with a
@@ -219,7 +222,9 @@ sheet opens when the setup closes (never under it).
   music folder). Download queue runs the waiting links one after another.
 - **While it runs** a toast stays: "Downloading 2 of 5: 45% (12 s)" with a purple progress line, and
   **Cancel** on the phone (the PC host cannot cancel yet). When it ends a toast says what arrived
-  ("Downloaded 1 and added to 1 playlist"). Cancel and Retry, like every toast action, ignore a press
+  ("Downloaded 1 and added to 1 playlist"), and which playlist refused the song if one did ("Downloaded
+  1 and added to 1 playlist. Not added to Late Night: file in use"; the others still get it). Cancel
+  and Retry, like every toast action, ignore a press
   within 400 ms of their toast coming or changing, so a double tap never cancels the download its
   first tap retried, nor retries the one it cancelled. One download runs at a time, on the PC and
   the phone: its songs join its own playlists only, and Undo last change waits until they have.
@@ -230,7 +235,8 @@ sheet opens when the setup closes (never under it).
   starts nothing: its error row stays, and a toast says "Not retried: a download is running", with
   Retry.
   Whole channels are refused (a toast, or in the sheet a "Not taken" row with the reason), and so is
-  a download before a music folder is chosen.
+  a download before a music folder is chosen. A queued run that meets such a link stops there, and a
+  toast says how many links still wait.
 
 ## Dialogs
 
@@ -277,10 +283,11 @@ Toasts sit at the bottom centre, above the mini player or the player bar, at mos
 the newest at the bottom; a third pushes the oldest out for good, and an Undo toast pushed out is
 gone (its change can still be undone with Undo last change in Settings). Each stays 4 seconds from
 when it shows, longer while the pointer or the focus is on it. A toast's action (Undo, Retry,
-Cancel) ignores a press for 400 ms after its own toast came, moved or changed, so a double click
-never presses the toast that slides under it (toasts arriving one after another never keep it from a
-press), and the rest of a double click on a toast that left, however slow, reaches no other toast
-and nothing behind it. Everything you do is confirmed every time: adding a song to the queue
+Cancel) ignores a press until 400 ms after its own toast came, moved or changed, so a double click
+never presses the toast that slides under it. Toasts arriving one after another never keep it from
+someone who keeps pressing it (after half a second of presses it ignored, the next one acts), and
+clicks that go on from an ignored first one are presses too. The rest of a double click on a toast
+that left, however slow, reaches no other toast and nothing behind it. Everything you do is confirmed every time: adding a song to the queue
 twice shows two toasts. Only the notice that the settings could
 not be read shows once, however often startup meets it.
 

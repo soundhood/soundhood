@@ -14,8 +14,10 @@
 // its controls, Space still plays and pauses, Esc leaves. Select pressed with the keyboard on the
 // desktop keeps it.
 // When it goes with the focus in it, or still on Select a pointer pressed, the focus goes by the one
-// rule (useFocusReturn): back to what began Select mode (the row, Select) when the keyboard did,
-// else to the screen's heading, so Space never turns Select mode on again.
+// rule (useFocusReturn): back to what began Select mode (the row, Select) when the keyboard began
+// and ended it, else to the screen's heading, so Space never turns Select mode on again. A song row
+// a pointer chose keeps the focus: Ctrl+click a row, then Esc or Ctrl+click it again, and the arrows
+// go on from that row.
 import { useEffect, useEffectEvent, useRef } from "react";
 import { cx } from "../lib/cx";
 import { useFocusReturn } from "../lib/useFocusReturn";

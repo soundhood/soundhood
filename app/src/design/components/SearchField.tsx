@@ -1,12 +1,15 @@
 // SearchField: a 40 px field with a search icon and, while it holds text, a clear button. Esc
-// clears it; in an empty field Esc does what it does anywhere else at that moment (it closes the
-// full player, leaves Select mode) and the focus goes to where the screen starts (focusMainArea),
-// never to the page. With `shortcut`, Ctrl+K and "/" focus it from anywhere on the screen it is on,
+// clears it. In an empty field Esc closes what is open over the screen, if anything is (`onEscape`:
+// the full player; a list, a menu or a sheet takes its own Esc before the field hears it), and the
+// focus goes to where the screen now shown starts (focusMainArea: its heading), never to the page and
+// never to the opener of what just closed, where Space would open it again. It is the field's own
+// key: it never leaves Select mode and never drops the songs chosen. With `shortcut`, Ctrl+K and "/" focus it from anywhere on the screen it is on,
 // except that "/" typed in another text field is a character there, and neither key does anything
 // while a sheet, the first-launch setup or a menu is open over the field (topLayer) or another part
 // of the app already took the key. Held, either is one press (heldShortcut, heldKeys.ts): "/" held
 // focuses the field and types nothing into it.
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
+import { flushSync } from "react-dom";
 import { cx } from "../lib/cx";
 import { focusMainArea, isTypingTarget } from "../lib/dom";
 import { heldShortcut } from "../lib/heldKeys";
@@ -23,6 +26,8 @@ export interface SearchFieldProps {
   /** Listen for Ctrl+K and "/" while the field is on screen. */
   shortcut?: boolean;
   onSubmit?: (value: string) => void;
+  /** Esc in the empty field: closes what is open over the screen (the full player), if anything is. */
+  onEscape?: () => void;
   inputRef?: Ref<HTMLInputElement>;
   className?: string;
 }
@@ -34,6 +39,7 @@ export function SearchField({
   label = "Search",
   shortcut,
   onSubmit,
+  onEscape,
   inputRef,
   className,
 }: SearchFieldProps) {
@@ -61,12 +67,14 @@ export function SearchField({
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
-      if (value) {
-        e.stopPropagation();
-        onChange("");
-      } else {
-        // Nothing to clear: the key goes on to whatever Esc closes now, and the focus goes to where
-        // the screen starts (the full player's title while it is open; it then gives it back itself).
+      // The field's own key either way: Select mode and the songs chosen stay.
+      e.preventDefault();
+      e.stopPropagation();
+      if (value) onChange("");
+      else {
+        // Nothing to clear: what is open over the screen closes (in this commit, so the screen under
+        // it is in the page), then the focus goes to that screen's heading.
+        if (onEscape) flushSync(onEscape);
         focusMainArea();
       }
     } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {

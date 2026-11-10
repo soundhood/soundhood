@@ -4,7 +4,9 @@
 // that starts a download (the sheet's Download, a queued link, the queue's next link, a Retry) can
 // start a second one while one runs, whatever an older render saw. `busy` keeps what waits for a
 // download (Undo last change, Sync now, the Download buttons) locked until that end; `running` is
-// the helper alone and decides the download's toast, which goes the moment the helper ends.
+// the helper alone and decides the download's toast, which goes the moment the helper ends. An end
+// is a download's only while its helper runs (`helperRunning`, a ref): a second end that comes while
+// the first one's files are still being filed is no download's and files nothing.
 // Also what the running download shows and offers: its progress (0 to 100, or -1; the phone's
 // plugin sends its own figure and lines, the PC's yt-dlp lines are read by useDownloads), its
 // seconds, and on the phone its Cancel (the PC host has no cancel yet).
@@ -25,6 +27,7 @@ type SlotArgs = {
 
 export function useDownloadSlot({ isMobile, notify, onPhoneLine, appendLog }: SlotArgs) {
   const held = useRef(false);
+  const helper = useRef(false);
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(-1);
@@ -89,10 +92,13 @@ export function useDownloadSlot({ isMobile, notify, onPhoneLine, appendLog }: Sl
     cancelPhoneDownload,
     /** True while a download holds the slot, as of now. */
     taken: () => held.current,
+    /** True while the helper of the download in the slot runs, as of now: its end is still to come. */
+    helperRunning: () => helper.current,
     /** Takes the slot for a download about to start; false, changing nothing, while one holds it. */
     take(): boolean {
       if (held.current) return false;
       held.current = true;
+      helper.current = true;
       setBusy(true);
       setRunning(true);
       setProgress(-1);
@@ -104,11 +110,13 @@ export function useDownloadSlot({ isMobile, notify, onPhoneLine, appendLog }: Sl
      * so that toast never pushes a newer notice out of the stack past the leaving one.
      */
     helperEnded() {
+      helper.current = false;
       flushSync(() => setRunning(false));
     },
     /** The download is over (filed, failed or refused by the host): another one may start. */
     release() {
       held.current = false;
+      helper.current = false;
       setRunning(false);
       setBusy(false);
     },

@@ -21,14 +21,17 @@ leaves the focus on the new screen's heading (the full player's title on Playing
 button, a card or a row: Space still plays and pauses, Ctrl+E with nothing chosen edits the playing
 song, and Tab goes on into the screen, from the first card or row in view when the heading is out of
 sight (Back to a scrolled list). Select pressed with a click or a tap gives the focus to the
-selection bar (no ring), so Space keeps playing and pausing in Select mode. What opens over a screen
-from a control (a sheet, a list or menu, Select mode, the queue, Playing) gives the focus back by
-one rule when it closes: opened with a click or a tap (even on a button the keyboard had reached),
-the focus goes to the heading under it (to the sheet, for what opened in a sheet), so Space plays
-and pauses and never opens it again; opened with the keyboard, it goes back to what opened it. A
-sidebar item you reached with the keyboard keeps the focus, and so does the search field you type
-in. The first-launch setup keeps Tab inside it, as a sheet does. On the phone there is no keyboard
-layer: a tap plays, and there is no double-tap.
+selection bar (no ring), so Space keeps playing and pausing in Select mode; so does a click on Queue
+that opens the queue beside the list, which then has the focus itself. What opens over a screen from
+a control (a sheet, a list or menu, Select mode, the queue, Playing) gives the focus back by one
+rule when it closes: opened and closed with the keyboard, it goes back to what opened it; opened or
+closed with a click or a tap (even on a button the keyboard had reached, or on the button that
+closes it), the focus goes to the heading under it (to the sheet, for what opened in a sheet), so
+Space plays and pauses and never opens it again. A song row you chose with a click (Ctrl+click,
+Shift+click, a tick in Select mode) keeps the focus, so the arrows go on from it. A sidebar item you
+reached with the keyboard keeps the focus, and so does the search field you type in. The
+first-launch setup keeps Tab inside it, as a sheet does. On the phone there is no keyboard layer: a
+tap plays, and there is no double-tap.
 
 "The selection" means the songs you have chosen (Ctrl+click, Shift+click, or Select mode), or else
 the row that has the keyboard focus because you moved it there (the arrows, Tab, a click); after a
@@ -51,7 +54,7 @@ Ctrl+arrows also work while a slider has the focus.
 |---|---|
 | 1, 2, 3, 4 | Playlists, Artists, Folders, Playing |
 | Ctrl+K or / | Focus the search field |
-| Esc | Close the open list, menu or sheet (the one on top), else clear the search; in an empty search field, close Playing or leave Select mode, with the focus going to the screen's heading |
+| Esc | Close the open list, menu or sheet (the one on top), else clear the search. In an empty search field: close Playing if it is open, with the focus going to the heading of the screen under it; else move the focus to the screen's heading. It never leaves Select mode there or drops the songs chosen |
 | Ctrl+, | Settings |
 | Q | Show or hide the queue |
 

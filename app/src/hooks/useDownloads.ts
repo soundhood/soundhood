@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { CHANNEL_REFUSAL, isChannelLink, lastErrorLine, queueEndStatus, queueStopStatus } from "../downloads";
+import { CHANNEL_REFUSAL, filedStatus, isChannelLink, lastErrorLine, queueEndStatus, queueStopStatus } from "../downloads";
 import { checkFolderName, folderNameRefusal } from "../folderName";
 import { firstUrl, isPlaylistLink } from "../lib/links";
 import { DEFAULT_DOWNLOAD_TARGET, KEY_SHARE_QUEUE, storePromise } from "../lib/store";
@@ -324,6 +324,11 @@ export function useDownloads({
     notify({ text, action: { label: "Retry", onClick: retry } });
   }
 
+  /**
+   * Starts a download; false when it was refused before it started (nothing ran: the slot, the
+   * switch, the folder, a channel link, the PC host), true once it started (its end or its failure
+   * says the rest).
+   */
   async function startDownload(url: string, target: string, playlists: string[], queued: QueuedLink | null): Promise<boolean> {
     // One at a time, on every path: what a download files and where is its own until it is over.
     if (slot.taken()) {
@@ -375,7 +380,7 @@ export function useDownloads({
         setDlLogs((prev) => prev + `\n[done] exit code: ${res.exitCode}\n`);
         noteDlOutput(res.log || "");
         await finishDownload(res.exitCode, res.files || []);
-        return res.exitCode === 0;
+        return true;
       } catch (err) {
         slot.helperEnded();
         slot.release();
@@ -383,7 +388,8 @@ export function useDownloads({
         const reason = String(err).split("\n")[0].slice(0, 120);
         if (queued) { activeDlRef.current = { ...activeDlRef.current, queued: null }; queueRunRef.current = []; runTotalRef.current = 0; setRun(null); }
         failed("Download failed", `Download failed: ${reason}`, reason, { url, target: folderName, playlists, queued });
-        return false;
+        // It started: its failure (with Retry) has said the rest.
+        return true;
       }
     }
     try {
@@ -407,9 +413,9 @@ export function useDownloads({
   // drop a finished queued link. The slot stays taken until that is done (Undo last change waits
   // for it); then the next queued link starts.
   async function finishDownload(exitCode: number, filePaths: string[]) {
-    // An end while no download holds the slot (none started, or its end came already) is no
-    // download's: nothing is filed for it, into the last one's playlists or anywhere.
-    if (!slot.taken()) {
+    // An end while no helper runs (none started, or its end came already, its files maybe still
+    // being filed) is no download's: nothing is filed for it, into the last one's playlists or anywhere.
+    if (!slot.helperRunning()) {
       appendLog([`[soundhood] an end with no download running (code ${exitCode}) was ignored`]);
       return;
     }
@@ -437,13 +443,23 @@ export function useDownloads({
       if (exitCode === 0 && filePaths.length && targets.length) {
         const paths = filePaths.filter((fp) => found.some((x) => x.path === fp));
         if (paths.length) {
-          // Through the journal, like every playlist write: never between a write and its report.
+          // Through the journal, like every playlist write: never between a write and its report. A
+          // playlist that refuses (a file in use) keeps the others: the toast says which was missed.
+          const added: string[] = [];
+          const missed: { name: string; reason: string }[] = [];
           for (const name of targets) {
-            await journaled<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths } });
+            try {
+              await journaled<PlaylistFile>("playlist_add", { args: { libraryDir: lib, name, paths } });
+              added.push(name);
+            } catch (err) {
+              missed.push({ name, reason: String(err).split("\n")[0].slice(0, 120) });
+            }
           }
           await loadPlaylists(lib);
-          setDlLogs((prev) => prev + `[soundhood] ${paths.length} file${paths.length === 1 ? "" : "s"} added to: ${targets.join(", ")}\n`);
-          notify({ text: `Downloaded ${paths.length} and added to ${targets.length} playlist${targets.length === 1 ? "" : "s"}` });
+          const files = `${paths.length} file${paths.length === 1 ? "" : "s"}`;
+          if (added.length) setDlLogs((prev) => prev + `[soundhood] ${files} added to: ${added.join(", ")}\n`);
+          if (missed.length) appendLog(missed.map((m) => `[error] ${files} not added to ${m.name}: ${m.reason}`));
+          notify({ text: filedStatus(paths.length, added.length, missed) });
         }
       } else if (exitCode === 0) {
         notify({ text: `Downloaded ${filePaths.length} file${filePaths.length === 1 ? "" : "s"}` });
@@ -502,8 +518,15 @@ export function useDownloads({
       return;
     }
     setRun({ at: runTotalRef.current - queueRunRef.current.length, of: runTotalRef.current });
-    startDownload(item.url, item.target || DEFAULT_DOWNLOAD_TARGET, item.playlists || [], item).then((ok) => {
-      if (!ok) { queueRunRef.current = []; runTotalRef.current = 0; setRun(null); }
+    startDownload(item.url, item.target || DEFAULT_DOWNLOAD_TARGET, item.playlists || [], item).then((started) => {
+      if (started) return;
+      // Refused before it started (a channel link, a folder name, the host): the run stops here, and
+      // the toast after the refusal says the links left are still waiting.
+      queueRunRef.current = [];
+      runTotalRef.current = 0;
+      setRun(null);
+      const text = queueEndStatus(false, shareQueueRef.current.length);
+      if (text) notify({ text });
     });
   }
   const nextQueuedRef = useRef(nextQueued);

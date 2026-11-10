@@ -4,7 +4,10 @@
 // download's toast; a refused download stops the queue with an error row; channel links; the
 // downloader switch (switched off, nothing more starts: not the queue's next link, not a Retry);
 // one download at a time (a Retry pressed while another runs starts nothing, keeps its error row and
-// says why; the running one is filed into its own playlists; Undo last change waits for its end);
+// says why; the running one is filed into its own playlists; Undo last change waits for its end; a
+// second end while the first is filed files nothing); a playlist that refuses the song (the toast says
+// the download worked and which playlist missed it); a queued run that stops on a channel link (the
+// links left still wait);
 // Enter in the New folder field; the links waiting with copy and remove; the narrow window. On the
 // phone: a shared link, a refused queue, Cancel, a Retry tapped while another download runs.
 import { readFileSync } from "node:fs";
@@ -330,6 +333,68 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await emit(page, "ytdlp:done", 0);
     await page.waitForTimeout(600);
     expect(await journalLabels(page), "nothing filed for it").toEqual(["Added 1 track to Focus"]);
+  });
+
+  test("a second end that comes while a download's songs are still being filed files nothing", async ({ app, page }) => {
+    await app.open();
+    await downloadItem(page).click();
+    await where(page).getByRole("textbox", { name: "Link" }).fill(B_LINK);
+    await togglePlaylist(page, "Focus");
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    // Its end, with its file; the filing waits on a slow rescan.
+    await page.evaluate(() => (window.__soundhoodMock.delay.scan_music_folder = 1200));
+    await emit(page, "ytdlp:files", [app.data.tracks[2].path]);
+    await emit(page, "ytdlp:done", 0);
+    // While it is filed (the slot still held), a second end with another file: no download's.
+    await page.waitForTimeout(200);
+    await emit(page, "ytdlp:files", [app.data.tracks[3].path]);
+    await emit(page, "ytdlp:done", 0);
+    await expect.poll(() => journalLabels(page), { timeout: 6000 }).toEqual(["Added 1 track to Focus"]);
+    await page.waitForTimeout(2000);
+    expect(await journalLabels(page), "the second end files nothing").toEqual(["Added 1 track to Focus"]);
+  });
+
+  test("a playlist that refuses the downloaded song: the toast says it downloaded and which playlist missed it", async ({ app, page }) => {
+    await app.open();
+    await downloadItem(page).click();
+    await where(page).getByRole("textbox", { name: "Link" }).fill(B_LINK);
+    await togglePlaylist(page, "Focus");
+    await togglePlaylist(page, "Late Night");
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    // Late Night's file is in use: its playlist_add is refused, Focus's goes through.
+    await page.evaluate(() => {
+      const internals = window.__TAURI_INTERNALS__;
+      const invoke = internals.invoke;
+      internals.invoke = (cmd, args, options) =>
+        cmd === "playlist_add" && args?.args?.name === "Late Night" ? Promise.reject("file in use") : invoke(cmd, args, options);
+    });
+    await emit(page, "ytdlp:files", [app.data.tracks[3].path]);
+    await emit(page, "ytdlp:done", 0);
+    await expect(toast(page, "Downloaded 1 and added to 1 playlist. Not added to Late Night: file in use")).toBeVisible();
+    expect(await page.locator(".Toast > span").allTextContents(), "no bare refresh error").not.toContainEqual(expect.stringContaining("Refresh error"));
+    expect(await journalLabels(page)).toEqual(["Added 1 track to Focus"]);
+  });
+
+  test("a queued run that stops on a channel link says the links left are still waiting", async ({ app, page }) => {
+    await beforeLoad(page, () => {
+      window.__soundhoodMock.store.set("share_queue", [
+        { url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", added: 3 },
+        { url: "https://www.youtube.com/@SomeChannelName", added: 2 },
+        { url: "https://www.youtube.com/watch?v=ccccccccccc", added: 1 },
+      ]);
+    });
+    await app.open();
+    await openSettings(app, page);
+    await sheet(page).getByRole("button", { name: "Download queue (3)" }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    await emit(page, "ytdlp:done", 0);
+    await expect(toast(page, CHANNEL_REFUSAL)).toBeVisible();
+    await expect(toast(page, "2 links still waiting in the queue")).toBeVisible();
+    await page.waitForTimeout(800);
+    expect(await ipcCount(page, "downloads"), "nothing more starts").toBe(1);
+    await expect(sheet(page).getByRole("button", { name: "Download queue (2)" })).toBeVisible();
   });
 
   test("the downloader switched off hides the download UI; a pasted link says where to turn it on", async ({ app, page }) => {
