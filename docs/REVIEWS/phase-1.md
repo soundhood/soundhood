@@ -263,3 +263,18 @@ a twelfth round: it restores a rule all four reviewers signed in round 10.
 | Break the build | `a76d617` (round 10) and `8455614` (round 11, every gate) |
 | Break the network | `a76d617` (round 10); `8455614` apart from M2, closed in `dec717b` by the reviewer's own probes |
 | Break the design | `a76d617` (round 10) and `8455614` (round 11) |
+
+## Gate on the devices (`fccaec6`)
+
+The release builds of the final commit, checked on the real PC window and the phone with the Test
+library; screenshots and the real-device parity grid in
+[`docs/evidence/phase-1/gate/`](../evidence/phase-1/gate/).
+
+| Check | Result |
+|---|---|
+| Windows installer | `Soundhood_0.3.0_x64-setup.exe`, 62.8 MB; sidecars checked against the pins; installed by the owner, reports 0.3.0 |
+| Android release APK | 89.8 MB, versionCode 3000, signer SHA-256 `73abd93e…c48de47f45` (the app on the phone); the same eight native libraries as 0.2.1. The first APK, from a clean clone without the hand-placed `librclone.so`, showed "No sync engine" on the phone and was replaced (`OPEN.md`) |
+| Real PC window, 1280x800 and 1920x1080 | the eight parity screens under a test identity, exact size; test identity's data deleted afterwards |
+| Phone | installed over the app with the same key; the eight parity screens with the Test library, which was then turned off again (own library, sync and the hidden developer section back as before) |
+| Parity grid from the devices | 8 of 8 screens paired, none one-sided |
+| blue scan, strict | 24 screenshots and the grid, 0 failing (one artwork mask, explained in the gate README) |

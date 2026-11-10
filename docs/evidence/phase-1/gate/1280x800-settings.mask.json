@@ -1,0 +1,11 @@
+{
+  "masks": [
+    {
+      "x": 0,
+      "y": 440,
+      "w": 80,
+      "h": 190,
+      "why": "artwork: the sidebar's playlist covers, blurred behind the Settings dialog; WebView2's blur mixes the aqua and purple fixture covers into near-black pixels of blue hue (0.12 % of the shot, all inside this box). No blue is drawn by the interface"
+    }
+  ]
+}

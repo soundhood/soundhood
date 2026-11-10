@@ -26,5 +26,5 @@ suite then passes with no baseline changed, and both folders pass
 `node tools/blue-scan.mjs --strict`.
 
 The gate's screenshots of the real WebView2 window and of the phone are not part of this set and are
-not made from the baselines; they go in `gate/` with a README of their own (the evidence rules in
-[TESTING](../../TESTING.md#evidence-rules)).
+not made from the baselines; they are in [`gate/`](gate/) with a README of their own and a parity grid
+from the real devices (the evidence rules in [TESTING](../../TESTING.md#evidence-rules)).
