@@ -1,7 +1,8 @@
-// The shell's overlays slot, in stacking order: the settings sheet (and its sub-sheets), the
-// sheets the screens open (add to playlist, new playlist, move to folder), the dialogs (edit tags,
-// delete), downloads ("Where should this go?" and the running download's toast), the report that
-// ends a tier-1 write, the first-launch setup, and the toasts.
+// The shell's overlays slot: the settings sheet (and its sub-sheets), the sheets the screens open
+// (add to playlist, new playlist, move to folder), the dialogs (edit tags, delete), downloads ("Where
+// should this go?" and the running download's toast), the report that ends a tier-1 write, the
+// first-launch setup, and the toasts. Sheets stack in the order they open, not in this order: the
+// newest is on top (Sheet.tsx), so New playlist opened from the queue sheet covers it.
 import { ToastViewport } from "../design";
 import { DeletePlaylistDialog } from "../features/dialogs/DeletePlaylistDialog";
 import { DeleteTracksDialog } from "../features/dialogs/DeleteTracksDialog";

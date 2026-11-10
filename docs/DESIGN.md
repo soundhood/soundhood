@@ -424,7 +424,12 @@ action as the danger pill, Cancel as a text button. On open the focus moves to t
 its title is read out, and the panel draws no focus ring for it (the ring belongs to the controls
 inside); a sheet built around one field starts in that field instead (Edit tags, New playlist, "Where
 should this go?" opened with an empty link). Focus is trapped in the sheet; Esc closes; focus returns
-to what opened it. `role="dialog"`, `aria-modal`, labelled by its title.
+to what opened it, or, when that is gone or disabled (Settings' Add once its link is taken), to the
+sheet below. A sheet opened from another one (Settings, then "Where should this go?", the log or the
+links waiting; the queue sheet, then New playlist or "Clear the queue?") goes on top of it with its
+own backdrop, whatever order the app mounts them in: the newest open sheet is the one drawn on top, the
+one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about. `role="dialog"`,
+`aria-modal`, labelled by its title.
 
 **Toast.** Bottom centre, above the mini player or the player bar, `--bg-3`, `--r-md`,
 `--shadow-float`, body-sm text and at most one text action: Undo (a tier-2 playlist change, a song

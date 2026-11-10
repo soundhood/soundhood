@@ -10,7 +10,7 @@
 .Backdrop {
   position: absolute;
   inset: 0;
-  z-index: 30;
+  z-index: calc(30 + var(--sheet-layer, 0));
   background: var(--backdrop);
   animation: fade-in var(--dur-opacity) var(--ease-standard);
 }
@@ -40,12 +40,14 @@
   }
 }
 
-/* A sheet shares its backdrop's layer, so they stack in document order: a dialog opened from another
-   one (Settings, then "Where should this go?") puts its backdrop over the first, which dims and blurs
-   it, and only the newest sheet reads as open. The overlays slot mounts them in that order. */
+/* A sheet and its backdrop share a layer, 30 plus --sheet-layer: the sheet's place among the open
+   ones, oldest first (Sheet.tsx sets it). A dialog opened from another one (Settings, then "Where
+   should this go?"; the queue sheet, then New playlist) puts its backdrop over the first, which dims
+   and blurs it, and only the newest sheet reads as open, whatever order the overlays slot mounts
+   them in. Within a layer the backdrop comes first in the document, so the sheet is above it. */
 .Sheet {
   position: absolute;
-  z-index: 30;
+  z-index: calc(30 + var(--sheet-layer, 0));
   left: 0;
   right: 0;
   bottom: 0;

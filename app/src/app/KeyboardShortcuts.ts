@@ -11,7 +11,7 @@ import { usePlaylistEdits } from "../features/playlists/usePlaylistEdits";
 import { useQueueEdits } from "../features/queue/useQueueEdits";
 import { useQueueUi } from "../features/queue/QueueUi";
 import { upcomingCount } from "../features/queue/queueModel";
-import { useToast } from "../design";
+import { topSheet, useToast } from "../design";
 import { IN_QUEUE_SHEET, PLAYBACK, VOLUME_STEP, shortcutFor, type Command, type KeyPress } from "./keyboard";
 import { useApp } from "./context";
 
@@ -144,7 +144,9 @@ export function KeyboardShortcuts(): null {
     // A menu takes its own letters (type-ahead).
     if (e.target instanceof Element && e.target.closest('[role="menu"]')) return;
     // While a sheet or dialog is open, only the music answers (and, in the queue sheet, the queue).
-    const sheet = document.querySelector('[aria-modal="true"]');
+    // The sheet that counts is the one on top: "Clear the queue?" over the queue sheet takes no
+    // queue keys. The first-launch setup is a modal dialog of its own, not a sheet.
+    const sheet = topSheet() ?? document.querySelector('[aria-modal="true"]');
     const dialog = sheet || dialogs.editTags || dialogs.confirmDelete || dialogs.confirmDeletePlaylist;
     if (dialog) {
       const allowed = sheet?.classList.contains("QueueSheet") ? IN_QUEUE_SHEET : PLAYBACK;

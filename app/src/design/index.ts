@@ -62,7 +62,7 @@ export { BottomTabs, type BottomTabsProps, type Tab } from "./components/BottomT
 export { Sidebar, type SidebarProps, type NavEntry, type SidebarPlaylist } from "./components/Sidebar";
 
 // Overlays
-export { Sheet, type SheetProps } from "./components/Sheet";
+export { Sheet, topSheet, type SheetProps } from "./components/Sheet";
 export { ToastProvider, ToastViewport, useToast, type ToastApi, type ToastOptions } from "./components/Toast";
 export {
   SettingGroup,
