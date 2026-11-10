@@ -219,9 +219,13 @@ sheet opens when the setup closes (never under it).
   music folder). Download queue runs the waiting links one after another.
 - **While it runs** a toast stays: "Downloading 2 of 5: 45% (12 s)" with a purple progress line, and
   **Cancel** on the phone (the PC host cannot cancel yet). When it ends a toast says what arrived
-  ("Downloaded 1 and added to 1 playlist").
+  ("Downloaded 1 and added to 1 playlist"). Cancel and Retry, like every toast action, ignore a press
+  within 400 ms of their toast coming or changing, so a double tap never cancels the download its
+  first tap retried, nor retries the one it cancelled.
 - **Failures.** A download that fails gives a toast with Retry and the error row in Settings,
-  YouTube. A queue stops at the first failure ("Queue stopped: ...") and that link stays queued.
+  YouTube. A queue stops at the first failure ("Queue stopped: ...") and that link stays queued. Its
+  Retry downloads that link alone; then a toast says how many links still wait ("2 links still
+  waiting in the queue") until Download queue runs them.
   Whole channels are refused (a toast, or in the sheet a "Not taken" row with the reason), and so is
   a download before a music folder is chosen.
 
@@ -269,8 +273,11 @@ Every dialog is the same sheet: a bottom sheet on the phone, a centred panel on 
 Toasts sit at the bottom centre, above the mini player or the player bar, at most two at a time,
 the newest at the bottom; a third pushes the oldest out for good, and an Undo toast pushed out is
 gone (its change can still be undone with Undo last change in Settings). Each stays 4 seconds from
-when it shows, longer while the pointer or the focus is on it. Everything you do is confirmed every
-time: adding a song to the queue twice shows two toasts. Only the notice that the settings could
+when it shows, longer while the pointer or the focus is on it. A toast's action (Undo, Retry,
+Cancel) ignores a press for 400 ms after its own toast came, moved or changed, so a double click
+never presses the toast that slides under it, and the rest of a double click on a toast that left
+reaches nothing behind it. Everything you do is confirmed every time: adding a song to the queue
+twice shows two toasts. Only the notice that the settings could
 not be read shows once, however often startup meets it.
 
 ## First-launch setup
@@ -285,7 +292,8 @@ the last):
 3. **YouTube helper**: **Enable downloader** (off) and **Keep download helper updated** (off). The
    downloader stays off, and the download controls hidden, until it is turned on here or in Settings.
 
-It shows once: finished or skipped through, it never returns. **An existing install** (one where an
+Tab stays inside the setup, as in a sheet. It shows once: finished or skipped through, it never
+returns. **An existing install** (one where an
 earlier version stored any setting) is asked nothing and keeps downloading as before; when it has no
 music folder set, it sees the folder step alone. Online lookups and Keep download helper updated have
 no row in Settings until the phases that use them.

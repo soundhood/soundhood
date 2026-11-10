@@ -94,8 +94,7 @@ Times and counts use `font-variant-numeric: tabular-nums`. Nothing is smaller th
 one line with an ellipsis; only the full player's title wraps to two lines.
 
 The sizes above are at the default text size. Every type token multiplies by `--text-scale`, set on
-the root element only: 1, 1.15 or 1.3, from Settings, Appearance, Text size
-([DECISIONS](DECISIONS.md)).
+the root element only: 1, 1.15 or 1.3 (Settings, Appearance, Text size; [DECISIONS](DECISIONS.md)).
 
 ## Space and size
 
@@ -163,23 +162,18 @@ app; on the PC the Proton Drive app mirrors the library) show or hide by what th
 that is listed as such in [SCREENS](SCREENS.md).
 
 Insets: on Android `MainActivity` pads the web view by the system bars and the display cutout itself
-(native padding, on the canvas colour), so the CSS inset variables (`--inset-top`, `--inset-bottom`,
-...) the components read stay 0 there ([DECISIONS](DECISIONS.md), 2026-11-10);
-`env(safe-area-inset-*)` is not used (unreliable on the WebView floor).
+(native padding, on the canvas colour), so the CSS inset variables (`--inset-top`, ...) stay 0 there
+([DECISIONS](DECISIONS.md), 2026-11-10); `env(safe-area-inset-*)` is not used (unreliable).
 
 Scrollbars: an 8 px bar with a `--scrollbar` thumb (2 px clear of its edges) on a transparent track,
 no arrow buttons, on every scrolling box with a mouse; none on touch (`pointer: coarse`). Chromium
-(WebView2, the Android System WebView) and WebKitGTK draw it from the `::-webkit-scrollbar` rules in
-`base.css`. The standard `scrollbar-width` and `scrollbar-color` are set only where those rules are
-unsupported (`@supports not selector(::-webkit-scrollbar)`): since Chromium 121 either property turns
-an element's `::-webkit-scrollbar` rules off, and Windows then draws its own wider bar with arrow
-buttons. The visual suite hides scrollbars, so `tools/screenshot/scrollbars.spec.mjs` shows them and
-checks the bar's width, its styles and its pixels.
+and WebKitGTK draw it from the `::-webkit-scrollbar` rules in `base.css`; `scrollbar-width` and
+`scrollbar-color` are set only where those are unsupported (since Chromium 121 either one turns them
+off, and Windows draws its own wider bar with arrows). `scrollbars.spec.mjs` shows and checks it.
 
 Start: the window and the page are the canvas colour before the UI paints, never white: the main
 window's `backgroundColor` in `tauri.conf.json`, an inline `html, body` background in `index.html`,
-and on Android the theme's `windowBackground` (day and night, re-applied by
-`scripts/patch-android.py`).
+and on Android the theme's `windowBackground` (day and night; `scripts/patch-android.py`).
 
 ## Icons
 
@@ -267,7 +261,8 @@ Playlists, Artists and Folders, and of an open list, which it then filters; on t
 the sidebar. Typing anywhere on a list screen with a mouse and keyboard does not hijack focus; Ctrl+K
 and `/` focus it.
 
-**TextField.** A 40 px input on `--bg-2` with a 1 px line; the placeholder in `--fg-1`.
+**TextField.** A 40 px input on `--bg-2` with a 1 px line; the placeholder in `--fg-1`. Its Enter
+ends in it: where Enter submits and the sheet closes, it never presses what the focus goes back to.
 
 **Dropdown and MultiSelect.** A button showing the value and a chevron that opens a popover listbox
 (`--bg-2`, `--r-md`, `--shadow-float`) of 36 px options; the chosen option has an aqua check.
@@ -359,10 +354,11 @@ the 64 px aqua play button, next, repeat); a bottom row of queue, lyrics, add to
 "More" is a MenuButton with the row menu's items for the playing song alone: Add to playlist, Go to
 artist (which closes the player), Edit tags and Delete; Play next, Add to queue and Remove from a
 playlist make no sense for the song already playing and are left out. Its keys and ARIA are the
-MenuButton's, as the row menu's.
-The background is a gradient from the artwork tint into `--bg-0`. Swipe down or Esc closes it (after
-closing its More menu, when that is open); closed with the focus in it, the focus goes back to what
-opened it (the player bar's open button, the mini player, the Playing item), else to the main area.
+MenuButton's, as the row menu's. The background is a gradient from the artwork tint into `--bg-0`.
+Swipe down or Esc closes it (after closing its More menu, when that is open). Opened with a pointer,
+closing it (Esc, "1", Close) is a navigation like any other: the focus goes to the heading under it.
+Opened with the keyboard and closed with the focus in it, the focus goes back to what opened it (the
+player bar's button, the mini player, the Playing item), else to the main area (`useFocusReturn`).
 On a shell wide enough for the player bar the same component lays out in two columns (artwork; then where it
 plays from, the title in display size, the artist, facts such as length and format, and the action row)
 and leaves the transport to the player bar.
@@ -447,9 +443,8 @@ never outside it. A list or MenuButton's menu follows its button while it is ope
 sliding in, a resize) and closes when its button scrolls out of sight; a row menu closes when the list
 scrolls or the window changes size, never on its own scroll, and either way the focus goes back to
 the button or row (else the main area). Home, End and type-ahead scroll the active option into view
-inside the list. With the owner's 29 playlists the Playlists list of "Where should this go?" shows
-every one, at every size (`reach.spec.mjs`). Outside a shell (a fixture page) a popover sits in
-place, under its button.
+inside the list. With the owner's 29 playlists "Where should this go?" shows every one, at every
+size (`reach.spec.mjs`). Outside a shell (a fixture page) a popover sits in place.
 
 **Modal / Sheet.** Every dialog is one component: on the phone a bottom sheet (rounded top `--r-xl`, a
 32 x 4 grabber in `--fg-2`, swipe down or tap the backdrop to close), on wider shells a centred panel
@@ -461,8 +456,9 @@ inside); a sheet built around one field starts in that field instead (Edit tags,
 should this go?" opened with an empty link). Where the focus starts is decided once, when the sheet
 opens: typing into its field never moves the focus again. Focus is trapped in the sheet; when the
 control that has it goes away (a link removed from Links waiting) it moves to the control that takes
-its place, else the one before it, else the sheet itself, and a focus given to anything behind the
-sheet (a focus given back in the full player) comes back to the sheet; Esc closes; focus returns to
+its place, else the one before it, else the sheet itself; a focus given to anything behind the sheet
+(a focus given back in the full player) or fallen to the page from anywhere (a toast that had it
+left) comes back to what had it in the sheet, else the sheet; Esc closes; focus returns to
 what opened it, or, when that is gone or disabled (Settings' Add once its link is taken), to the
 sheet below, else to the main area (the screen's heading): never to the page. A sheet opened from another one (Settings, then "Where should this go?", the log or the
 links waiting; the queue sheet, then New playlist or "Clear the queue?") goes on top of it with its
@@ -477,10 +473,12 @@ taken out of the queue), Retry (a failed download), Cancel (the phone's running 
 while hovered or focused). The stack holds two: at most two toasts exist, the newest at the bottom; a
 third pushes the oldest out, dismissed with its timer, never shown later (A, B, C, A shows C and A,
 then nothing). An Undo toast pushed out is simply gone: its change stays in the journal, undoable
-from Settings (Undo last change, newest first). An Undo ignores presses for 400 ms after its own
-toast moved or came: a double click on an older toast's Undo never presses the newer one's, slid
-under the pointer; a toast that did not move, and Cancel and Retry always, take a press at once. A
-toast leaves before its action runs (a refused Undo comes back, pushing nothing out). Every toast is
+from Settings (Undo last change, newest first). Every action ignores presses for 400 ms after its own
+toast came, moved or changed its action (`aria-disabled`), never for another toast's change or a
+download's progress: a double tap never presses what came or slid under it (Retry under Cancel). A
+toast leaves before its action runs (a refused Undo comes back, pushing nothing out); for 400 ms the
+rest of a double click on it reaches nothing behind it, and its focus goes to the sheet on top, else
+the screen's heading. Every toast is
 its own, the newest, in the same words or not (A pressed twice shows two "Added ... to the queue").
 Only a notice sent with a key stands for an earlier one of that key, back as the newest with its 4 s
 started again (today only the unreadable settings at startup). A download toast stays while the
@@ -524,11 +522,11 @@ into another under a finger: a playlist, Add to playlist and Remove from it; a f
 Add to playlist and Move to folder; an artist, Add to playlist and Play next. They are disabled while
 the selection cannot use them. The menu there starts with Select all (or Select none) and holds
 every other action, Edit tags among them, so every action stays reachable without a row of six
-glyphs. Play and Add to queue are not on it; the rows' menu has them for a
-selection. It stays in view at the top of the list; below the desktop width it takes the screen
-header's place, on the desktop it sits above the list. Esc leaves Select mode (after closing its More
-menu, when that is open); the focus then goes back to what had it when Select mode began (the row
-Ctrl+clicked, the Select button), else to the main area, never to the page.
+glyphs. Play and Add to queue are not on it; the rows' menu has them for a selection. It stays in
+view at the top of the list; below the desktop width it takes the screen header's place and the
+focus Select had (`tabindex="-1"`, no ring), on the desktop it sits above the list. Esc leaves
+Select mode (after closing its More menu, when that is open); the focus then goes back to what had
+it when Select mode began (the row Ctrl+clicked, the Select button), else to the main area.
 
 **Where should this go? sheet.** After a link is shared or pasted, or from the sidebar's Download item
 with an empty link: the link, the folder it lands in (a Dropdown with "New folder"), the playlists it
@@ -541,8 +539,9 @@ sent otherwise), YouTube helper (Enable downloader, off; "Keep download helper u
 mark on the first step, no illustrations; EmptyState styling. Skipped by the upgrade rule when an
 existing install is found ([DECISIONS](DECISIONS.md)), except that an existing install with no music
 folder set is shown the Library step alone. On the phone the Library step is a path field with the
-standard Music folder filled in; Android's All-files permission is asked when the app starts. When
-the setup ends (Done, or Skip on its last step) the focus goes to the main area.
+standard Music folder filled in; Android's All-files permission is asked when the app starts. Tab
+stays inside it, as in a sheet. When it ends (Done, Skip on its last step) the focus goes to the main
+area.
 
 ## Accessibility
 
@@ -550,8 +549,8 @@ the setup ends (Done, or Skip on its last step) the focus goes to the main area.
   `--bg-2` (checked by `tools/contrast-lint.mjs`); UI boundaries 3:1 or better.
 - A 2 px aqua outline on `:focus-visible` everywhere, never removed. A control that hides its own
   outline hands the same ring to the box that holds it: the search field's frame while its input has
-  the keyboard (Tab, Ctrl+K, "/"), a playlist card's whole face. Two exceptions, with nothing to
-  press: a sheet's own panel on open (Modal / Sheet, above) and a screen's heading after a navigation.
+  the keyboard (Tab, Ctrl+K, "/"), a playlist card's whole face. Three exceptions, with nothing to
+  press: a sheet's panel on open, a screen's heading after a navigation, the selection bar.
   `tools/screenshot/focus.spec.mjs` tabs through Playlists, an open playlist and Settings at every
   size and checks every stop's ring.
 - Roving tabindex in lists; every icon button has an `aria-label`; the now-playing title and toasts are
@@ -562,17 +561,19 @@ the setup ends (Done, or Skip on its last step) the focus goes to the main area.
   player's play among them; switches; checkboxes; a list's options and the list; menus and their
   items; tabs; song rows; links), and those of a held Enter in a text field, where Enter submits or
   saves. Holding Enter on Remove removes one link even when the focus lands on the next Remove, and
-  a held Enter on Edit tags opens the editor without saving it. Space typed in a field, Enter in a
-  text area, and the arrows, Page Up and Down, Home and End in lists and sliders still repeat
-  (`tools/screenshot/presses.spec.mjs`).
+  a held Enter on Edit tags opens the editor without saving it. The repeats of a key whose press ran
+  a shortcut do nothing at all (a held Space on a heading never scrolls). Space typed in a field,
+  Enter in a text area, and the arrows, Page Up and Down, Home and End in lists and sliders still
+  repeat (`tools/screenshot/presses.spec.mjs`).
 - The focus never falls to the page: a sheet, the full player, the selection bar, the setup and a
   row menu going with it give it back to what had it (Modal / Sheet; `useFocusReturn`; Popovers),
   else to where the screen starts (`focusMainArea`). After a navigation (Enter on a card or a row,
   Back, 1 to 4, a click or tap on a card, on Back, on a sidebar item or tab) it goes to the new
   screen's heading or the full player's title (`tabindex="-1"`, no scrolling; `useScreenFocus`),
   never to a button, card or row: Space stays play and pause, Ctrl+E with nothing chosen edits the
-  playing song, no row's More shows, Tab leads in, a grid scrolled back to keeps its place. A sidebar
-  item reached with the keyboard keeps it, as does the search field (`navigation.spec.mjs`).
+  playing song, no row's More shows, Tab leads in, a grid scrolled back to keeps its place, and Tab
+  from a heading out of sight goes to the first card or row in view (`mainTab.ts`). A sidebar item
+  reached with the keyboard keeps it, as does the search field (`navigation.spec.mjs`).
 - The layout survives 130 % text size (photographed in the visual suite).
 - `prefers-reduced-motion` and `prefers-contrast: more` are honoured (above).
 
@@ -590,11 +591,10 @@ WebKitGTK on Linux. `linear()` easing, view transitions, scroll-driven animation
   screens (Playlists, Artists, Folders, an open playlist, Playing, Queue, Search, Settings) and every
   component fixture page at 390 x 844 and 1280 x 800 with reduced motion, more contrast and 130 %
   text, against committed baselines (0.2 % tolerance). The settings sheet is photographed over
-  Folders, not over the Playlists cover grid: the backdrop's blur mixes aqua and purple covers into
-  pixels the blue scan counts as blue chrome.
-- **Parity grid**: the phone and desktop screenshots of the parity screens (Playlists, Artists,
-  Folders, an open playlist, Playing, Queue, Search and Settings, default mode) side by side ([TESTING](TESTING.md#evidence-rules)); every difference must come
-  from the container size, the pointer, or what the host can do (as [SCREENS](SCREENS.md) lists it).
+  Folders: blurred aqua and purple covers read as blue chrome to the blue scan.
+- **Parity grid**: the parity screens' phone and desktop shots side by side
+  ([TESTING](TESTING.md#evidence-rules)); every difference must come from the container size, the
+  pointer, or what the host can do (as [SCREENS](SCREENS.md) lists it).
 - **Lints**: token lint, contrast lint, blue scan, hygiene lint.
 - **Real devices**: the Windows WebView2 window and the phone, with the Test library, committed under
   `docs/evidence/phase-1/`.
