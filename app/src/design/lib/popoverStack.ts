@@ -23,13 +23,15 @@ export function topPopover(): HTMLElement | null {
 }
 
 /**
- * Closes every open popover (a sheet is opening over them) and returns the control that opened the
- * one the focus was in, or on, so the sheet gives the focus back there when it closes; else null.
+ * Closes every open popover outside `sheet` (a sheet is opening over them; one of its own, opened
+ * with it, stays) and returns the control that opened the one the focus was in, or on, so the sheet
+ * gives the focus back there when it closes; else null.
  */
-export function closePopovers(): HTMLElement | null {
+export function closePopovers(sheet: HTMLElement | null): HTMLElement | null {
   const at = document.activeElement;
   let held: HTMLElement | null = null;
-  for (let p = openPopovers.top(); p; p = openPopovers.top()) {
+  const under = (p: OpenPopover) => !(sheet && p.panel.current && sheet.contains(p.panel.current));
+  for (const p of [...openPopovers.list()].reverse().filter(under)) {
     const anchor = p.anchor();
     if (at && (p.panel.current?.contains(at) || anchor === at)) held ??= anchor;
     openPopovers.close(p);

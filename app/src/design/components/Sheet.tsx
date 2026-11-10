@@ -132,7 +132,7 @@ function SheetPanel({
   useLayoutEffect(() => {
     // A list or menu still open closes first (it would float over this sheet); the control that
     // opened the one the focus was in is what opened this sheet, as far as the focus goes.
-    const held = closePopovers();
+    const held = closePopovers(panel.current);
     const opener = held ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const box = panel.current;
     openSheets.open(self);
