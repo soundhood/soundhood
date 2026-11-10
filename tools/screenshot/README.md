@@ -3,7 +3,8 @@
 Playwright drives the React UI on the app's Vite dev server in Chromium, with the Tauri backend
 replaced by `@tauri-apps/api/mocks`. Everything the UI asks the host for comes from the made-up
 fixture library in `fixture-library.json` (50 tracks, 5 playlists, aqua / purple / grey covers).
-Nothing touches a real library, a phone or the network.
+Nothing touches a real library, a phone or the network. What the suite proves, and the rules around
+it, are in [TESTING](../../docs/TESTING.md#visual-suite).
 
 `fixture-library.json` is generated, never edited by hand: it is the core's fixture library, the
 same one the app's Test library switch installs and `soundhood-tools fixture-lib` writes (every
@@ -20,39 +21,91 @@ soundhood-core`, so the CI `core-test` job) fails when the committed file differ
 `harness-json` writes. The harness draws its own covers from the `cover` names (`aqua-rings`,
 `purple-bands`, `grey-grid`, ...), one per colour of the core's embedded covers.
 
+## Running it
+
 ```
 cd app && npm ci          # the dev server runs from app/node_modules
 cd ../tools && npm ci
-npm run test:visual           # every spec: compare with the committed baselines, run the flow checks
-npm run test:visual:update    # rewrite the baselines after an intended UI change
-npm run evidence:after        # copy them to docs/evidence/phase-0/after/
+npx playwright install chromium      # the browser, once per machine
+npm run test:visual                  # every spec: compare with the committed baselines, run the flow checks
+npm run test:visual -- settings      # one spec: the spec files whose name holds "settings"
+npm run test:visual -- settings --project=desktop-1280x800   # and one size
+npm run test:visual:update           # rewrite the baselines after an intended UI change (same filters)
+npm run evidence:after               # copy the screen baselines to docs/evidence/phase-0/after/
 npm run evidence:parity -- --in <dir> --out <dir>   # phone and desktop side by side per screen
-npm test                      # unit tests, including ui-logic.test.mjs and pixels.test.mjs
+npm test                             # unit tests, including ui-logic.test.mjs and pixels.test.mjs
 ```
+
+A rewrite with `test:visual:update` rewrites every baseline the run reaches; check the changed images
+by eye and commit them with the change that caused them. When the UI starts sending a new command,
+the suite fails with "IPC commands without a fixture answer": add the command to `answer()` in
+`mock-entry.mjs`.
+
+## Sizes and modes
+
+The projects in `playwright.config.mjs`:
+
+| Project | Viewport | Runs |
+|---|---|---|
+| `desktop-1280x800`, `desktop-1920x1080` | 1280x800, 1920x1080; a mouse; the mocked host says `windows` | tests tagged `@desktop` |
+| `phone-390x844`, `tablet-834x1194` | 390x844, 834x1194; touch; the mocked host says `android` | tests tagged `@phone` |
+| `components-<size>` | the same four sizes (touch under 1000 px wide) | `components.spec.mjs`, default mode |
+| `components-<size>-<mode>` | 390x844 and 1280x800 | `components.spec.mjs` with `reduced-motion`, `more-contrast` or `text-130` |
+
+The layout follows the viewport's width, exactly as in the app: 390x844 is the phone layout, 834x1194
+the tablet layout (the rail), the two wide sizes the desktop layout. The mocked `platform` command only
+says what the host can do (the phone: Proton sync, the app's own bin, a path field for the music
+folder; the PC: the folder picker, the Recycle Bin). The `text-130` mode sets `--text-scale: 1.3` on
+the root element, as the app's Text size setting does. Chromium runs with `--disable-lcd-text`:
+ClearType's coloured fringes would otherwise trip `blue-scan` and make baselines machine-specific.
+
+## The specs
+
+Screens are photographed under one name per screen at every size, `<width>x<height>-<screen>.png`,
+so the parity grid can pair the phone with the desktop. The rest are behaviour checks without
+photographs.
+
+| Spec | What it covers |
+|---|---|
+| `components.spec.mjs` | every fixture page of the design system (below), photographed per size and mode; no sideways scroll at any size or text scale; no console error or warning; `pages.json` lists every registered page |
+| `screens.spec.mjs` | photographs `playlists`, `artists`, `folders`, `tracks` (a playlist open, a song playing), `playing` and `search` at every size |
+| `library.spec.mjs` | what loads at start; a tap or click plays; Ctrl+click and Shift+click choose without playing; Select mode and its actions; adding and removing with the toast's Undo; the sort order, remembered; a new playlist opens empty; search groups, chips, a result opening its list, the field filtering it, Back; Playing opens over the list and closes back to it; the sidebar's width and fold, remembered; the Test library badge; the mini player opening Playing |
+| `player.spec.mjs` | the phone's time line (the song's length, moving, seeking where tapped); the phone's full player sliding down when closed; only the newest of two quickly chosen songs playing; a position tick re-rendering no song row; the artwork tint fading over 500 ms |
+| `queue.spec.mjs` | photographs `queue` (the sheet on the phone and the tablet, the right pane on the desktop); Next after Play next and Add to queue, then the rest of the list; Previous; the sheet from the mini player, the player bar and the full player; a row played, moved with Alt+Down, taken out with Delete and put back with Undo; Clear asking first; Save as playlist; the pane remembered; Repeat; Previous restarting a song past 3 s; the row menu; songs dragged onto a playlist in the sidebar |
+| `keyboard.spec.mjs` | the keyboard map ([SHORTCUTS](../../docs/SHORTCUTS.md)) on the desktop: the playback keys, Q, 1 to 4, Ctrl+K and /, Esc, A, Shift+A, X, Ctrl+L, Enter, Delete, Ctrl+E, Ctrl+S, single keys quiet while typing |
+| `settings.spec.mjs` | photographs `settings` (over Folders) at every size; the groups in order, Proton Drive on the phone only; Ctrl+comma; Text size setting `--text-scale` and remembered; View log, Copy log (the change lines only in the copy, the copy-failure text, Clear log); a partial undo's report; the Test library switch (folder line, badge, store keys, off going back or closing the library); the self-test wording; on the phone, sync off under the test library and a failed Proton login with Retry |
+| `ingest.spec.mjs` | Ctrl+V outside a text field opening "Where should this go?" and downloading into the remembered folder and playlists; the sidebar's Download item; the download's toast; a new folder's name checked; no sideways scroll at 760 px; a refused download stopping the queue with an error row and Retry; channel links refused; the Downloader switch hiding the download UI; Links waiting with Copy and Remove; on the phone, a shared link with Cancel and a refused queue |
+| `undo.spec.mjs` | photographs `after-playlist-add` (desktop: a playlist add changes nothing on screen but its toast, checked pixel for pixel), `settings-undo` and `settings-developer`; a tag edit's report and its undo; a refused tag write keeping the dialog open; the developer section's gestures (Ctrl+Alt+Shift+D, 7 taps on the version row) |
+| `writes.spec.mjs` | a move of three songs ending in one report whose Undo this batch puts all three back; the batch undo stopping at a change it did not make; a delete naming the Recycle Bin (the app's bin on the phone), a refused file as a failed row, the player stopped; a deleted playlist as a toast with Undo |
+| `onboarding.spec.mjs` | photographs `onboarding` (the first step) at every size; a new install's three steps, the downloader staying off; skipping; an existing install asked nothing; a phone without a folder asked for the folder alone, the standard Music folder offered |
+
+## The component fixture pages
+
+`app/fixtures.html` is a second entry of the app's dev server (never part of the production build):
+one page per design-system component, chosen by the hash, `/fixtures.html#TrackRow`. Without a hash
+it lists the pages. The pages are in `app/src/design/fixtures/pages/` and listed in
+`app/src/design/fixtures/pages.json`; a page sets `data-fixture` on `<html>` once it has rendered,
+and the spec waits for it. They need no host mock: the design system never talks to the host. To see
+one by hand, run `npm run dev` in `app/` and open `/fixtures.html#<Page>`. A new component gets a page
+there and a line in `pages.json`, then `npm run test:visual:update -- components` records it.
+
+## Files
 
 | File | Role |
 |---|---|
-| `playwright.config.mjs` | viewports (desktop 1280x800, 1920x1080 as `windows`; phone 390x844, tablet 834x1194 as `android`), dev server on a free port, diff threshold 0.2 % |
-| `harness.mjs` | the `app` fixture: bundles `mock-entry.mjs` with esbuild and injects it with `page.addInitScript`, serves desktop audio URLs, waits for IPC to settle, fails on unmocked commands or page errors |
-| `mock-entry.mjs` | runs in the page before the app: `mockIPC` (with event mocking), `mockConvertFileSrc("windows")`, `HTMLMediaElement.play` stubbed. The journaled commands (`write_tags`, `playlist_add`, `playlist_remove`, `playlist_create`, `undo_last`) change the mocked library, answer `last_change` and emit `core:batch` with the real core's labels ("Edited tags of <file name>", "Added 1 track to <playlist>", "Removed 1 track from <playlist>", "Created playlist <name>", "Restored tags of <file name>", "Restored playlist <name>"). `dev_fixture_root` answers a fixture root under the app's data folder. A test steers the mock through `window.__soundhoodMock` (settings store, Proton status, download results, a partial undo) and sends host events with `window.__soundhoodEmit(event, payload)` |
+| `playwright.config.mjs` | the projects above, the dev server on a free port, diff threshold 0.2 %, baselines under `__screenshots__/<os>/` |
+| `harness.mjs` | the `app` fixture: bundles `mock-entry.mjs` with esbuild and injects it with `page.addInitScript`, serves desktop audio URLs, waits for IPC to settle, names a screen's baseline (`shot`), fails on unmocked commands or page errors |
+| `ui.mjs` | the steps the specs share, one per thing a user does, found by what is on screen at any size: go to a tab, open a playlist, play a song, open the player or Settings, the search field, settle the page before a photograph |
+| `mock-entry.mjs` | runs in the page before the app: `mockIPC` (with event mocking), `mockConvertFileSrc("windows")`, `HTMLMediaElement.play` stubbed. The journaled commands (`write_tags`, `playlist_add`, `playlist_remove`, `playlist_create`, `playlist_delete`, `move_track`, `delete_track`, `undo_last`) change the mocked library, answer `last_change` and emit `core:batch` with the core's labels ("Edited tags of <file name>", "Added 1 track to <playlist>", "Moved <file name> to <folder>", "Moved <file name> to the bin", "Deleted playlist <name>", and the undo labels such as "Restored tags of <file name>"). `dev_fixture_root` answers a fixture root under the app's data folder. A test steers the mock through `window.__soundhoodMock` (settings store, Proton status and login error, download results and errors, the journal, a partial undo, refused deletes and tag writes, a held phone download, the folder picker's answer) and sends host events with `window.__soundhoodEmit(event, payload)` |
 | `fixture.mjs`, `wav.mjs` | scan / playlist results as the host returns them, generated cover PNGs, silent WAV audio |
-| `baseline.spec.mjs` | the screens of the old UI: desktop library with a playlist open and a track playing; phone browse, tracks, settings sheet, full player |
-| `undo.spec.mjs` | what Phase 0 adds: Undo enabled after a tag edit (desktop) and in the settings sheet (phone), then undone; the developer section open on both; the desktop after a playlist add, checked pixel for pixel against the screen before it (only the Undo button, the status and that playlist's count may change) |
-| `settings.spec.mjs` | settings and tools, no screenshots: change lines stay out of the visible log and travel with Copy log, the desktop copy-failure text, a partial undo, the test library switch (folder line, top-bar note, sync off), the self-test wording |
-| `ingest.spec.mjs` | links and downloads, no screenshots: no sideways scroll at 760 px, the queue stopping after a refused download, channel links refused |
-| `player.spec.mjs` | the player, no screenshots: the seek bar's length, position and seeking |
+| `channel-links.json` | the channel-link vectors and the one refusal sentence, shared by the UI's unit tests, `ingest.spec.mjs` and the phone plugin's Rust tests |
 | `parity.mjs`, `parity-grid.mjs` | the parity grid (`npm run evidence:parity`): pairs `390x844-<screen>.png` with `1280x800-<screen>.png`, draws each pair side by side at one height on `#0f0f0f` with a 16 px gap (`parity-<screen>.png`) and stacks them (`parity-all.png`); lists screens found at one size only ([TESTING](../../docs/TESTING.md#evidence-rules)) |
 | `pixels.mjs` | counts the pixels that changed between two screenshots outside the regions a flow may change |
-| `ui-logic.test.mjs` | unit tests of the UI's pure helpers in `app/src` (links, download output, test library, Copy log text, undo wording, folder names) |
-| `__screenshots__/<os>/` | committed baselines, one set per OS (fonts differ); only `win32` exists so far |
-
-The layout is chosen by the mocked `platform` command, not by the viewport width, exactly as in the
-app. Chromium runs with `--disable-lcd-text`: ClearType's coloured fringes would otherwise trip
-`blue-scan` and make baselines machine-specific.
+| `copy-evidence.mjs` | `npm run evidence:after`: copies the screen baselines (the PNGs at the top of `__screenshots__/<os>/`, not `components/`) to `docs/evidence/phase-0/after/` and removes the ones there that no longer have a baseline; it has not been pointed at a Phase 1 folder |
+| `ui-logic.test.mjs` | unit tests of the UI's pure helpers in `app/src` (channel links, why a queue stopped, the test library's name, Copy log text, undo wording, folder names) |
+| `fixture.test.mjs`, `parity.test.mjs`, `pixels.test.mjs` | unit tests of the fixture data, the parity grid and the pixel count |
+| `__screenshots__/<os>/` | committed baselines, one set per OS (fonts differ); only `win32` exists so far. The screens at the top, the fixture pages under `components/<Page>/<width>x<height>-<mode>.png` |
 
 Evidence: `docs/evidence/phase-0/before-0.1.0/` holds the screens of the last build before the
-rebuild (0.1.0); `npm run evidence:after` rewrites `docs/evidence/phase-0/after/` from the
-baselines and never touches the `before-0.1.0` set.
-
-When the UI starts sending a new command, the suite fails with "IPC commands without a fixture
-answer": add the command to `answer()` in `mock-entry.mjs`.
+rebuild (0.1.0) and is never rewritten by a script; Phase 1's folders are described in
+[TESTING](../../docs/TESTING.md#evidence-rules).
