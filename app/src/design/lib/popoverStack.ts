@@ -17,9 +17,19 @@ export interface OpenPopover {
 /** Every open popover in the app, oldest first. */
 export const openPopovers = createSheetStack<OpenPopover>();
 
-/** The newest open popover's element, or null while none is open. */
-export function topPopover(): HTMLElement | null {
-  return openPopovers.top()?.panel.current ?? null;
+/** The newest open popover, or undefined while none is open. */
+export function topPopover(): OpenPopover | undefined {
+  return openPopovers.top();
+}
+
+/**
+ * True when the popover belongs to `container` (a sheet, the setup): opened from a control in it.
+ * The popover itself is drawn in the shell's overlay layer, apart from that control, so its control
+ * says where it belongs (or the popover, when it is drawn in place).
+ */
+export function popoverIn(container: Element, p: OpenPopover): boolean {
+  const anchor = p.anchor();
+  return (!!anchor && container.contains(anchor)) || (!!p.panel.current && container.contains(p.panel.current));
 }
 
 /**
@@ -30,7 +40,7 @@ export function topPopover(): HTMLElement | null {
 export function closePopovers(sheet: HTMLElement | null): HTMLElement | null {
   const at = document.activeElement;
   let held: HTMLElement | null = null;
-  const under = (p: OpenPopover) => !(sheet && p.panel.current && sheet.contains(p.panel.current));
+  const under = (p: OpenPopover) => !(sheet && popoverIn(sheet, p));
   for (const p of [...openPopovers.list()].reverse().filter(under)) {
     const anchor = p.anchor();
     if (at && (p.panel.current?.contains(at) || anchor === at)) held ??= anchor;

@@ -6,10 +6,14 @@
 // Space picks (a held key picks once), Esc and Tab close, typed letters jump to the first option
 // starting with them. MultiSelect keeps the popover open and toggles; its button reads "None", one
 // name or "N chosen". The open list is a layer (usePopoverLayer): nothing behind it hears the keys
-// heard on the window, Esc closes it first, and a sheet that opens closes it.
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+// heard on the window, Esc closes it first, and a sheet that opens closes it. It is drawn in the
+// shell's overlay layer against its button (usePopoverPlacement), so a sheet body or pane that
+// scrolls never clips it: every option can be scrolled to, seen and picked.
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cx } from "../lib/cx";
 import { heldRepeat } from "../lib/dom";
+import { useOverlayLayer } from "../lib/overlayLayer";
 import { isPrintable, useOutsidePress, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
 import { Icon } from "./Icon";
 
@@ -56,6 +60,7 @@ function Listbox({
   const [open, setOpen] = useState(!!defaultOpen);
   const [active, setActive] = useState(defaultOpen ? Math.max(0, firstSelected) : -1);
   const typeahead = useTypeahead(labels);
+  const layer = useOverlayLayer();
   const last = labels.length - 1;
 
   const show = (at: number) => {
@@ -72,9 +77,12 @@ function Listbox({
     if (!multi) close();
   };
 
+  // In the shell's overlay layer; in place outside a shell (a fixture page).
+  const place = (list: ReactNode) => (layer ? createPortal(list, layer) : list);
+
   usePopoverLayer(open, popover, () => button.current, close);
-  useOutsidePress(open, root, () => close());
-  usePopoverPlacement(open, button, popover);
+  useOutsidePress(open, [root, popover], () => close());
+  usePopoverPlacement(open, root, popover, { onLost: () => close() });
   // Keep the active option in view inside the popover (never scrolls the page).
   useLayoutEffect(() => {
     const p = popover.current;
@@ -134,34 +142,35 @@ function Listbox({
         <span className="Dropdown-value">{text}</span>
         <Icon name="chevronDown" size={16} />
       </button>
-      {open && (
-        <div
-          ref={popover}
-          id={listId}
-          className="Popover"
-          role="listbox"
-          aria-label={label}
-          aria-multiselectable={multi || undefined}
-          // Keep focus on the button while the pointer picks.
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          {labels.map((l, i) => (
-            <div
-              key={i}
-              id={optionId(i)}
-              role="option"
-              aria-selected={selectedAt(i)}
-              aria-disabled={disabledAt(i) || undefined}
-              className={cx("Option", i === active && "is-active")}
-              onMouseMove={() => active !== i && setActive(i)}
-              onClick={() => choose(i)}
-            >
-              <Icon name="check" size={18} />
-              <span className="Option-label">{l}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {open &&
+        place(
+          <div
+            ref={popover}
+            id={listId}
+            className="Popover"
+            role="listbox"
+            aria-label={label}
+            aria-multiselectable={multi || undefined}
+            // Keep focus on the button while the pointer picks.
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            {labels.map((l, i) => (
+              <div
+                key={i}
+                id={optionId(i)}
+                role="option"
+                aria-selected={selectedAt(i)}
+                aria-disabled={disabledAt(i) || undefined}
+                className={cx("Option", i === active && "is-active")}
+                onMouseMove={() => active !== i && setActive(i)}
+                onClick={() => choose(i)}
+              >
+                <Icon name="check" size={18} />
+                <span className="Option-label">{l}</span>
+              </div>
+            ))}
+          </div>,
+        )}
     </div>
   );
 }

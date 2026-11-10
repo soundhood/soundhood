@@ -7,13 +7,16 @@
 //
 // It is the MenuButton's popover (the same .Popover, .Option and .Menu styles and keys: Up, Down,
 // Home, End, Enter or Space, typed letters, Esc and Tab close; a held key runs one item), drawn in
-// the shell's overlay layer against the button or the pointer, because a row in a virtual list
-// cannot hold a popover. Like every popover it is a layer (usePopoverLayer): nothing behind it hears
-// the keys heard on the window, Esc closes it first, and a sheet that opens closes it.
+// the shell's overlay layer against the button or the pointer like every popover (placePopover),
+// because a row in a virtual list cannot hold a popover. Like every popover it is a layer
+// (usePopoverLayer): nothing behind it hears the keys heard on the window, Esc closes it first, and
+// a sheet that opens closes it.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Icon, cx, type MenuItem } from "../../design";
-import { heldRepeat } from "../../design/lib/dom";
+import { clipBox, heldRepeat } from "../../design/lib/dom";
+import { useOverlayLayer } from "../../design/lib/overlayLayer";
+import { placePopover } from "../../design/lib/placement";
 import { isPrintable, useOutsidePress, usePopoverLayer, useTypeahead } from "../../design/lib/usePopover";
 import { useApp } from "../../app/context";
 import { splitArtists } from "../../lib/tracks";
@@ -31,9 +34,6 @@ export interface RowMenuState {
   /** Where the focus goes back to when the menu closes. */
   from: HTMLElement | null;
 }
-
-const GAP = 4;
-const EDGE = 8;
 
 /**
  * The actions for a song (or the selection it is part of). With `player` (the full player's menu)
@@ -77,7 +77,7 @@ export function useSongMenuItems(track: Track, player = false): MenuItem[] {
 
 export function RowMenu({ state, onClose }: { state: RowMenuState; onClose: () => void }) {
   const items = useSongMenuItems(state.track);
-  const host = state.from?.closest(".Shell")?.querySelector<HTMLElement>(".Shell-overlays") ?? null;
+  const host = useOverlayLayer();
   if (!host) return null;
   return createPortal(<RowMenuPopover state={state} items={items} onClose={onClose} />, host);
 }
@@ -102,27 +102,28 @@ function RowMenuPopover({ state, items, onClose }: { state: RowMenuState; items:
   };
 
   usePopoverLayer(true, menu, () => state.from, close);
-  useOutsidePress(true, root, () => close(false));
+  useOutsidePress(true, [root], () => close(false));
 
-  // Placed against the button (right-aligned, below or, without room, above) or at the pointer,
-  // inside the shell; then the menu takes the focus.
+  // Placed against the button (right-aligned) or at the pointer, inside the shell (placePopover:
+  // below, or above when there is more room there, capped to that room); then the menu takes the
+  // focus.
   useLayoutEffect(() => {
     const el = root.current;
     const shell = el?.closest(".Shell");
     const pop = menu.current;
     if (!el || !shell || !pop) return;
     const box = shell.getBoundingClientRect();
-    const w = pop.offsetWidth;
-    const h = pop.offsetHeight;
     const a = state.anchor;
-    const r = "rect" in a ? a.rect : { left: a.x, right: a.x, top: a.y, bottom: a.y };
-    let x = "rect" in a ? r.right - w : r.left;
-    let y = r.bottom + GAP;
-    if (y + h > box.bottom - EDGE && r.top - GAP - h >= box.top + EDGE) y = r.top - GAP - h;
-    x = Math.max(box.left + EDGE, Math.min(x, box.right - EDGE - w));
-    y = Math.max(box.top + EDGE, Math.min(y, box.bottom - EDGE - h));
-    el.style.left = `${x - box.left}px`;
-    el.style.top = `${y - box.top}px`;
+    const at = placePopover({
+      anchor: "rect" in a ? a.rect : { left: a.x, right: a.x, top: a.y, bottom: a.y },
+      width: pop.offsetWidth,
+      height: pop.offsetHeight,
+      area: clipBox(pop),
+      align: "rect" in a ? "end" : "start",
+    });
+    if (at.maxHeight !== null) pop.style.maxHeight = `${at.maxHeight}px`;
+    el.style.left = `${at.left - box.left}px`;
+    el.style.top = `${at.top - box.top}px`;
     pop.focus({ preventScroll: true });
   }, [state.anchor]);
 

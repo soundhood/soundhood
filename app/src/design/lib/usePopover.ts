@@ -1,9 +1,11 @@
 // Shared popover behaviour for Dropdown, MultiSelect, MenuButton and the row menu: a layer while it
-// is open (usePopoverLayer), close on a pointer press outside, place the popover below its button or
-// flip it up (and right-align it) when the visible area has no room, and a type-ahead that finds the
+// is open (usePopoverLayer), close on a pointer press outside, placed against its button and kept
+// there (usePopoverPlacement: drawn in the shell's overlay layer, so nothing that scrolls clips it,
+// and its height capped to the room on the side it opens to), and a type-ahead that finds the
 // option starting with the typed letters.
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { clipBox } from "./dom";
+import { placePopover } from "./placement";
 import { openPopovers, type OpenPopover } from "./popoverStack";
 
 /**
@@ -44,10 +46,15 @@ export function usePopoverLayer(
   }, [open, self]);
 }
 
-/** Calls onOutside for a pointer press outside `root` while `open`. */
-export function useOutsidePress(open: boolean, root: RefObject<HTMLElement | null>, onOutside: () => void) {
+/**
+ * Calls onOutside for a pointer press outside every one of `inside` while `open` (a popover's control
+ * and the popover, which the overlay layer holds apart from it).
+ */
+export function useOutsidePress(open: boolean, inside: readonly RefObject<HTMLElement | null>[], onOutside: () => void) {
   const fire = useEffectEvent((e: PointerEvent) => {
-    if (root.current && e.target instanceof Node && !root.current.contains(e.target)) onOutside();
+    const t = e.target;
+    if (!(t instanceof Node) || !inside.some((r) => r.current)) return;
+    if (!inside.some((r) => r.current?.contains(t))) onOutside();
   });
   useEffect(() => {
     if (!open) return;
@@ -57,29 +64,59 @@ export function useOutsidePress(open: boolean, root: RefObject<HTMLElement | nul
   }, [open]);
 }
 
-const GAP = 8;
-
 /**
- * Places `popover` against `anchor` each time it opens: data-up when there is no room below and
- * more room above, data-end when it would overflow the right edge. The attributes are set on the
- * element directly (React never renders them), and controls.css reads them.
+ * Places the open `popover` against `anchor` (placePopover) and keeps it there: once it is drawn,
+ * then whenever the anchor moves (a scroll, a resize, a sheet still sliding in) or the popover's
+ * options change, checked every frame while it is open and written only when something changed.
+ * Its left, top and max-height are set on the element directly (React never renders them; it is
+ * absolutely positioned, in the shell's overlay layer or in place), and data-up / data-end say how
+ * it was placed. The area it can be seen in is the window cut by whatever clips the popover (in the
+ * overlay layer, only the shell). When the anchor itself has scrolled out of sight, `onLost` runs.
  */
 export function usePopoverPlacement(
   open: boolean,
   anchor: RefObject<HTMLElement | null>,
   popover: RefObject<HTMLElement | null>,
+  { align = "start", onLost }: { align?: "start" | "end"; onLost?: () => void } = {},
 ) {
+  const lost = useEffectEvent(() => onLost?.());
   useLayoutEffect(() => {
-    const a = anchor.current;
-    const p = popover.current;
-    if (!open || !a || !p) return;
-    const box = clipBox(a);
-    const r = a.getBoundingClientRect();
-    const below = box.bottom - r.bottom;
-    const above = r.top - box.top;
-    p.toggleAttribute("data-up", below < p.offsetHeight + GAP && above > below);
-    p.toggleAttribute("data-end", r.left + p.offsetWidth > box.right - GAP && r.right - p.offsetWidth >= box.left);
-  }, [open, anchor, popover]);
+    if (!open) return;
+    let seen = "";
+    const place = () => {
+      const a = anchor.current;
+      const p = popover.current;
+      if (!a || !p) return;
+      const r = a.getBoundingClientRect();
+      const now = `${r.left} ${r.top} ${r.right} ${r.bottom} ${innerWidth} ${innerHeight} ${p.childElementCount}`;
+      if (now === seen) return;
+      seen = now;
+      const view = clipBox(a);
+      if (r.bottom <= view.top || r.top >= view.bottom || r.right <= view.left || r.left >= view.right) {
+        lost();
+        return;
+      }
+      // Measured at the corner of the box it is placed in: its own size, and where that corner is.
+      const scrolled = p.scrollTop;
+      p.style.left = "0px";
+      p.style.top = "0px";
+      p.style.maxHeight = "";
+      const corner = p.getBoundingClientRect();
+      const at = placePopover({ anchor: r, width: corner.width, height: corner.height, area: clipBox(p), align });
+      p.style.left = `${at.left - corner.left}px`;
+      p.style.top = `${at.top - corner.top}px`;
+      if (at.maxHeight !== null) p.style.maxHeight = `${at.maxHeight}px`;
+      p.scrollTop = scrolled;
+      p.toggleAttribute("data-up", at.up);
+      p.toggleAttribute("data-end", at.end);
+    };
+    place();
+    let frame = requestAnimationFrame(function follow() {
+      place();
+      frame = requestAnimationFrame(follow);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, anchor, popover, align]);
 }
 
 /**

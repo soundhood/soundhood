@@ -26,7 +26,7 @@ import {
 } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { focusIfAble, focusMainArea, focusables } from "../lib/dom";
-import { closePopovers, topPopover } from "../lib/popoverStack";
+import { closePopovers, popoverIn, topPopover } from "../lib/popoverStack";
 import { createSheetStack } from "../lib/sheetStack";
 import { useSwipe } from "../lib/useSwipe";
 import { IconButton } from "./IconButton";
@@ -64,7 +64,7 @@ function setupDialog(): HTMLElement | null {
 export function topLayer(): HTMLElement | null {
   const popover = topPopover();
   const setup = setupDialog();
-  if (popover && (!setup || setup.contains(popover))) return popover;
+  if (popover?.panel.current && (!setup || popoverIn(setup, popover))) return popover.panel.current;
   return setup ?? topSheet();
 }
 

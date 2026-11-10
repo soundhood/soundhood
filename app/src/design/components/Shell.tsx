@@ -2,11 +2,13 @@
 // under 720 px the phone (main, then the bottom block: mini player and tabs); 720 to 1079 the
 // tablet (the rail, main, a 72 px player bar); 1080 and wider the desktop (sidebar, main, an
 // optional right pane, an 80 px player bar). Overlays (sheets, toasts) sit inside the shell so
-// they follow the same container queries. The shell also carries the artwork tint (--tint).
+// they follow the same container queries; the overlays slot is also the layer every open popover
+// is drawn in (OverlayLayer), against its button. The shell also carries the artwork tint (--tint).
 //
 // RightPane: the desktop's 320 px pane under the artwork tint, holding the queue.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { cssVars, cx } from "../lib/cx";
+import { OverlayLayer } from "../lib/overlayLayer";
 
 export interface ShellProps {
   main: ReactNode;
@@ -45,22 +47,28 @@ export function Shell({
   className,
 }: ShellProps) {
   const width = sidebarCollapsed ? "var(--rail-w)" : sidebarWidth ? `${sidebarWidth}px` : undefined;
+  // The overlays slot's element, once it is in the page: the layer popovers are drawn in.
+  const [layer, setLayer] = useState<HTMLDivElement | null>(null);
   return (
-    <div className={cx("Shell", className)} data-view={view} style={cssVars({ "--tint": tint })}>
-      <div
-        className={cx("Shell-frame", "Shell-scope", right != null && "has-right")}
-        style={cssVars({ "--sidebar-w": width })}
-      >
-        {sidebar != null && <div className="Shell-sidebar">{sidebar}</div>}
-        <main className="Shell-main">
-          <div className="Shell-content">{main}</div>
-        </main>
-        {right != null && <div className="Shell-right">{right}</div>}
-        {bar != null && <div className="Shell-bar">{bar}</div>}
-        {bottom != null && <div className="Shell-bottom">{bottom}</div>}
+    <OverlayLayer.Provider value={layer}>
+      <div className={cx("Shell", className)} data-view={view} style={cssVars({ "--tint": tint })}>
+        <div
+          className={cx("Shell-frame", "Shell-scope", right != null && "has-right")}
+          style={cssVars({ "--sidebar-w": width })}
+        >
+          {sidebar != null && <div className="Shell-sidebar">{sidebar}</div>}
+          <main className="Shell-main">
+            <div className="Shell-content">{main}</div>
+          </main>
+          {right != null && <div className="Shell-right">{right}</div>}
+          {bar != null && <div className="Shell-bar">{bar}</div>}
+          {bottom != null && <div className="Shell-bottom">{bottom}</div>}
+        </div>
+        <div ref={setLayer} className="Shell-overlays Shell-scope">
+          {overlays}
+        </div>
       </div>
-      <div className="Shell-overlays Shell-scope">{overlays}</div>
-    </div>
+    </OverlayLayer.Provider>
   );
 }
 

@@ -40,7 +40,8 @@ const FIXTURE_ROOT =
  * - `deleteRefused`: file names delete_track refuses ("file in use"); `writeTagsError`: the reason
  *   write_tags refuses with;
  * - `holdPhoneDownload`: the phone's download runs until `finishPhoneDownload()`; `cancels`: every
- *   cancel call; `pickFolder`: what the folder picker (plugin:dialog|open) answers, null = closed.
+ *   cancel call; `pickFolder`: what the folder picker (plugin:dialog|open) answers, null = closed;
+ * - `addPlaylists(names)`: empty playlists of these names join the library (a library with many).
  * window.__soundhoodEmit(event, payload) sends a host event (ytdlp:stdout, ytdlp:done, ...).
  */
 const mock = {
@@ -161,6 +162,10 @@ function playlistRemove({ name, paths }) {
 
 const sortPlaylists = () => playlists.sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
 const playlistNamed = (name) => playlists.find((p) => p.name.toLowerCase() === name.toLowerCase());
+mock.addPlaylists = (names) => {
+  for (const name of names) if (!playlistNamed(name)) playlists.push({ name, entries: [] });
+  sortPlaylists();
+};
 
 function playlistCreate({ name }) {
   // A name that exists: the host answers that playlist untouched, Ok, nothing journaled.

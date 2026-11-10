@@ -6,10 +6,14 @@
 // the menu, which tracks the active item with aria-activedescendant. Up and Down move, Home and
 // End, Enter or Space runs the item (a held key runs nothing more), typed letters jump, Esc and Tab
 // close; focus returns to the button. The open menu is a layer (usePopoverLayer): nothing behind it
-// hears the keys heard on the window, Esc closes it first, and a sheet that opens closes it.
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+// hears the keys heard on the window, Esc closes it first, and a sheet that opens closes it. Like a
+// Dropdown's list it is drawn in the shell's overlay layer against its button (usePopoverPlacement),
+// so nothing that scrolls clips it.
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cx } from "../lib/cx";
 import { heldRepeat } from "../lib/dom";
+import { useOverlayLayer } from "../lib/overlayLayer";
 import { isPrintable, useOutsidePress, usePopoverLayer, usePopoverPlacement, useTypeahead } from "../lib/usePopover";
 import { Icon, type IconName } from "./Icon";
 import { IconButton } from "./IconButton";
@@ -43,11 +47,12 @@ export function MenuButton({ label, items, icon = "more", size = 24, defaultOpen
   const [open, setOpen] = useState(!!defaultOpen);
   const [active, setActive] = useState(0);
   const typeahead = useTypeahead(items.map((i) => i.label));
+  const layer = useOverlayLayer();
   const last = items.length - 1;
 
   const close = (refocus: boolean) => {
     setOpen(false);
-    if (refocus) button.current?.focus();
+    if (refocus) button.current?.focus({ preventScroll: true });
   };
   const run = (i: number) => {
     const item = items[i];
@@ -56,11 +61,14 @@ export function MenuButton({ label, items, icon = "more", size = 24, defaultOpen
     item.onSelect();
   };
 
+  // In the shell's overlay layer; in place outside a shell (a fixture page).
+  const place = (popover: ReactNode) => (layer ? createPortal(popover, layer) : popover);
+
   usePopoverLayer(open, menu, () => button.current, close);
-  useOutsidePress(open, root, () => close(false));
-  usePopoverPlacement(open, button, menu);
+  useOutsidePress(open, [root, menu], () => close(false));
+  usePopoverPlacement(open, root, menu, { onLost: () => close(true) });
   useLayoutEffect(() => {
-    if (open && !defaultOpen) menu.current?.focus();
+    if (open && !defaultOpen) menu.current?.focus({ preventScroll: true });
   }, [open, defaultOpen]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -106,33 +114,34 @@ export function MenuButton({ label, items, icon = "more", size = 24, defaultOpen
           }
         }}
       />
-      {open && (
-        <div
-          ref={menu}
-          id={menuId}
-          className="Popover"
-          role="menu"
-          aria-label={label}
-          tabIndex={-1}
-          aria-activedescendant={`${id}-item-${active}`}
-          onKeyDown={onKeyDown}
-        >
-          {items.map((item, i) => (
-            <div
-              key={item.id}
-              id={`${id}-item-${i}`}
-              role="menuitem"
-              aria-disabled={item.disabled || undefined}
-              className={cx("Option", i === active && "is-active", item.danger && "is-danger")}
-              onMouseMove={() => active !== i && setActive(i)}
-              onClick={() => run(i)}
-            >
-              {item.icon && <Icon name={item.icon} size={18} />}
-              <span className="Option-label">{item.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {open &&
+        place(
+          <div
+            ref={menu}
+            id={menuId}
+            className="Popover"
+            role="menu"
+            aria-label={label}
+            tabIndex={-1}
+            aria-activedescendant={`${id}-item-${active}`}
+            onKeyDown={onKeyDown}
+          >
+            {items.map((item, i) => (
+              <div
+                key={item.id}
+                id={`${id}-item-${i}`}
+                role="menuitem"
+                aria-disabled={item.disabled || undefined}
+                className={cx("Option", i === active && "is-active", item.danger && "is-danger")}
+                onMouseMove={() => active !== i && setActive(i)}
+                onClick={() => run(i)}
+              >
+                {item.icon && <Icon name={item.icon} size={18} />}
+                <span className="Option-label">{item.label}</span>
+              </div>
+            ))}
+          </div>,
+        )}
     </div>
   );
 }

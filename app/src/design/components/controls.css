@@ -474,6 +474,10 @@
   text-overflow: ellipsis;
 }
 
+/* An open list or menu. Drawn in the shell's overlay layer (above every sheet, under the toasts)
+   and placed against its button by usePopoverPlacement, which sets left, top and, when the room on
+   the side it opens to is less than its height, a smaller max-height; it then scrolls inside, and
+   its scrolling never moves what is behind it. Outside a shell (a fixture page) it sits in place. */
 .Popover {
   position: absolute;
   z-index: 40;
@@ -483,24 +487,13 @@
   max-width: min(320px, 90cqi);
   max-height: 320px;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--sp-1);
   border-radius: var(--r-md);
   background: var(--bg-2);
   box-shadow:
     var(--shadow-float),
     inset 0 0 0 1px var(--line);
-}
-
-/* Placement, set by usePopoverPlacement: flipped up when there is no room below, right-aligned
-   when it would leave the visible area on the right. */
-.Popover[data-up] {
-  top: auto;
-  bottom: calc(100% + var(--sp-1));
-}
-
-.Popover[data-end] {
-  left: auto;
-  right: 0;
 }
 
 .Option {
@@ -533,17 +526,18 @@
   cursor: default;
 }
 
-/* MenuButton: the same popover, with action icons. */
+/* MenuButton: the same popover, with action icons (a menu is drawn apart from its button, in the
+   overlay layer, so its own role names it). */
 .Menu {
   position: relative;
   display: inline-block;
 }
 
-.Menu .Option .Icon {
+.Popover[role="menu"] .Option .Icon {
   flex: none;
   color: var(--fg-1);
 }
 
-.Menu .Option.is-danger .Icon {
+.Popover[role="menu"] .Option.is-danger .Icon {
   color: var(--danger);
 }
