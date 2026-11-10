@@ -29,6 +29,8 @@ export const ICONS = {
   lyrics:
     '<path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v9.5A1.5 1.5 0 0 1 19 17h-7l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5V6A1.5 1.5 0 0 1 5 4.5z"/><path d="M8 9h8M8 12.5h5"/>',
   playlistAdd: '<path d="M4 6h12M4 11h12M4 16h7"/><path d="M18 13v7M14.5 16.5h7"/>',
+  // Take songs out of a playlist (the files stay): the list with a minus, playlistAdd's pair.
+  playlistRemove: '<path d="M4 6h12M4 11h12M4 16h7"/><path d="M14.5 16.5h7"/>',
   more: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
   volume:
     '<path d="M4.5 9.25h2.75L11.5 5.5v13l-4.25-3.75H4.5a.75.75 0 0 1-.75-.75v-4a.75.75 0 0 1 .75-.75z"/><path d="M15 9.2a4 4 0 0 1 0 5.6M17.6 6.6a7.6 7.6 0 0 1 0 10.8"/>',

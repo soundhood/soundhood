@@ -60,7 +60,7 @@ export function useSongMenuItems(track: Track, player = false): MenuItem[] {
     items.push({ id: "tags", label: "Edit tags", icon: "edit", onSelect: () => edits.openTagEditor(track) });
   }
   if (pl && inPl.length > 0) {
-    items.push({ id: "remove", label: `Remove from ${pl.name}`, icon: "close", onSelect: () => void playlistEdits.remove(pl.name, inPl) });
+    items.push({ id: "remove", label: `Remove from ${pl.name}`, icon: "playlistRemove", onSelect: () => void playlistEdits.remove(pl.name, inPl) });
   }
   items.push({
     id: "delete",

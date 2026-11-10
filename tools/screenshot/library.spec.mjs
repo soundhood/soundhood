@@ -183,6 +183,9 @@ test.describe("mouse and keyboard (platform windows)", { tag: "@desktop" }, () =
     await openPlaylist(page, "Focus");
     const first = (await titles(page))[0];
     await row(page, first).click({ modifiers: ["Control"] });
+    // Remove from the playlist and Leave Select mode are two different glyphs.
+    const glyph = (name) => page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name }).locator("svg").innerHTML();
+    expect(await glyph("Remove from Focus")).not.toBe(await glyph("Leave Select mode"));
     await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Remove from Focus" }).click();
     await expect(toast(page)).toContainText(`Removed ${first} from Focus`);
     await expect(page.locator(".TrackRow").filter({ visible: true })).toHaveCount(6);
@@ -246,6 +249,34 @@ test.describe("touch (platform android)", { tag: "@phone" }, () => {
     await expect(row(page, "Amber Comets")).toHaveClass(/is-playing/);
     await goTo(page, "Playlists");
     await expect(card(page, "Focus")).toContainText("9 songs");
+  });
+
+  test("Select mode below the desktop width: four buttons; Select all, Remove and Delete in More", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await page.getByRole("button", { name: "Select", exact: true }).tap();
+    const bar = page.getByRole("toolbar", { name: "Selection" });
+    await row(page, "Paper Bloom").tap();
+    const buttons = bar.getByRole("button").filter({ visible: true });
+    expect(await buttons.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")))).toEqual([
+      "Leave Select mode",
+      "Add to playlist",
+      "Edit tags",
+      "More actions",
+    ]);
+    const more = bar.getByRole("button", { name: "More actions" });
+    await more.tap();
+    await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Select all", "Remove from Late Night", "Delete song"]);
+    await page.getByRole("menuitem", { name: "Select all" }).tap();
+    await expect(bar).not.toContainText("1 chosen");
+    await more.tap();
+    await expect(page.getByRole("menuitem").first()).toHaveText("Select none");
+    await page.getByRole("menuitem", { name: "Select none" }).tap();
+    await expect(bar).toContainText("0 chosen");
+    await row(page, "Paper Bloom").tap();
+    await more.tap();
+    await page.getByRole("menuitem", { name: "Remove from Late Night" }).tap();
+    await expect(toast(page)).toContainText("Removed Paper Bloom from Late Night");
   });
 
   test("the mini player opens Playing; the tabs hide under it", async ({ app, page }) => {

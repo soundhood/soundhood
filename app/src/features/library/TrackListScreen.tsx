@@ -41,13 +41,14 @@ function SelectionBar({ detail }: { detail: Detail }) {
     phone.setMSelectMode(false);
   };
 
+  // Most used first: below the desktop width the bar keeps the first two and moves the rest to More.
   const main: SelectAction[] = [
     { id: "add", label: "Add to playlist", icon: "playlistAdd", onClick: () => actions.addToPlaylist(chosen) },
+    { id: "tags", label: "Edit tags", icon: "edit", disabled: chosen.length !== 1, onClick: () => chosen[0] && edits.openTagEditor(chosen[0]) },
   ];
   if (pl && chosen.some((t) => lib.inPlaylist(pl, t))) {
-    main.push({ id: "remove", label: `Remove from ${pl.name}`, icon: "close", onClick: () => void playlistEdits.remove(pl.name, chosen) });
+    main.push({ id: "remove", label: `Remove from ${pl.name}`, icon: "playlistRemove", onClick: () => void playlistEdits.remove(pl.name, chosen) });
   }
-  main.push({ id: "tags", label: "Edit tags", icon: "edit", disabled: chosen.length !== 1, onClick: () => chosen[0] && edits.openTagEditor(chosen[0]) });
 
   const more: SelectAction[] = [];
   // Moving files belongs to the storage view, as before: a folder or every song.

@@ -226,7 +226,7 @@ function SelectModeBarPage() {
     { id: "delete", label: "Delete", icon: "trash" as const, danger: true, onClick: noop },
   ];
   return (
-    <Page title="SelectModeBar" note="The count, Select all and the actions; the rarer ones in More. Esc leaves Select mode.">
+    <Page title="SelectModeBar" note="The count, Select all and the actions; the rarer ones in More. Below the desktop width: Leave, two actions and More, with Select all and the rest in it. Esc leaves Select mode.">
       <Demo label="Three chosen">
         <SelectModeBar
           count={chosen.length}
