@@ -230,3 +230,36 @@ A queued run stopped by a refused link says how many links still wait. A downloa
 the helper runs. Each fix has a test that fails on `a76d617` (46 of 52 Playwright tests and 1 of 1 unit
 test; three of the four Cancel tap timings happened to get through before) and passes on `eb530e1`.
 The aria label can still say "ignoring presses" while the relief takes one; that is in `docs/OPEN.md`.
+
+## Round 11 (`8455614`)
+
+A focused confirm of fix pass 10: the design reviewer, and one reviewer for the library, build and
+network charters together. From this round on only a major reopens the review; minors go to
+`docs/OPEN.md`.
+
+| Reviewer | Result |
+|---|---|
+| Break the design | **signed**. The focus rule by open and close input holds for every mix of keyboard and pointer across Sort, row menu chains, Select, Settings and its lists, Playing, the queue pane and sheet, and resizes (1920, 1280, 1080, 760, tablet, phone); a click-opened queue pane takes the focus, so Space plays and pauses; Esc in the search field matches SHORTCUTS for single presses; one press guard in the code, stated once in DESIGN; Cancel under toasts every 250 ms taken by the second tap in 24 of 24 runs; round-10 probes 78 and 9 passed, every difference an intended fix. Visual 1038 passed, 90 of 90 baselines, blue 0 of 625, token, contrast, hygiene and md-links 0. Side effects of the new focus rule (Sort picked with the mouse, a click outside a menu, Tab into a click-opened pane) judged acceptable. Minors in `OPEN.md` |
+| Break the library, the build, the network | **blocked** on two majors with one cause, both new from fix pass 10: the later click of a click sequence acted when its first press met a toast that had just come or slid there. M1 (library): a double click aimed at the older toast's Undo undid the newer change when a third toast slid it into place (6 of 6 runs; a double tap on the phone, 3 of 3; a fresh Undo toast under a double click on a song row, 4 of 4). M2 (network): a double tap aimed at Cancel restarted the download through the Retry that took its place (phone 4 of 4, PC 2 of 2). None at `a76d617`. Everything else held: every playlist write through the journal, each Undo takes back exactly one playlist add, one download at a time on PC and phone, the slot back on 38 of 38 paths, no network without a user action, command set unchanged; every gate green on a fresh preparation; stress 1183, 976 and 978 runs at 14 and 16 workers with one test-only flake (a test's own timing precondition under load) |
+
+### Round-11 fixes
+
+The later clicks of a click sequence (detail 2 and on) never press a toast's action again, the
+round-10 rule: a sequence's first press was aimed at what was there then. Quick repeated clicks on a
+toast that just came therefore press nothing until they pause (R10-D3, in `OPEN.md`). The slide test
+keeps its timing margin under load (300 ms, not 350). A new test, a real double click whose first
+press meets an Undo that just slid under it, and the reworked repeated-clicks tests fail on `8455614`
+(4 of 4) and pass on `dec717b`; the reviewer's own round-11 probes pass 23 of 23 on the fix; vitest
+389, visual 1039 passed, 227 skipped.
+
+Per the rule above, the fix was confirmed with the reviewer's probes and the full gates rather than
+a twelfth round: it restores a rule all four reviewers signed in round 10.
+
+## Sign-off
+
+| Charter | Signed |
+|---|---|
+| Break the library | `a76d617` (round 10); `8455614` apart from M1, closed in `dec717b` by the reviewer's own probes |
+| Break the build | `a76d617` (round 10) and `8455614` (round 11, every gate) |
+| Break the network | `a76d617` (round 10); `8455614` apart from M2, closed in `dec717b` by the reviewer's own probes |
+| Break the design | `a76d617` (round 10) and `8455614` (round 11) |
