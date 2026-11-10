@@ -204,6 +204,23 @@ test.describe("held Enter on the phone", { tag: "@phone" }, () => {
   });
 });
 
+// "/" held on a screen's heading at the desktop sizes, where the sidebar's search field takes the
+// key itself: the field has the focus and holds no "/" (its repeats are swallowed like any shortcut's).
+test.describe('held "/"', { tag: "@desktop" }, () => {
+  test("focuses the search field once and types nothing into it", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await page.locator(".ScreenHeader h1").filter({ visible: true }).first().focus();
+    await hold(page, "/", 6, 40);
+    const field = page.getByRole("textbox", { name: "Search" }).filter({ visible: true }).first();
+    await expect(field).toBeFocused();
+    await expect(field).toHaveValue("");
+    // Let go, then typed: a "/" is a character in the field.
+    await page.keyboard.press("/");
+    await expect(field).toHaveValue("/");
+  });
+});
+
 // A shortcut that does not repeat acts once however long its key is held, and its repeats do nothing
 // else either: a held Space on a screen's heading (where the focus goes after a navigation) plays or
 // pauses once and never scrolls the screen, nor the full player. 1280x800 and 760x520 (from the

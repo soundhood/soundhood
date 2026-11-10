@@ -6,7 +6,11 @@
 // even when that press moves the focus on: to the next control of the same kind (Remove in a list
 // of links), or into the field of the sheet it opened (Edit tags). Space typed in a field, Enter in
 // a text area, and every other key (the arrows, Page Up and Down, Home and End in lists and sliders,
-// Ctrl+Up for the volume) still repeat. The Shell installs it (Shell.tsx), once however many mount.
+// Ctrl+Up for the volume) still repeat. The same rule holds a shortcut that does not repeat to one
+// press, whoever runs it (the app's keyboard map, the search field's Ctrl+K and "/"): once its press
+// ran (heldShortcut), the repeats of that key do nothing at all until it is let go, not even what
+// the WebView would do with them (scroll under a held Space, type "/////" into the field that "/"
+// just focused). The Shell installs it (Shell.tsx), once however many mount.
 import { isTypingTarget } from "./dom";
 
 /** The controls a press of Enter or Space activates. */
@@ -51,6 +55,14 @@ export function isHeldPress(e: Pick<KeyboardEvent, "key" | "repeat" | "target">)
   return el.matches(ACTIVATES);
 }
 
+/** The keys (KeyboardEvent.code) whose press ran a shortcut that does not repeat, while held. */
+const shortcutKeys = new Set<string>();
+
+/** A shortcut that does not repeat ran on this press: the repeats of its key do nothing while held. */
+export function heldShortcut(e: Pick<KeyboardEvent, "code">): void {
+  shortcutKeys.add(e.code);
+}
+
 let installed = 0;
 let remove: (() => void) | null = null;
 
@@ -61,12 +73,21 @@ let remove: (() => void) | null = null;
 export function holdKeysAsOnePress(): () => void {
   if (installed++ === 0) {
     const onKey = (e: KeyboardEvent) => {
-      if (!isHeldPress(e)) return;
+      if (!isHeldPress(e) && !(e.repeat && shortcutKeys.has(e.code))) return;
       e.preventDefault();
       e.stopImmediatePropagation();
     };
+    const onUp = (e: KeyboardEvent) => shortcutKeys.delete(e.code);
+    const lost = () => shortcutKeys.clear();
     window.addEventListener("keydown", onKey, true);
-    remove = () => window.removeEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onUp, true);
+    window.addEventListener("blur", lost);
+    remove = () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onUp, true);
+      window.removeEventListener("blur", lost);
+      shortcutKeys.clear();
+    };
   }
   let done = false;
   return () => {

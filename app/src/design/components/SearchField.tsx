@@ -1,11 +1,13 @@
 // SearchField: a 40 px field with a search icon and, while it holds text, a clear button. Esc
-// clears it; a second Esc leaves it. With `shortcut`, Ctrl+K and "/" focus it from anywhere on the
-// screen it is on, except that "/" typed in another text field is a character there, and neither key
-// does anything while a sheet, the first-launch setup or a menu is open over the field (topLayer) or
-// another part of the app already took the key.
+// clears it; a second Esc leaves it. With `shortcut`, Ctrl+K and "/" focus it from anywhere on the screen it is on,
+// except that "/" typed in another text field is a character there, and neither key does anything
+// while a sheet, the first-launch setup or a menu is open over the field (topLayer) or another part
+// of the app already took the key. Held, either is one press (heldShortcut, heldKeys.ts): "/" held
+// focuses the field and types nothing into it.
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
 import { cx } from "../lib/cx";
 import { isTypingTarget } from "../lib/dom";
+import { heldShortcut } from "../lib/heldKeys";
 import { IconButton } from "./IconButton";
 import { Icon } from "./Icon";
 import { behindLayer } from "./Sheet";
@@ -43,6 +45,7 @@ export function SearchField({
     const slash = e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget(e.target);
     if (ctrlK || slash) {
       e.preventDefault();
+      heldShortcut(e);
       el.focus();
       el.select();
     }
