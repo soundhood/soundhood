@@ -10,11 +10,16 @@
 // after its own toast came, moved (a toast added under it, the one under it gone) or changed its
 // action (a download's Cancel turned Retry), never because another toast changed. A double click or
 // tap aimed at one action never presses the one that came or slid under it. A download's progress
-// is no change. A toast leaves before its action runs, so an action that shows a toast again (an
-// Undo refused while another undo runs) pushes nothing out; a second press in its place within
-// SETTLE_MS (the rest of a double click) reaches nothing behind it, and when it had the focus the
-// focus goes to the sheet or setup on top, else to where the screen starts (focusMainArea), never
-// to the page. role="status" (polite).
+// is no change. Moves never keep it unpressable: a move does not stretch a guard that runs, arms a
+// new one only once the action has been pressable for REARM_GAP_MS, and none while someone keeps
+// pressing it (a press it ignored in the last PRESSING_MS), so toasts arriving one after another
+// never starve it. A toast leaves before its action runs, so an action that shows a toast again (an
+// Undo refused while another undo runs) pushes nothing out. The rest of a double click or tap on it
+// reaches nothing: the later clicks of that click sequence (detail 2 and on, counted by the system
+// with the user's own double-click time) act on no toast and on nothing behind, and any press in its
+// place within SETTLE_MS is swallowed too. When it had the focus the focus goes to the sheet or
+// setup on top, else to where the screen starts (focusMainArea), never to the page. role="status"
+// (polite).
 //
 //   <ToastProvider>              holds the toasts (wrap the app)
 //     <Shell overlays={<ToastViewport />} ... />   draws them inside the shell
@@ -65,6 +70,12 @@ const ToastContext = createContext<{ toasts: readonly Entry[]; api: ToastApi } |
 const SHOW_MS = 4000;
 /** After its toast comes, moves or changes its action, how long the action ignores presses (ms). */
 export const SETTLE_MS = 400;
+/** A move arms the guard again only once the action has been pressable this long (ms). */
+export const REARM_GAP_MS = 100;
+/** A move arms no guard within this long of a press the guard ignored (ms): someone is pressing it. */
+export const PRESSING_MS = 600;
+/** The longest double-click time a system allows (Windows caps it at 5 s): a click sequence ends by then. */
+const SEQUENCE_MAX_MS = 5000;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<readonly Entry[]>([]);
@@ -117,14 +128,17 @@ export function ToastViewport() {
 }
 
 /**
- * When the toast in `box` last came, moved or changed its action, and whether that was under
- * SETTLE_MS ago. Its place is measured whenever `stack` changes (a toast added or removed, words
- * changed): its top and bottom edges in the window as laid out (the stack's place plus its own in
- * the stack), so its opening animation never counts as a move. Its first measure is its coming.
+ * When the guard of the toast in `box` was last armed, and whether that was under SETTLE_MS ago.
+ * Its coming and a change of its action always arm it. A move (its place is measured whenever
+ * `stack` changes, a toast added or removed, words changed: its top and bottom edges in the window
+ * as laid out, the stack's place plus its own in the stack, so its opening animation never counts)
+ * arms it only when the action has been pressable for REARM_GAP_MS and no press was ignored in the
+ * last PRESSING_MS: no run of moves keeps it unpressable for longer than one SETTLE_MS, and someone
+ * pressing at least every PRESSING_MS gets through.
  */
 function usePressGuard(box: RefObject<HTMLDivElement | null>, stack: string, action: string | undefined) {
-  const seen = useRef({ at: "", action: undefined as string | undefined, changedAt: 0 });
-  const [changedAt, setChangedAt] = useState(0);
+  const seen = useRef({ at: "", action: undefined as string | undefined, armedAt: 0, ignoredAt: -Infinity });
+  const [armedAt, setArmedAt] = useState(0);
   const [quietAt, setQuietAt] = useState(0);
   useLayoutEffect(() => {
     const el = box.current;
@@ -132,26 +146,44 @@ function usePressGuard(box: RefObject<HTMLDivElement | null>, stack: string, act
     if (!el || !list) return;
     const top = list.getBoundingClientRect().top + el.offsetTop;
     const at = `${Math.round(top)} ${Math.round(top + el.offsetHeight)}`;
-    if (at === seen.current.at && action === seen.current.action) return;
-    seen.current = { at, action, changedAt: performance.now() };
-    setChangedAt(seen.current.changedAt);
+    const s = seen.current;
+    if (at === s.at && action === s.action) return;
+    const moved = s.at !== "" && action === s.action;
+    s.at = at;
+    s.action = action;
+    const now = performance.now();
+    if (moved && (now - s.armedAt < SETTLE_MS + REARM_GAP_MS || now - s.ignoredAt < PRESSING_MS)) return;
+    s.armedAt = now;
+    setArmedAt(now);
   }, [box, stack, action]);
   useEffect(() => {
-    const t = setTimeout(() => setQuietAt(changedAt), SETTLE_MS);
+    const t = setTimeout(() => setQuietAt(armedAt), SETTLE_MS);
     return () => clearTimeout(t);
-  }, [changedAt]);
+  }, [armedAt]);
   return {
     /** The render that shows the change says so (aria-disabled); a timer ends it. */
-    settling: changedAt !== quietAt,
-    /** Asked at the press. */
-    settled: () => performance.now() - seen.current.changedAt >= SETTLE_MS,
+    settling: armedAt !== quietAt,
+    /** Asked at the press: true when it may act; a press it ignores is noted. */
+    take: () => {
+      const now = performance.now();
+      if (now - seen.current.armedAt >= SETTLE_MS) return true;
+      seen.current.ignoredAt = now;
+      return false;
+    },
   };
 }
 
 /** The pointer and touch events a shield swallows. */
 const SHIELDED = ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu", "touchstart", "touchend"];
+/** The events that count the clicks of a sequence in `detail` (pointer and touch events carry 0). */
+const COUNTED = new Set(["mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu"]);
 /** Where toasts closed by their own action were, and until when nothing behind them takes a press. */
 const shields: { box: DOMRect; until: number }[] = [];
+/**
+ * Until when the click sequence that began with a press on a toast's action is still open: its
+ * later clicks reach nothing. A press that starts a new sequence (detail 1) closes it.
+ */
+let sequenceUntil = 0;
 let shieldTimer = 0;
 
 function pointOf(e: Event): { x: number; y: number } | null {
@@ -163,28 +195,40 @@ function pointOf(e: Event): { x: number; y: number } | null {
   return null;
 }
 
-/** On the window, in the capture phase: a press inside a shield reaches no handler and does nothing. */
+/**
+ * On the window, in the capture phase: the later clicks of a sequence that began on a toast's
+ * action, and a press inside a shield, reach no handler and do nothing.
+ */
 function swallow(e: Event) {
-  const p = pointOf(e);
   const now = performance.now();
-  if (!p || !shields.some((s) => s.until > now && p.x >= s.box.left && p.x <= s.box.right && p.y >= s.box.top && p.y <= s.box.bottom)) return;
+  const clicks = e instanceof MouseEvent && COUNTED.has(e.type) ? e.detail : 0;
+  if (e.type === "mousedown" && clicks <= 1) sequenceUntil = 0;
+  const later = clicks >= 2 && sequenceUntil > now;
+  const p = pointOf(e);
+  const inside = !!p && shields.some((s) => s.until > now && p.x >= s.box.left && p.x <= s.box.right && p.y >= s.box.top && p.y <= s.box.bottom);
+  if (!later && !inside) return;
   if (e.cancelable) e.preventDefault();
   e.stopImmediatePropagation();
 }
 
 /**
- * A toast closed by a press on its action: for SETTLE_MS a press where it was (the second click of
- * a double click, a second tap) reaches nothing behind it, such as the song row it covered.
+ * A toast closed by a press on its action. The rest of that click sequence (the second click of a
+ * double click, a second tap, however long the user's double-click time) reaches nothing, on
+ * another toast or behind; and for SETTLE_MS any press where it was reaches nothing behind it, such
+ * as the song row it covered.
  */
 function shield(box: DOMRect) {
-  shields.push({ box, until: performance.now() + SETTLE_MS });
+  const now = performance.now();
+  shields.push({ box, until: now + SETTLE_MS });
+  sequenceUntil = now + SEQUENCE_MAX_MS;
   if (!shieldTimer) for (const type of SHIELDED) window.addEventListener(type, swallow, { capture: true, passive: false });
   clearTimeout(shieldTimer);
   shieldTimer = window.setTimeout(() => {
     shields.length = 0;
+    sequenceUntil = 0;
     for (const type of SHIELDED) window.removeEventListener(type, swallow, { capture: true });
     shieldTimer = 0;
-  }, SETTLE_MS + 50);
+  }, SEQUENCE_MAX_MS + 50);
 }
 
 interface ToastItemProps {
@@ -244,9 +288,12 @@ function ToastItem({ toast, stack, dismiss }: ToastItemProps) {
           small
           aria-disabled={guard.settling || undefined}
           onClick={(e) => {
+            // The second click of a double click (or tap) is never a press on a toast: the first
+            // one was aimed at something else, or already pressed what was here.
+            if (e.detail >= 2) return;
             // Pressed within SETTLE_MS of its toast coming, moving or changing it: aimed at what was there.
-            if (!guard.settled()) return;
-            // A pointer's press: the rest of a double click or tap reaches nothing behind the toast.
+            if (!guard.take()) return;
+            // A pointer's press: the rest of its click sequence reaches nothing, here or behind.
             if (e.detail > 0 && box.current) shield(box.current.getBoundingClientRect());
             // The toast leaves first: an action that shows it again (a refused Undo) pushes nothing out.
             const run = toast.action?.onClick;

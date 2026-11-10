@@ -9,10 +9,12 @@
 // never shown later), and each toast's 4 s run from when it is shown. Every action (Undo, Cancel,
 // Retry) ignores presses for 400 ms after its own toast came, moved or changed its action, so a
 // double click or tap aimed at one never presses the one that came or slid under it; one whose
-// toast did not change takes a press at once, whatever the other toast does. A toast leaves before
-// its action runs: an Undo refused while another undo runs comes back without pushing the other
-// toast out, the rest of a double click on it reaches nothing behind it, and the focus it had goes
-// to the sheet on top or the screen's heading, never to the page.
+// toast did not change takes a press at once, whatever the other toast does; toasts arriving one
+// after another never keep it unpressable for longer than one 400 ms window, and a tap every 500 ms
+// gets through. A toast leaves before its action runs: an Undo refused while another undo runs
+// comes back without pushing the other toast out, the rest of a double click on it (its second
+// click, however slow the user's double-click time) reaches no other toast and nothing behind it,
+// and the focus it had goes to the sheet on top or the screen's heading, never to the page.
 import { expect, test } from "./harness.mjs";
 import { openPlaylist, openSettings, playSong, row, settingRow } from "./ui.mjs";
 
@@ -211,6 +213,66 @@ test.describe("the toast stack", { tag: "@desktop" }, () => {
     await expect.poll(() => calls(page, "undo_batch"), "a press 400 ms later is taken").toBe(1);
   });
 
+  for (const gap of [460, 490]) {
+    test(`a slow double click (second click ${gap} ms later) on the top toast's Undo undoes its change only, never the newer toast's`, async ({ app, page }) => {
+      await row(page, "Paper Bloom").focus();
+      await page.keyboard.press("Delete");
+      await expect(row(page, "Paper Bloom")).toHaveCount(0);
+      await app.settled();
+      // The newer change in another playlist: undoing the older one is not refused, and its "Undone"
+      // toast comes at once, under the newer one, which moves up where the pointer is.
+      await page.keyboard.press("2");
+      await page.keyboard.press("1");
+      await openPlaylist(page, "Focus");
+      const first = (await page.locator(".Shell-main .TrackRow .TrackRow-title").first().textContent()).trim();
+      await row(page, first).focus();
+      await page.keyboard.press("Delete");
+      await app.settled();
+      await expect.poll(() => drawn(page)).toEqual(["Removed Paper Bloom from Late Night", `Removed ${first} from Focus`]);
+      const batches = await page.evaluate(() => window.__soundhoodMock.history.map((h) => h.summary.batch));
+      await page.waitForTimeout(450);
+      const b = await undoIn(page, "Removed Paper Bloom").boundingBox();
+      const x = b.x + b.width / 2;
+      const y = b.y + b.height / 2;
+      const t0 = Date.now();
+      await page.mouse.click(x, y, { clickCount: 1 });
+      await page.waitForTimeout(Math.max(0, t0 + gap - Date.now()));
+      const under = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest(".Toast")?.querySelector("span")?.textContent ?? "", [x, y]);
+      // The second press of that click sequence, as the system counts it within its double-click
+      // time (Windows' default is 500 ms): detail 2.
+      await page.mouse.down({ clickCount: 2 });
+      await page.mouse.up({ clickCount: 2 });
+      await page.waitForTimeout(600);
+      await app.settled();
+      expect(under, "the newer toast is under the pointer").toBe(`Removed ${first} from Focus`);
+      expect(await calls(page, "undo_batch"), "one undo: the top toast's").toBe(1);
+      expect(await page.evaluate(() => window.__soundhoodMock.history.map((h) => h.summary.batch)), "the newer change stays").toEqual([batches[1]]);
+      await expect(undoIn(page, `Removed ${first} from Focus`)).toBeVisible();
+    });
+  }
+
+  test("a slow double click (second click 464 ms later) on a toast's Undo over a song row plays no song behind it", async ({ app, page }) => {
+    await row(page, "Paper Bloom").focus();
+    await page.keyboard.press("Delete");
+    await app.settled();
+    await page.evaluate(() => (window.__soundhoodMock.delay.undo_batch = 700));
+    await page.waitForTimeout(450);
+    const b = await undoIn(page, "Removed Paper Bloom").boundingBox();
+    const x = b.x + b.width / 2;
+    const y = b.y + b.height / 2;
+    const t0 = Date.now();
+    await page.mouse.click(x, y);
+    await page.waitForTimeout(Math.max(0, t0 + 464 - Date.now()));
+    const behind = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".TrackRow"), [x, y]);
+    await page.mouse.down({ clickCount: 2 });
+    await page.mouse.up({ clickCount: 2 });
+    await page.waitForTimeout(1000);
+    await app.settled();
+    expect(behind, "a song row is under the pointer").toBe(true);
+    expect(await calls(page, "undo_batch"), "one undo").toBe(1);
+    expect(await page.locator(".TrackRow.is-playing").count(), "no song played").toBe(0);
+  });
+
   test("an Undo pressed while another undo runs comes back, and the other Undo toast stays", async ({ app, page }) => {
     for (const title of ["Paper Bloom", "Quiet Bloom"]) {
       await row(page, title).focus();
@@ -366,6 +428,76 @@ test.describe("a download's Cancel and Retry", { tag: ["@desktop", "@phone"] }, 
     await page.keyboard.press("a");
     await expect.poll(() => pressed(page)).toMatchObject({ disabled: null });
     await expect.poll(() => cancels(page), "in place: the press is taken").toBe(1);
+    await page.evaluate(() => window.__soundhoodMock.finishPhoneDownload());
+  });
+
+  /**
+   * Toasts arriving every 250 ms for `ms`, alternately one line and two (a channel link's refusal is
+   * longer): the download's toast moves up and down with each. Returns what `during` returned.
+   */
+  const arrivals = (page, ms, during) =>
+    page.evaluate(
+      async ({ ms, during }) => {
+        let i = 0;
+        const feed = setInterval(() => window.__soundhoodShare(i++ % 2 ? "https://www.youtube.com/@SomeChannelName" : "no link here"), 250);
+        await new Promise((r) => setTimeout(r, 300));
+        const t0 = performance.now();
+        const out = [];
+        const cancel = () => [...document.querySelectorAll(".Toast button")].find((b) => b.textContent === "Cancel");
+        if (during === "taps") {
+          // A tap on Cancel every 500 ms: is one taken?
+          for (let k = 0; k < 6; k++) {
+            const before = window.__soundhoodMock.cancels.length;
+            const b = cancel();
+            const dis = b?.getAttribute("aria-disabled") ?? "-";
+            b?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+            await new Promise((r) => setTimeout(r, 0));
+            const taken = window.__soundhoodMock.cancels.length > before;
+            out.push(`+${Math.round(performance.now() - t0)} ${dis}${taken ? " TAKEN" : ""}`);
+            if (taken) break;
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        } else {
+          // Nobody presses: the longest stretch Cancel says it ignores presses (aria-disabled).
+          let since = null;
+          let longest = 0;
+          while (performance.now() - t0 < ms) {
+            await new Promise((r) => requestAnimationFrame(r));
+            const now = performance.now();
+            if (cancel()?.getAttribute("aria-disabled") === "true") since ??= now;
+            else if (since !== null) {
+              longest = Math.max(longest, now - since);
+              since = null;
+            }
+          }
+          if (since !== null) longest = Math.max(longest, performance.now() - since);
+          out.push(Math.round(longest));
+        }
+        clearInterval(feed);
+        return out;
+      },
+      { ms, during },
+    );
+
+  test("toasts arriving one after another never keep Cancel unpressable for longer than one 400 ms window", async ({ app, page }, testInfo) => {
+    test.skip(!testInfo.project.use.hasTouch, "the PC host cannot cancel");
+    await app.open();
+    await startPhoneDownload(page);
+    await page.waitForTimeout(600);
+    const [longest] = await arrivals(page, 3000, "watch");
+    expect(longest, "the longest stretch of aria-disabled, in ms").toBeLessThanOrEqual(480);
+    await page.evaluate(() => window.__soundhoodMock.finishPhoneDownload());
+  });
+
+  test("toasts arriving one after another: a tap on Cancel every 500 ms gets through", async ({ app, page }, testInfo) => {
+    test.skip(!testInfo.project.use.hasTouch, "the PC host cannot cancel");
+    await app.open();
+    await startPhoneDownload(page);
+    await page.waitForTimeout(600);
+    const taps = await arrivals(page, 0, "taps");
+    expect(taps.at(-1), JSON.stringify(taps)).toContain("TAKEN");
+    expect(taps.length, `at most one tap ignored: ${JSON.stringify(taps)}`).toBeLessThanOrEqual(2);
+    expect(await cancels(page)).toBe(1);
     await page.evaluate(() => window.__soundhoodMock.finishPhoneDownload());
   });
 
