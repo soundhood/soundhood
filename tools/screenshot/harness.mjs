@@ -59,6 +59,12 @@ async function ipcSettled(page, mustHave = null, quietMs = 300) {
   );
 }
 
+/** What each mode emulates, checked once the app has loaded. */
+const MEDIA = {
+  "reduced-motion": "(prefers-reduced-motion: reduce)",
+  "more-contrast": "(prefers-contrast: more)",
+};
+
 export const test = base.extend({
   /** What the mocked `platform` command reports: "windows" (desktop layout) or "android" (phone). */
   soundhoodPlatform: ["windows", { option: true }],
@@ -66,6 +72,11 @@ export const test = base.extend({
   /** The mocked app for this test's page: open(), settled(cmd), shot(screen) and the fixture data. */
   app: async ({ page, soundhoodPlatform }, use, testInfo) => {
     const data = pageData(loadFixture(), soundhoodPlatform);
+    // The project's mode (playwright.config.mjs): default, reduced-motion, more-contrast or text-130.
+    // 130 % text is the Text size setting stored at 1.3, so the app itself sets --text-scale: 1.3 on
+    // the root element as it starts (a property set by hand would be removed while the app loads).
+    const mode = testInfo.project.metadata?.mode ?? "default";
+    if (mode === "text-130") data.store.text_scale = 1.3;
     const pageErrors = [];
     page.on("pageerror", (e) => pageErrors.push(e.message));
 
@@ -85,11 +96,19 @@ export const test = base.extend({
       async open() {
         await page.goto("/");
         await ipcSettled(page, "list_playlists");
+        if (MEDIA[mode]) expect(await page.evaluate((q) => matchMedia(q).matches, MEDIA[mode]), `${mode} is emulated`).toBe(true);
+        if (mode === "text-130") {
+          expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--text-scale")), "text size").toBe("1.3");
+        }
       },
       /** Waits for IPC to settle after an action, e.g. cover_art after a track starts. */
       settled: (cmd) => ipcSettled(page, cmd),
-      /** The baseline name for this viewport and screen, e.g. "1280x800-library.png". */
-      shot: (screen) => `${width}x${height}-${screen}.png`,
+      /**
+       * The baseline name for this viewport and screen: "1280x800-playlists.png" in the default
+       * mode (the name the parity grid and the evidence pair), and in another mode a path below
+       * screen-modes/, ["screen-modes", "playlists", "1280x800-text-130.png"], which neither reads.
+       */
+      shot: (screen) => (mode === "default" ? `${width}x${height}-${screen}.png` : ["screen-modes", screen, `${width}x${height}-${mode}.png`]),
     });
 
     const unknown = await page.evaluate(() => window.__soundhoodIpc?.unknown ?? []);

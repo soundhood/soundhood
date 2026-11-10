@@ -2,7 +2,9 @@
 // pair the phone with the desktop (npm run evidence:parity): playlists, artists, folders, tracks (a
 // playlist open, a song playing), playing and search. Each test runs at 390x844 and 834x1194
 // (platform android, touch) and at 1280x800 and 1920x1080 (platform windows, mouse). The layout comes
-// from the shell's width alone; the platform only says what the host can do.
+// from the shell's width alone; the platform only says what the host can do. Tagged @modes, each runs
+// again at 390x844 and 1280x800 with reduced motion, more contrast and 130 % text, photographed as
+// screen-modes/<screen>/<width>x<height>-<mode>.png (harness.mjs `shot`).
 import { expect, test } from "./harness.mjs";
 import { goTo, openPlayer, openPlaylist, playSong, row, searchField, settle } from "./ui.mjs";
 
@@ -10,7 +12,7 @@ const PLAYLIST = "Late Night";
 // Near the top of the playlist, so the header and the playing row are both on screen at every size.
 const SONG = "Lunar Comets";
 
-test.describe("screens", { tag: ["@desktop", "@phone"] }, () => {
+test.describe("screens", { tag: ["@desktop", "@phone", "@modes"] }, () => {
   test("playlists", async ({ app, page }) => {
     await app.open();
     await expect(page.locator(".PlaylistCard")).toHaveCount(5);

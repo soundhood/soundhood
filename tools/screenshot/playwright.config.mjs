@@ -1,8 +1,8 @@
 // Visual baselines and behaviour checks of the current UI: Chromium against the app's Vite dev
 // server with the Tauri backend mocked (harness.mjs). `npm run test:visual` runs every *.spec.mjs
 // and compares against the committed baselines in __screenshots__/<os>/,
-// `npm run test:visual:update` rewrites them, and `npm run evidence:after` copies them to
-// docs/evidence/phase-0/after/.
+// `npm run test:visual:update` rewrites them, and `npm run evidence:after` copies the default-mode
+// screens of the parity grid to docs/evidence/phase-<n>/after/.
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,7 +19,10 @@ function freePort() {
 process.env.SOUNDHOOD_VISUAL_PORT ??= String(freePort());
 const port = Number(process.env.SOUNDHOOD_VISUAL_PORT);
 
-// The layout is chosen by the Rust `platform` command, not by width: phone viewports report "android".
+// The layout is chosen by the shell's width alone (a container query), as in the app. The mocked
+// `platform` command only says what the host can do: the phone sizes report "android" (Proton sync,
+// the app's own bin, a typed music folder), the desktop sizes "windows" (the folder picker, the
+// Recycle Bin).
 const desktop = (width, height) => ({
   name: `desktop-${width}x${height}`,
   grep: /@desktop/,
@@ -30,6 +33,26 @@ const phone = (kind, width, height) => ({
   grep: /@phone/,
   use: { viewport: { width, height }, soundhoodPlatform: "android", isMobile: true, hasTouch: true },
 });
+
+// The three modes besides the default, with the browser options that make each one. 130 % text has
+// none: the harness stores the Text size setting at 130 % and the components spec sets --text-scale.
+const MODES = {
+  "reduced-motion": { reducedMotion: "reduce" },
+  "more-contrast": { contrast: "more" },
+  "text-130": {},
+};
+
+// The screen captures (tests tagged @modes: screens.spec.mjs, the queue and the settings) again in
+// each mode, at 390x844 (the phone) and 1280x800 (the desktop). harness.mjs names these baselines
+// screen-modes/<screen>/<width>x<height>-<mode>.png, out of the parity grid's way.
+const screenModes = (project) =>
+  Object.entries(MODES).map(([mode, contextOptions]) => ({
+    ...project,
+    name: `${project.name}-${mode}`,
+    grep: /@modes/,
+    metadata: { mode },
+    use: { ...project.use, contextOptions },
+  }));
 
 // The design system's fixture pages (components.spec.mjs). There the layout follows the width only,
 // as in the rebuilt app; the two narrow sizes are touch devices, the two wide ones use a mouse.
@@ -46,11 +69,7 @@ const component = (width, height, mode = "default", contextOptions = {}) => ({
     contextOptions,
   },
 });
-const componentModes = (width, height) => [
-  component(width, height, "reduced-motion", { reducedMotion: "reduce" }),
-  component(width, height, "more-contrast", { contrast: "more" }),
-  component(width, height, "text-130"),
-];
+const componentModes = (width, height) => Object.entries(MODES).map(([mode, options]) => component(width, height, mode, options));
 
 export default defineConfig({
   testDir: HERE,
@@ -84,6 +103,8 @@ export default defineConfig({
     component(1920, 1080),
     ...componentModes(390, 844),
     ...componentModes(1280, 800),
+    ...screenModes(phone("phone", 390, 844)),
+    ...screenModes(desktop(1280, 800)),
   ],
   webServer: {
     // Needs app/node_modules (`npm ci` in app/). --strictPort: a taken port must fail, not drift.

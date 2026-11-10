@@ -1,8 +1,9 @@
 // The settings sheet on the mocked UI: photographed at every size over Folders (the parity grid
 // pairs <size>-settings.png; over Playlists the blurred cover grid mixes aqua and purple into blue
-// pixels that fail the blue scan), Ctrl+comma, the text size, the log (View log, Copy log on every
-// device, the change lines only in what Copy log carries), a partial undo, the test library switch
-// and what it turns off, the self-test wording.
+// pixels that fail the blue scan) and in the three other modes at 390x844 and 1280x800 (@modes),
+// Ctrl+comma, the text size, the log (View log, Copy log on every device, the change lines only in
+// what Copy log carries), a partial undo, the test library switch and what it turns off, the
+// self-test wording.
 import { expect, test } from "./harness.mjs";
 import { goTo, openPlaylist, openSettings, playSong, report, row, settingRow, settle, status } from "./ui.mjs";
 
@@ -39,7 +40,7 @@ async function openLog(page) {
 }
 
 test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
-  test("settings", async ({ app, page }, testInfo) => {
+  test("settings", { tag: "@modes" }, async ({ app, page }, testInfo) => {
     const phone = testInfo.project.use.soundhoodPlatform === "android";
     await app.open();
     await goTo(page, "Folders");
