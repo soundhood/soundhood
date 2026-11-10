@@ -93,8 +93,9 @@ export function NewPlaylistSheet({ tracks, onClose }: { tracks: Track[]; onClose
     setBusy(false);
     if (!created) return;
     onClose();
-    // Create and add is one gesture: its toast's Undo takes back the add and the new playlist.
-    if (tracks.length) await edits.add(created.name, tracks, created.change ? [created.change] : []);
+    // Create and add is one gesture: its toast's Undo takes back the add and the new playlist, and
+    // is offered only when both reports are known.
+    if (tracks.length) await edits.add(created.name, tracks, created);
     else {
       if (!created.change && created.sure) notices.notify({ text: `${created.name} already exists` });
       nav.openDetail({ kind: "playlist", name: created.name });

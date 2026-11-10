@@ -227,6 +227,39 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(toast(page, "Undone: Added 1 song to Night Drive; Created playlist Night Drive")).toBeVisible();
   });
 
+  for (const [part, plan] of [
+    ["the add", [true, false]],
+    ["the create", [false]],
+  ]) {
+    test(`Create and add when ${part}'s report is not known: no Undo, which could take back only part of it`, async ({ app, page }) => {
+      // The marker that tells a write's report has arrived (lib/journal.ts) is dropped for the write
+      // `plan` names (false), so that write is not sure of its report.
+      await page.addInitScript(() => {
+        const internals = window.__TAURI_INTERNALS__;
+        const invoke = internals.invoke;
+        window.__flushPlan = [];
+        internals.invoke = (cmd, args, options) => {
+          if (cmd === "plugin:event|emit" && args?.event === "soundhood:flush" && window.__flushPlan.shift() === false) return Promise.resolve();
+          return invoke(cmd, args, options);
+        };
+      });
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await row(page, "Static Garden").click({ modifiers: ["Control"] });
+      await page.keyboard.press("Control+s");
+      const sheet = page.getByRole("dialog", { name: "New playlist" });
+      await sheet.getByRole("textbox", { name: "Playlist name" }).fill("Night Drive");
+      await page.evaluate((p) => (window.__flushPlan = p), plan);
+      const mark = await ipcMark(page);
+      await sheet.getByRole("button", { name: "Create and add" }).click();
+      await untilCalled(app, page, mark, "playlist_add");
+      const t = toast(page, "Added Static Garden to Night Drive");
+      await expect(t).toBeVisible({ timeout: 15_000 });
+      expect(await history(page)).toEqual(["Created playlist Night Drive", "Added 1 track to Night Drive"]);
+      expect(await t.getByRole("button").count(), "no Undo").toBe(0);
+    });
+  }
+
   test("a partial add says how many were really added; its Undo takes back only those", async ({ app, page }) => {
     await app.open();
     await openFolder(page, "Evenings");
