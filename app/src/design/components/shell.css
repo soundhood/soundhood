@@ -172,17 +172,18 @@
 
 /* ScreenHeader: the title of a list screen, its actions, and on the phone the search field. The
    actions follow the field in the document (Tab order) and sit at the end of the title's row: a
-   second column beside the row, while the field and the chips span both. */
+   second column beside the row, while the field and the chips span both. The space before the
+   actions is their own margin, not a column gap, so actions that are all hidden at this width (the
+   phone's Settings button on a tablet) take no room at all. */
 .ScreenHeader {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--sp-3);
+  row-gap: var(--sp-3);
   padding: var(--sp-4) var(--gutter) var(--sp-2);
 }
 
 .ScreenHeader:has(> .ScreenHeader-actions) {
   grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: var(--sp-2);
 }
 
 .ScreenHeader > * {
@@ -230,6 +231,7 @@
   align-items: center;
   gap: var(--sp-1);
   margin-right: calc(var(--sp-2) * -1);
+  margin-left: var(--sp-2);
 }
 
 .ScreenHeader .ChipRow {
@@ -268,8 +270,8 @@
     gap: var(--sp-4);
   }
 
-  .ScreenHeader:has(> .ScreenHeader-actions) {
-    column-gap: var(--sp-4);
+  .ScreenHeader-actions {
+    margin-left: var(--sp-4);
   }
 
   /* The desktop searches from the sidebar. */
