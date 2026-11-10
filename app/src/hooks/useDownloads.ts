@@ -2,8 +2,8 @@
 // draft, the queue of links waiting (stored and written into the library), running a download on
 // either engine (yt-dlp on the PC, the in-app plugin on the phone) and filing what it produced into
 // the chosen playlists. What happens is said by toasts (the running download's own toast is
-// DownloadToast, which reads dlBusy, dlProgress, dlSeconds and run) and the log; a download that ran
-// and failed also leaves `failure`, which Settings and the sheet show as an error row with Retry.
+// DownloadToast, which reads dlRunning, dlProgress, dlSeconds and run) and the log; a download that
+// ran and failed also leaves `failure`, which Settings and the sheet show as an error row with Retry.
 //
 // The downloader switch (Settings, YouTube) decides on every path: startDownload, which every
 // download goes through (the sheet's Download, a queued link, the queue runner, Retry), refuses while
@@ -11,18 +11,22 @@
 // as off); switching it off ends a running queue after the download in flight and drops the Retry of
 // a failed one; and a link shared before startup has read the stored switch, or while the first-launch
 // setup is up, waits until both are over (useSharedLinks).
-import { useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
+// One download at a time (downloadSlot.ts): startDownload takes the slot synchronously and starts
+// nothing while a download holds it, so each download's results are filed into its own playlists; a
+// Retry pressed then keeps its error row and says why nothing started.
+import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { addPluginListener, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { CHANNEL_REFUSAL, isChannelLink, lastErrorLine, queueEndStatus, queueStopStatus } from "../downloads";
 import { checkFolderName, folderNameRefusal } from "../folderName";
 import { firstUrl, isPlaylistLink } from "../lib/links";
-import { DEFAULT_DOWNLOAD_TARGET, KEY_DOWNLOAD_PLAYLISTS, KEY_DOWNLOAD_TARGET, KEY_SHARE_QUEUE, storePromise } from "../lib/store";
+import { DEFAULT_DOWNLOAD_TARGET, KEY_SHARE_QUEUE, storePromise } from "../lib/store";
 import type { PhoneDownloadResult, PlaylistFile, QueueDraft, QueuedLink, Setter, Track } from "../lib/types";
 import { journaled } from "../lib/journal";
 import type { Notices } from "./useNotices";
 import { useSharedLinks } from "./useSharedLinks";
+import { useDownloadSlot } from "./downloadSlot";
+import { useDownloadTarget } from "./downloadTarget";
 import { songCount } from "../features/library/trackInfo";
 
 // The yt-dlp listeners live in their own file; the shell imports them from here, as before.
@@ -30,8 +34,8 @@ export { useYtdlpEvents } from "./useYtdlpEvents";
 
 export type Downloads = ReturnType<typeof useDownloads>;
 
-/** A download that ran and failed: what the error row says, and how to try again. */
-export type DownloadFailure = { title: string; detail: string; retry: () => void };
+/** A download that ran and failed: what the error row says, its link, and how to try again. */
+export type DownloadFailure = { title: string; detail: string; url: string; retry: () => void };
 
 /** The newest "[download]  45.3%" figure in a chunk of yt-dlp output, or -1. */
 export function progressIn(text: string): number {
@@ -77,6 +81,11 @@ export function useDownloads({
   appendLog,
 }: DownloadsArgs) {
   const notify = notices.notify;
+  // Where downloads land and which playlists they join (downloadTarget.ts).
+  const { dlTarget, setDlTarget, dlPlaylists, setDlPlaylists, dlPlaylistsRef, targetOptions, chooseDlPlaylists, chooseTarget } = useDownloadTarget({
+    allTracks,
+    notify,
+  });
   const [shareQueue, setShareQueue] = useState<QueuedLink[]>([]);
   const [sharedLink, setSharedLink] = useState<string>("");
   async function saveQueue(next: QueuedLink[]) {
@@ -175,7 +184,9 @@ export function useDownloads({
       setDraftError(folderNameRefusal(raw, check.reason));
       return;
     }
-    if (downloadNow && !isMobile && !dlBusy) {
+    // The slot as it is now: a render's copy of it may be older than a download that just started.
+    const busy = slot.taken();
+    if (downloadNow && !isMobile && !busy) {
       closeDraft();
       void chooseTarget(check.name);
       void chooseDlPlaylists(d.playlists);
@@ -189,12 +200,12 @@ export function useDownloads({
     saveQueue([item, ...cur]);
     setSharedLink(url);
     closeDraft();
-    if (downloadNow && !dlBusy) {
+    if (downloadNow && !busy) {
       queueRunRef.current = [];
       setRun(null);
       startDownload(item.url, item.target || DEFAULT_DOWNLOAD_TARGET, item.playlists || [], item);
     } else {
-      notify({ text: dlBusy ? "Link queued: a download is running" : "Link queued" });
+      notify({ text: busy ? "Link queued: a download is running" : "Link queued" });
     }
   }
   /** "Enter" in the sheet's New folder field: checks the name (the error row says why not); no download. */
@@ -235,10 +246,15 @@ export function useDownloads({
     saveQueue(shareQueue.filter((x) => x.url !== url));
   }
 
-  const [dlBusy, setDlBusy] = useState<boolean>(false);
-  // A download ended: its toast goes at once (DownloadToast, on dlBusy), before any toast saying how
-  // it ended, so that toast never pushes a newer notice out of the stack past the leaving one.
-  const endBusy = () => flushSync(() => setDlBusy(false));
+  const slot = useDownloadSlot({
+    isMobile,
+    notify,
+    onPhoneLine: (line) => {
+      noteDlOutput(line + "\n");
+      setDlLogs((prev) => (prev.length > 20000 ? prev.slice(-12000) : prev) + line + "\n");
+    },
+    appendLog,
+  });
   const [failure, setFailure] = useState<DownloadFailure | null>(null);
   // While "Download queue" runs: which link of how many (the download toast says "2 of 5").
   const [run, setRun] = useState<{ at: number; of: number } | null>(null);
@@ -247,14 +263,6 @@ export function useDownloads({
   // links still wait (the run is over; nothing else starts by itself).
   const retriedQueuedRef = useRef(false);
 
-  // Where downloads land: a first-level folder under the Music root (= a playlist).
-  const [dlTarget, setDlTarget] = useState<string>(DEFAULT_DOWNLOAD_TARGET);
-  // Playlists a finished download is added to (remembered between downloads).
-  const [dlPlaylists, setDlPlaylists] = useState<string[]>([]);
-  const dlPlaylistsRef = useRef<string[]>([]);
-  useEffect(() => {
-    dlPlaylistsRef.current = dlPlaylists;
-  }, [dlPlaylists]);
   const lastDownloadRef = useRef<string[]>([]);
   // Destination of the download in flight: the sheet's choices, or a queued link's own.
   const activeDlRef = useRef<{ url: string; target: string; playlists: string[]; queued: QueuedLink | null }>({
@@ -264,17 +272,6 @@ export function useDownloads({
     queued: null,
   });
   const queueRunRef = useRef<QueuedLink[]>([]);
-
-  async function chooseDlPlaylists(next: string[]) {
-    setDlPlaylists(next);
-    try {
-      const store = await storePromise;
-      await store.set(KEY_DOWNLOAD_PLAYLISTS, next);
-      await store.save();
-    } catch {
-      /* non-fatal */
-    }
-  }
 
   // The links queue follows the library: re-read whenever the folder changes, and every minute on
   // the desktop (the phone may have added links to the synced file). folderRef itself is set by
@@ -295,7 +292,7 @@ export function useDownloads({
     dlOutputRef.current = (dlOutputRef.current + text).slice(-4000);
     if (!isMobile) {
       const p = progressIn(text);
-      if (p >= 0) setDlProgress(p);
+      if (p >= 0) slot.setProgress(p);
     }
   }
 
@@ -305,37 +302,17 @@ export function useDownloads({
     notify({ text: CHANNEL_REFUSAL });
   }
 
-  // Folders offered as download targets: every existing playlist folder + the default.
-  const targetOptions = useMemo(() => {
-    const set = new Set<string>([DEFAULT_DOWNLOAD_TARGET]);
-    for (const t of allTracks) {
-      if (t.playlist && t.playlist !== "(root)") set.add(t.playlist);
-    }
-    if (dlTarget) set.add(dlTarget);
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [allTracks, dlTarget]);
-
-  async function chooseTarget(name: string) {
-    if (!name.trim()) return;
-    const check = checkFolderName(name);
-    if (!check.ok) {
-      notify({ text: folderNameRefusal(name, check.reason) });
-      return;
-    }
-    const clean = check.name;
-    setDlTarget(clean);
-    try {
-      const store = await storePromise;
-      await store.set(KEY_DOWNLOAD_TARGET, clean);
-      await store.save();
-    } catch {
-      /* non-fatal: the choice still applies for this session */
-    }
-  }
-
-  /** The error row and a toast with Retry, for a download that ran and failed. */
+  /**
+   * The error row and a toast with Retry, for a download that ran and failed. A Retry pressed while
+   * another download runs starts nothing and loses nothing: the error row keeps its Retry, and a
+   * toast says why, with Retry again.
+   */
   function failed(title: string, text: string, detail: string, retryWith: { url: string; target: string; playlists: string[]; queued: QueuedLink | null }) {
     const retry = () => {
+      if (slot.taken()) {
+        notify({ text: "Not retried: a download is running", action: { label: "Retry", onClick: retry } });
+        return;
+      }
       setFailure(null);
       queueRunRef.current = [];
       runTotalRef.current = 0;
@@ -343,11 +320,16 @@ export function useDownloads({
       setRun(null);
       void startDownload(retryWith.url, retryWith.target, retryWith.playlists, retryWith.queued);
     };
-    setFailure({ title, detail, retry });
+    setFailure({ title, detail, url: retryWith.url, retry });
     notify({ text, action: { label: "Retry", onClick: retry } });
   }
 
   async function startDownload(url: string, target: string, playlists: string[], queued: QueuedLink | null): Promise<boolean> {
+    // One at a time, on every path: what a download files and where is its own until it is over.
+    if (slot.taken()) {
+      notify({ text: "Not started: a download is running" });
+      return false;
+    }
     // The one check every download passes: nothing reaches the helper while the switch is off.
     if (!downloaderReady()) return false;
     // Never download "somewhere": without a Music root there is no playlist to land in.
@@ -372,10 +354,12 @@ export function useDownloads({
       refuseChannelLink();
       return false;
     }
+    // Taken before anything can wait: no second start gets past the check above from here on.
+    slot.take();
     activeDlRef.current = { url, target: folderName, playlists, queued };
     dlOutputRef.current = "";
-    setFailure(null);
-    setDlBusy(true);
+    // That link's own failure goes with it; another link's stays, with its Retry, until retried.
+    setFailure((f) => (f && f.url !== url ? f : null));
     setDlLogs(queued ? `[soundhood] queued link → ${folderName}${playlists.length ? " + " + playlists.join(", ") : ""}\n` : "");
     const playlist = isPlaylistLink(url);
     if (isMobile) {
@@ -383,7 +367,7 @@ export function useDownloads({
       const sep = lib.includes("\\") ? "\\" : "/";
       const outDir = `${lib.replace(/[\\/]+$/, "")}${sep}${folderName}`;
       const id = `dl-${Date.now()}`;
-      dlIdRef.current = id;
+      slot.phoneId.current = id;
       try {
         const res = await invoke<PhoneDownloadResult>("plugin:soundhood-ytdl|download", {
           args: { url, outDir, playlist, id },
@@ -393,7 +377,8 @@ export function useDownloads({
         await finishDownload(res.exitCode, res.files || []);
         return res.exitCode === 0;
       } catch (err) {
-        endBusy();
+        slot.helperEnded();
+        slot.release();
         setDlLogs((prev) => prev + `\n[error] ${String(err)}\n`);
         const reason = String(err).split("\n")[0].slice(0, 120);
         if (queued) { activeDlRef.current = { ...activeDlRef.current, queued: null }; queueRunRef.current = []; runTotalRef.current = 0; setRun(null); }
@@ -409,7 +394,8 @@ export function useDownloads({
     } catch (err) {
       // The host refused to start (a channel link, no Music folder, no yt-dlp): say why in a toast
       // too, not only in the log.
-      endBusy();
+      slot.helperEnded();
+      slot.release();
       setRun(null);
       setDlLogs((prev) => prev + `\n[error] ${String(err)}\n`);
       notify({ text: String(err).split("\n")[0].slice(0, 160) });
@@ -417,13 +403,25 @@ export function useDownloads({
     }
   }
 
-  // After a download ended (either engine): rescan, file the new tracks into the chosen playlists,
-  // drop a finished queued link, start the next queued one.
+  // After a download ended (either engine): rescan, file the new tracks into its own playlists,
+  // drop a finished queued link. The slot stays taken until that is done (Undo last change waits
+  // for it); then the next queued link starts.
   async function finishDownload(exitCode: number, filePaths: string[]) {
-    endBusy();
+    slot.helperEnded();
+    let next = false;
+    try {
+      next = await fileDownload(exitCode, filePaths);
+    } finally {
+      slot.release();
+    }
+    if (next) setTimeout(() => nextQueuedRef.current(), 300);
+  }
+  /** Files what the download in flight produced; true when the queue's next link should start. */
+  async function fileDownload(exitCode: number, filePaths: string[]): Promise<boolean> {
     const lib = folderRef.current;
-    if (!lib) return;
+    if (!lib) return false;
     const active = activeDlRef.current;
+    let next = false;
     try {
       const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
       setAllTracks(found);
@@ -449,7 +447,7 @@ export function useDownloads({
         activeDlRef.current = { ...active, queued: null };
         if (exitCode === 0) {
           saveQueue(shareQueueRef.current.filter((q) => q.url !== active.queued!.url));
-          setTimeout(() => nextQueuedRef.current(), 300);
+          next = true;
         } else {
           // A refusal (bot wall, rate limit) would meet every remaining link too: stop the run here.
           // The failed link stays queued; the run is over, its Retry downloads that link alone.
@@ -467,11 +465,12 @@ export function useDownloads({
       notify({ text: `Refresh error: ${String(err)}` });
     }
     await refreshLastChange(lib);
+    return next;
   }
 
   // Work through the queued links one after another (each with its own destination).
   function runQueue() {
-    if (dlBusy || !shareQueue.length) return;
+    if (slot.taken() || !shareQueue.length) return;
     if (!downloaderReady()) return;
     queueRunRef.current = [...shareQueue];
     runTotalRef.current = shareQueue.length;
@@ -517,43 +516,6 @@ export function useDownloads({
   const finishDownloadRef = useRef(finishDownload);
   finishDownloadRef.current = finishDownload;
 
-  // Progress: the phone's plugin sends its own figure; on the PC noteDlOutput reads yt-dlp's lines.
-  const [dlProgress, setDlProgress] = useState<number>(-1);
-  useEffect(() => {
-    if (!isMobile) return;
-    let un: (() => void) | undefined;
-    let active = true;
-    addPluginListener<{ id: string; progress: number; eta?: number; line: string }>("soundhood-ytdl", "progress", (e) => {
-      if (typeof e.progress === "number" && e.progress >= 0) setDlProgress(e.progress);
-      if (e.line) noteDlOutput(e.line + "\n");
-      if (e.line) setDlLogs((prev) => (prev.length > 20000 ? prev.slice(-12000) : prev) + e.line + "\n");
-    }).then((l) => { if (active) un = () => l.unregister(); else l.unregister(); }).catch((e) => appendLog([`Progress events unavailable: ${String(e).slice(0, 100)}`]));
-    return () => { active = false; if (un) un(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile]);
-  useEffect(() => { if (!dlBusy) setDlProgress(-1); }, [dlBusy]);
-  // Seconds since the download started, so a silent yt-dlp is distinguishable from a dead one.
-  const [dlSeconds, setDlSeconds] = useState<number>(0);
-  useEffect(() => {
-    if (!dlBusy) { setDlSeconds(0); return; }
-    const t0 = Date.now();
-    const t = setInterval(() => setDlSeconds(Math.round((Date.now() - t0) / 1000)), 1000);
-    return () => clearInterval(t);
-  }, [dlBusy]);
-  const dlIdRef = useRef<string>("");
-  /** The phone's download can be stopped (the PC host has no cancel yet). */
-  const canCancel = isMobile;
-  async function cancelPhoneDownload() {
-    const id = dlIdRef.current;
-    if (!id) return;
-    try {
-      await invoke("plugin:soundhood-ytdl|cancel", { args: { id } });
-      notify({ text: "Cancelling the download" });
-    } catch (e) {
-      notify({ text: `Cancel failed: ${String(e).slice(0, 100)}` });
-    }
-  }
-
   return {
     shareQueue,
     setShareQueue,
@@ -565,7 +527,8 @@ export function useDownloads({
     draftError,
     openDraft,
     closeDraft,
-    dlBusy,
+    dlBusy: slot.busy,
+    dlRunning: slot.running,
     failure,
     dismissFailure: () => setFailure(null),
     run,
@@ -574,9 +537,9 @@ export function useDownloads({
     dlPlaylists,
     setDlPlaylists,
     targetOptions,
-    dlProgress,
-    dlSeconds,
-    canCancel,
+    dlProgress: slot.progress,
+    dlSeconds: slot.seconds,
+    canCancel: slot.canCancel,
     lastDownloadRef,
     finishDownloadRef,
     noteDlOutput,
@@ -591,6 +554,6 @@ export function useDownloads({
     chooseDlPlaylists,
     chooseTarget,
     runQueue,
-    cancelPhoneDownload,
+    cancelPhoneDownload: slot.cancelPhoneDownload,
   };
 }

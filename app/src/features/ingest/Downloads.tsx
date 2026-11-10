@@ -60,9 +60,9 @@ function DownloadToast() {
     cancel.current = dl.cancelPhoneDownload;
   });
 
-  // In the commit that ends the download, so it has left before a toast says how it ended.
+  // In the commit that ends the helper, so it has left before a toast says how it ended.
   useLayoutEffect(() => {
-    if (!dl.dlBusy) {
+    if (!dl.dlRunning) {
       if (id.current !== null) toast.dismiss(id.current);
       id.current = null;
       return;
@@ -70,7 +70,7 @@ function DownloadToast() {
     const action = canCancel ? { label: "Cancel", onClick: () => void cancel.current() } : undefined;
     if (id.current === null) id.current = toast.show({ text, progress, persistent: true, action });
     else toast.update(id.current, { text, progress, action });
-  }, [dl.dlBusy, text, progress, canCancel, toast]);
+  }, [dl.dlRunning, text, progress, canCancel, toast]);
 
   // Gone with the shell.
   useEffect(

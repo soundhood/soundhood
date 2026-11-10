@@ -3,8 +3,10 @@
 // the old download box did (the owner's migration rule); the sidebar's Download item; the running
 // download's toast; a refused download stops the queue with an error row; channel links; the
 // downloader switch (switched off, nothing more starts: not the queue's next link, not a Retry);
+// one download at a time (a Retry pressed while another runs starts nothing, keeps its error row and
+// says why; the running one is filed into its own playlists; Undo last change waits for its end);
 // Enter in the New folder field; the links waiting with copy and remove; the narrow window. On the
-// phone: a shared link, a refused queue, Cancel.
+// phone: a shared link, a refused queue, Cancel, a Retry tapped while another download runs.
 import { readFileSync } from "node:fs";
 import { expect, test } from "./harness.mjs";
 import { openSettings, settingRow, status } from "./ui.mjs";
@@ -37,6 +39,22 @@ async function paste(page, text, selector = "body") {
 
 /** The sidebar's (or the rail's) Download item. */
 const downloadItem = (page) => page.locator(".Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Download" });
+
+/** A journaled change made before the app starts, so Undo last change has something to undo. */
+const seedChange = (page, path) =>
+  beforeLoad(page, (p) => void window.__TAURI_INTERNALS__.invoke("playlist_add", { args: { libraryDir: "", name: "Empty", paths: [p] } }), path);
+/** What the journal holds, newest last, in the core's words. */
+const journalLabels = (page) => page.evaluate(() => window.__soundhoodMock.history.map((h) => h.summary.label));
+/** Picks or unpicks one playlist in "Where should this go?" (the pointer, or a tap on touch). */
+async function togglePlaylist(page, name, touch = false) {
+  const box = where(page).getByRole("combobox", { name: "Playlists" });
+  await (touch ? box.tap() : box.click());
+  const option = page.getByRole("option", { name });
+  await (touch ? option.tap() : option.click());
+  await page.keyboard.press("Escape");
+}
+const A_LINK = "https://www.youtube.com/watch?v=AAAAAAAAAAA";
+const B_LINK = "https://www.youtube.com/watch?v=BBBBBBBBBBB";
 
 test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
   test("Ctrl+V outside a text field: Where should this go?, then Download into the remembered folder and playlists", async ({ app, page }) => {
@@ -240,6 +258,63 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(where(page).getByRole("button", { name: "Download", exact: true })).toBeEnabled();
   });
 
+  test("one download at a time: a Retry pressed while another runs starts nothing, keeps its error row, and the running one is filed into its own playlists", async ({ app, page }) => {
+    await seedChange(page, app.data.tracks[0].path);
+    await app.open();
+    // A, into Focus, fails.
+    await downloadItem(page).click();
+    await where(page).getByRole("textbox", { name: "Link" }).fill(A_LINK);
+    await togglePlaylist(page, "Focus");
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    await emit(page, "ytdlp:stderr", "ERROR: [youtube] AAAAAAAAAAA: HTTP Error 503");
+    await emit(page, "ytdlp:done", 1);
+    const retry = toast(page, "Download failed").getByRole("button", { name: "Retry" });
+    await expect(retry).toBeVisible();
+    // B, into no playlist (the sheet offers A's Focus again: unpicked), starts and runs.
+    await downloadItem(page).click();
+    await where(page).getByRole("textbox", { name: "Link" }).fill(B_LINK);
+    await togglePlaylist(page, "Focus");
+    await expect(where(page).getByRole("combobox", { name: "Playlists" })).toHaveText("None");
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(2);
+    // A's Retry, past its toast's press guard: nothing starts, and a toast says why, with Retry.
+    await page.waitForTimeout(450);
+    await retry.click();
+    await page.waitForTimeout(400);
+    expect(await ipcCount(page, "downloads"), "no second download").toBe(2);
+    await expect(toast(page, "Not retried: a download is running").getByRole("button", { name: "Retry" })).toBeVisible();
+    // A's error row keeps its Retry, which starts nothing either; Undo last change waits for B.
+    await openSettings(app, page);
+    const error = sheet(page).locator(".ErrorRow");
+    await expect(error).toContainText("Download failed");
+    await error.getByRole("button", { name: "Retry" }).click();
+    await page.waitForTimeout(400);
+    expect(await ipcCount(page, "downloads")).toBe(2);
+    await expect(error).toContainText("Download failed");
+    const undo = settingRow(page, "Undo last change").getByRole("button", { name: "Undo" });
+    await expect(settingRow(page, "Undo last change")).toContainText("Added 1 song to Empty");
+    await expect(undo).toBeDisabled();
+    // B ends with its file; while it is filed (a slow rescan) its toast has gone and Undo still waits.
+    await page.evaluate(() => (window.__soundhoodMock.delay.scan_music_folder = 1500));
+    await emit(page, "ytdlp:files", [app.data.tracks[1].path]);
+    await emit(page, "ytdlp:done", 0);
+    await expect(page.locator(".Toast").filter({ hasText: /^Downloading/ })).toHaveCount(0);
+    await expect(undo).toBeDisabled();
+    await expect(undo).toBeEnabled({ timeout: 5000 });
+    expect(await journalLabels(page), "B's song never lands in A's playlist").toEqual(["Added 1 track to Empty"]);
+    await expect(toast(page, "Downloaded 1 file")).toBeVisible();
+    // Now A's Retry downloads A, into its own playlist.
+    await page.evaluate(() => (window.__soundhoodMock.delay.scan_music_folder = 0));
+    await error.getByRole("button", { name: "Retry" }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(3);
+    expect(await page.evaluate(() => window.__soundhoodMock.downloads[2].url)).toBe(A_LINK);
+    await expect(sheet(page).locator(".ErrorRow")).toHaveCount(0);
+    await emit(page, "ytdlp:files", [app.data.tracks[2].path]);
+    await emit(page, "ytdlp:done", 0);
+    await expect.poll(() => journalLabels(page)).toEqual(["Added 1 track to Empty", "Added 1 track to Focus"]);
+  });
+
   test("the downloader switched off hides the download UI; a pasted link says where to turn it on", async ({ app, page }) => {
     await app.open();
     await openSettings(app, page);
@@ -393,6 +468,47 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await field.fill("https://www.youtube.com/watch?v=aaaaaaaaaaa");
     await sheet(page).getByRole("button", { name: "Add", exact: true }).tap();
     await expect(where(page)).toBeVisible();
+  });
+
+  test("a stopped download's Retry tapped while another runs starts nothing; the running one is filed into its own playlists; Undo waits for its end", async ({ app, page }) => {
+    await seedChange(page, app.data.tracks[0].path);
+    await beforeLoad(page, () => (window.__soundhoodMock.holdPhoneDownload = true));
+    await app.open();
+    // A, into Focus, fails.
+    expect(await page.evaluate((u) => window.__soundhoodShare(u), A_LINK)).toBe(true);
+    await togglePlaylist(page, "Focus", true);
+    await where(page).getByRole("button", { name: "Download", exact: true }).tap();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    await page.evaluate(() => {
+      const m = window.__soundhoodMock;
+      m.phoneDownload = { exitCode: 1, files: [], log: "ERROR: [youtube] AAAAAAAAAAA: HTTP Error 503\n" };
+      m.finishPhoneDownload();
+    });
+    const retry = toast(page, "Queue stopped").getByRole("button", { name: "Retry" });
+    await expect(retry).toBeVisible();
+    // B, into no playlist, runs.
+    expect(await page.evaluate((u) => window.__soundhoodShare(u), B_LINK)).toBe(true);
+    await expect(where(page).getByRole("combobox", { name: "Playlists" })).toHaveText("None");
+    await where(page).getByRole("button", { name: "Download", exact: true }).tap();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(2);
+    await page.waitForTimeout(450);
+    await retry.tap();
+    await page.waitForTimeout(400);
+    expect(await ipcCount(page, "downloads"), "no second download").toBe(2);
+    await expect(toast(page, "Not retried: a download is running")).toBeVisible();
+    await openPhoneSettings(app, page);
+    await expect(sheet(page).locator(".ErrorRow")).toContainText("Queue stopped");
+    const undo = settingRow(page, "Undo last change").getByRole("button", { name: "Undo" });
+    await expect(undo).toBeDisabled();
+    // B ends with its file, filed into no playlist; then Undo is free again.
+    await page.evaluate((file) => {
+      const m = window.__soundhoodMock;
+      m.phoneDownload = { exitCode: 0, files: [file], log: "" };
+      m.finishPhoneDownload();
+    }, app.data.tracks[1].path);
+    await expect(undo).toBeEnabled({ timeout: 5000 });
+    expect(await journalLabels(page), "B's song never lands in A's playlist").toEqual(["Added 1 track to Empty"]);
+    await expect(sheet(page).locator(".ErrorRow")).toContainText("Queue stopped");
   });
 
   test("a settings store that cannot be read: the downloader is off, the toast says so, a shared link opens nothing", async ({ app, page }) => {
