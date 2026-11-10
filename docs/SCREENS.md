@@ -99,8 +99,9 @@ the actions: **Add to playlist**, **Edit tags** (one song), **Remove from** the 
 holds chosen songs; its own icon, a list with a minus), and under "More actions" **Move to folder**
 (while a folder or All songs is open, the storage views) and **Delete**. On the desktop the bar sits
 above the list with all of these. On narrower shells it takes the header's place and keeps four
-buttons: close, Add to playlist, Edit tags and More actions, which then also holds Select all and
-Remove from (the shell's width). The close button or Esc leaves Select mode. Ctrl+click and
+buttons: close, the first two actions the chosen songs can use (Add to playlist and Edit tags for
+one song; Add to playlist and Remove from for several songs of the open playlist) and More actions,
+which then also holds Select all and the other actions (the shell's width). The close button or Esc leaves Select mode. Ctrl+click and
 Shift+click show the same bar.
 
 **The row menu.** Opened by the "more" button, a right click, a long press on touch, or the menu key

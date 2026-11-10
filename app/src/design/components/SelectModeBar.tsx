@@ -4,8 +4,10 @@
 // the phone it replaces the screen header; on the desktop it sits above the list (the owner places
 // it). Esc leaves Select mode.
 // Below the desktop width the bar keeps at most four buttons, so it never reads as a row of glyphs:
-// Leave, the first NARROW_ACTIONS actions and More; Select all and the other actions open from More
-// there (shell.css visibility helpers, by width, never by platform). Every action stays reachable.
+// Leave, NARROW_ACTIONS actions and More; Select all and the other actions open from More there
+// (shell.css visibility helpers, by width, never by platform). The actions that stay out are the
+// first ones the selection can use, in their usual order (Remove from before a disabled Edit tags
+// when two songs are chosen); disabled ones only fill the places left. Every action stays reachable.
 import { useEffect, useEffectEvent } from "react";
 import { cx } from "../lib/cx";
 import { Button } from "./Button";
@@ -28,7 +30,7 @@ export interface SelectModeBarProps {
   onSelectAll: () => void;
   onSelectNone: () => void;
   onExit: () => void;
-  /** The common actions, most used first: below the desktop width only the first two stay out. */
+  /** The common actions, most used first: below the desktop width two stay out, enabled ones first. */
   actions: readonly SelectAction[];
   /** The rarer actions, in the "more" menu. */
   more?: readonly SelectAction[];
@@ -37,6 +39,16 @@ export interface SelectModeBarProps {
 
 /** How many of `actions` keep their own button below the desktop width. */
 const NARROW_ACTIONS = 2;
+
+/**
+ * Which of `actions` keep their own button below the desktop width: the first `room` that are
+ * enabled, then disabled ones in order while room is left. Returned as a set; the buttons keep
+ * the actions' order.
+ */
+function narrowPicks(actions: readonly { id: string; enabled: boolean }[], room = NARROW_ACTIONS): Set<string> {
+  const ranked = [...actions.filter((a) => a.enabled), ...actions.filter((a) => !a.enabled)];
+  return new Set(ranked.slice(0, room).map((a) => a.id));
+}
 
 export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit, actions, more = [], className }: SelectModeBarProps) {
   const onKey = useEffectEvent((e: KeyboardEvent) => {
@@ -59,10 +71,12 @@ export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit,
     disabled: a.disabled || count === 0,
     onSelect: a.onClick,
   });
+  const enabled = (a: SelectAction) => !a.disabled && count > 0;
+  const outNarrow = narrowPicks(actions.map((a) => ({ id: a.id, enabled: enabled(a) })));
   const wideMore = more.map(item);
   const narrowMore: MenuItem[] = [
     { id: "select-all", label: selectLabel, icon: "select", disabled: total === 0, onSelect },
-    ...actions.slice(NARROW_ACTIONS).map(item),
+    ...actions.filter((a) => !outNarrow.has(a.id)).map(item),
     ...wideMore,
   ];
 
@@ -76,13 +90,13 @@ export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit,
         {selectLabel}
       </Button>
       <div className="SelectModeBar-actions">
-        {actions.map((a, i) => (
+        {actions.map((a) => (
           <IconButton
             key={a.id}
             icon={a.icon}
             label={a.label}
-            className={i >= NARROW_ACTIONS ? "is-wide-only" : undefined}
-            disabled={a.disabled || count === 0}
+            className={outNarrow.has(a.id) ? undefined : "is-wide-only"}
+            disabled={!enabled(a)}
             onClick={a.onClick}
           />
         ))}
