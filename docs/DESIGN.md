@@ -477,13 +477,14 @@ taken out of the queue), Retry (a failed download), Cancel (the phone's running 
 while hovered or focused). The stack holds two: at most two toasts exist, the newest at the bottom; a
 third pushes the oldest out, dismissed with its timer, never shown later (A, B, C, A shows C and A,
 then nothing). An Undo toast pushed out is simply gone: its change stays in the journal, undoable
-from Settings (Undo last change, newest first). For 400 ms after the stack moves (a toast added or
-removed) its actions ignore presses: a double click on an older toast's Undo never presses the newer
-one's, slid under the pointer. Every toast is its own, shown as the newest, in the same words or not
-(A pressed twice shows two "Added ... to the queue"). Only a notice sent with a key stands for an
-earlier one of that key, coming back as the newest with its 4 s started again (today only the
-unreadable settings at startup). A download toast stays while the download runs, with a purple
-progress line on its bottom edge, and is not pushed out while another can go. `role="status"` (polite).
+from Settings (Undo last change, newest first). An Undo ignores presses for 400 ms after its own
+toast moved or came: a double click on an older toast's Undo never presses the newer one's, slid
+under the pointer; a toast that did not move, and Cancel and Retry always, take a press at once. A
+toast leaves before its action runs (a refused Undo comes back, pushing nothing out). Every toast is
+its own, the newest, in the same words or not (A pressed twice shows two "Added ... to the queue").
+Only a notice sent with a key stands for an earlier one of that key, back as the newest with its 4 s
+started again (today only the unreadable settings at startup). A download toast stays while the
+download runs, with a purple progress line, and is not pushed out while another can go. `role="status"`.
 
 **SettingsSheet.** One component on every device: the phone's settings sheet and the desktop's
 Ctrl+comma dialog. Groups in this order, each an overline heading over rows: Library, Playback, YouTube,

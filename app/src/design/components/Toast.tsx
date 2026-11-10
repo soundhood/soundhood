@@ -5,9 +5,12 @@
 // the newest at the bottom, and a third pushes the oldest out for good (toastList.ts). Every toast
 // shown is a toast of its own, the newest, even in the same words: what the user caused is said
 // every time. Only a notice sent with a `key` stands for an earlier one of that key (shown again as
-// the newest). For SETTLE_MS after the stack moves (a toast added or removed) the actions ignore
-// presses: a double click on an older toast's Undo must not press the newer one's, slid under the
-// pointer. role="status" (polite).
+// the newest). An Undo ignores presses for SETTLE_MS after its own toast moved or came (a toast
+// added under it, or the one under it gone): a double click on an older toast's Undo must not press
+// the newer one's, slid under the pointer. A toast that did not move takes a press at once, and a
+// download's Cancel and Retry always do. A toast leaves before its action runs, so an action that
+// shows a toast again (an Undo refused while another undo runs) pushes nothing out. role="status"
+// (polite).
 //
 //   <ToastProvider>              holds the toasts (wrap the app)
 //     <Shell overlays={<ToastViewport />} ... />   draws them inside the shell
@@ -17,10 +20,12 @@ import {
   useContext,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { cssVars } from "../lib/cx";
 import { addToast, type ToastEntry } from "../lib/toastList";
@@ -28,7 +33,12 @@ import { Button } from "./Button";
 
 export interface ToastOptions {
   text: string;
-  action?: { label: string; onClick: () => void };
+  /**
+   * One text action. `guarded`: an Undo, whose presses are ignored for SETTLE_MS after its toast
+   * moved or came (a press aimed at the toast that was there must not undo this change). Never on a
+   * download's Cancel or Retry.
+   */
+  action?: { label: string; onClick: () => void; guarded?: boolean };
   /** 0..1: draws the progress line (a download). */
   progress?: number;
   /** Stays until dismissed (or updated to persistent: false). */
@@ -48,32 +58,22 @@ export interface ToastApi {
 
 type Entry = ToastEntry & ToastOptions;
 
-interface ToastState {
-  toasts: readonly Entry[];
-  /** When the stack last moved (performance.now()): a toast added or removed. */
-  movedAt: number;
-}
-
-const ToastContext = createContext<(ToastState & { api: ToastApi; lastMove: () => number }) | null>(null);
+const ToastContext = createContext<{ toasts: readonly Entry[]; api: ToastApi } | null>(null);
 
 const SHOW_MS = 4000;
-/** After the stack moves, how long its actions ignore presses (ms). */
+/** After its toast moves or comes, how long an Undo ignores presses (ms). */
 export const SETTLE_MS = 400;
 
-const sameIds = (a: readonly Entry[], b: readonly Entry[]) => a.length === b.length && a.every((t, i) => t.id === b[i].id);
-
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<ToastState>({ toasts: [], movedAt: 0 });
+  const [toasts, setToasts] = useState<readonly Entry[]>([]);
   // The list as the calls left it, so show() can answer with the id of the toast that shows (a new
-  // one, or the earlier one of the same key); and when it last moved, which a press asks at once.
+  // one, or the earlier one of the same key).
   const list = useRef<readonly Entry[]>([]);
-  const moved = useRef(0);
   const next = useRef(1);
   const api = useMemo<ToastApi>(() => {
     const set = (to: readonly Entry[]) => {
-      if (!sameIds(list.current, to)) moved.current = performance.now();
       list.current = to;
-      setState({ toasts: to, movedAt: moved.current });
+      setToasts(to);
     };
     return {
       show(toast) {
@@ -89,7 +89,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       },
     };
   }, []);
-  const value = useMemo(() => ({ ...state, api, lastMove: () => moved.current }), [api, state]);
+  const value = useMemo(() => ({ toasts, api }), [api, toasts]);
   return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;
 }
 
@@ -99,49 +99,64 @@ export function useToast(): ToastApi {
   return ctx.api;
 }
 
-/**
- * True for SETTLE_MS after the stack moved at `movedAt`: the render that shows the move says so, and
- * a timer ends it.
- */
-function useSettling(movedAt: number): boolean {
-  const [settled, setSettled] = useState(movedAt);
-  useEffect(() => {
-    const t = setTimeout(() => setSettled(movedAt), SETTLE_MS);
-    return () => clearTimeout(t);
-  }, [movedAt]);
-  return settled !== movedAt;
-}
-
 /** Draws the toasts (two at most). Put it in the Shell's overlays slot. */
 export function ToastViewport() {
   const ctx = useContext(ToastContext);
-  const settling = useSettling(ctx?.movedAt ?? 0);
   if (!ctx) return null;
-  // A press within SETTLE_MS of a move was aimed at what was there before it.
-  const pressable = () => performance.now() - ctx.lastMove() >= SETTLE_MS;
   return (
     <div className="Toasts" role="status" aria-live="polite">
       {ctx.toasts.map((t) => (
-        <ToastItem key={t.id} toast={t} settling={settling} pressable={pressable} dismiss={() => ctx.api.dismiss(t.id)} />
+        <ToastItem key={t.id} toast={t} dismiss={() => ctx.api.dismiss(t.id)} />
       ))}
     </div>
   );
 }
 
+/**
+ * When the toast in `box` last moved or came, and whether that was under SETTLE_MS ago. Its place
+ * is measured after every render (a change of the stack renders every toast): its top and bottom
+ * edges in the window as laid out (the stack's place plus its own in the stack), so its opening
+ * animation never counts as a move.
+ */
+function usePlaceChange(box: RefObject<HTMLDivElement | null>) {
+  const place = useRef({ at: "", movedAt: 0 });
+  const [movedAt, setMovedAt] = useState(0);
+  const [quietAt, setQuietAt] = useState(0);
+  useLayoutEffect(() => {
+    const el = box.current;
+    const stack = el?.offsetParent;
+    if (!el || !stack) return;
+    const top = stack.getBoundingClientRect().top + el.offsetTop;
+    const at = `${Math.round(top)} ${Math.round(top + el.offsetHeight)}`;
+    if (at === place.current.at) return;
+    place.current = { at, movedAt: performance.now() };
+    setMovedAt(place.current.movedAt);
+  });
+  useEffect(() => {
+    const t = setTimeout(() => setQuietAt(movedAt), SETTLE_MS);
+    return () => clearTimeout(t);
+  }, [movedAt]);
+  return {
+    /** The render that shows the move says so (aria-disabled); a timer ends it. */
+    settling: movedAt !== quietAt,
+    /** Asked at the press. */
+    settled: () => performance.now() - place.current.movedAt >= SETTLE_MS,
+  };
+}
+
 interface ToastItemProps {
   toast: Entry;
-  /** The stack moved a moment ago: the action says it is not pressable yet (aria-disabled). */
-  settling: boolean;
-  /** Asked at the press: false while the stack is still settling. */
-  pressable: () => boolean;
   dismiss: () => void;
 }
 
-function ToastItem({ toast, settling, pressable, dismiss }: ToastItemProps) {
+function ToastItem({ toast, dismiss }: ToastItemProps) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const place = usePlaceChange(box);
   const expire = useEffectEvent(dismiss);
   const held = hovered || focused || !!toast.persistent;
+  const guarded = !!toast.action?.guarded;
 
   // Its 4 s start again when its words change or a notice of its key is shown again (toast.at).
   useEffect(() => {
@@ -152,6 +167,7 @@ function ToastItem({ toast, settling, pressable, dismiss }: ToastItemProps) {
 
   return (
     <div
+      ref={box}
       className="Toast"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -165,11 +181,14 @@ function ToastItem({ toast, settling, pressable, dismiss }: ToastItemProps) {
         <Button
           variant="link"
           small
-          aria-disabled={settling || undefined}
+          aria-disabled={(guarded && place.settling) || undefined}
           onClick={() => {
-            if (!pressable()) return;
-            toast.action?.onClick();
+            // An Undo pressed within SETTLE_MS of its toast moving was aimed at what was there before.
+            if (guarded && !place.settled()) return;
+            // The toast leaves first: an action that shows it again (a refused Undo) pushes nothing out.
+            const run = toast.action?.onClick;
             dismiss();
+            run?.();
           }}
         >
           {toast.action.label}

@@ -15,8 +15,8 @@ import { SETTINGS_UNREADABLE } from "./usePrefs";
 
 export interface Notice {
   text: string;
-  /** One text action (Undo, Retry, Cancel). */
-  action?: { label: string; onClick: () => void };
+  /** One text action (Undo, Retry, Cancel); `guarded` on an Undo only (ToastOptions). */
+  action?: { label: string; onClick: () => void; guarded?: boolean };
 }
 
 /** The key of the unreadable-settings notice: however often startup sends it, it shows once. */
@@ -58,13 +58,15 @@ export function useNotices() {
   /**
    * A toast whose Undo undoes exactly `changes` (the ones its own gesture made, by their ids) and
    * nothing else, whatever came after them. The first press takes it; a second press does nothing.
-   * Pressed while another undo runs, the same toast comes back to be pressed again.
+   * Pressed while another undo runs, the same toast comes back (as the newest; it left before the
+   * press ran, so it pushes no other toast out) to be pressed again.
    */
   const undoable = useCallback(
     (text: string, changes: readonly Change[]) => {
       let pressed = false;
       const action = {
         label: "Undo",
+        guarded: true,
         onClick: () => {
           if (pressed) return;
           pressed = undoRef.current(changes);
