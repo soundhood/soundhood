@@ -5,8 +5,8 @@
 // today: Library, YouTube, Proton Drive (phone), Appearance, Tools, About, and the hidden Developer
 // section at the bottom (7 taps on the version row on the phone, Ctrl+Alt+Shift+D on the PC).
 //
-// Appearance has room for "Show the queue beside the list": pass `queuePane` once the queue's
-// right pane exists, and the switch row appears (left out until then: no dead controls).
+// Appearance shows "Show the queue beside the list" when the shell passes `queuePane` (Overlays.tsx
+// does, on a window wide and tall enough for the right pane); elsewhere the row is left out.
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button, Dropdown, Icon, SettingGroup, SettingRow, Sheet, SwitchRow } from "../../design";

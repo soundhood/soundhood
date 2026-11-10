@@ -11,14 +11,19 @@ import { Onboarding } from "../features/onboarding/Onboarding";
 import { AddToPlaylistSheet, MoveToFolderSheet, NewPlaylistSheet } from "../features/playlists/PlaylistSheets";
 import { SettingsSheet } from "../features/settings/SettingsSheet";
 import { EditTagsDialog } from "../features/tags/EditTagsDialog";
+import { useQueueUi } from "../features/queue/QueueUi";
 import { useApp, type Picker } from "./context";
 
 export function Overlays({ picker, closePicker }: { picker: Picker | null; closePicker: () => void }) {
   const { dialogs } = useApp();
+  const queue = useQueueUi();
+  // "Show the queue beside the list" only where the right pane fits (a wide, tall enough window).
+  const queuePane = queue.paneFits
+    ? { shown: queue.paneOpen, onChange: (on: boolean) => (on !== queue.paneOpen ? queue.toggle() : undefined) }
+    : undefined;
   return (
     <>
-      {/* Pass queuePane={{ shown, onChange }} once the queue's right pane exists (SettingsSheet). */}
-      <SettingsSheet />
+      <SettingsSheet queuePane={queuePane} />
 
       {picker?.kind === "add" && <AddToPlaylistSheet tracks={picker.tracks} onClose={closePicker} />}
       {picker?.kind === "new" && <NewPlaylistSheet tracks={picker.tracks} onClose={closePicker} />}
