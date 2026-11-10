@@ -264,3 +264,76 @@ test.describe("a tap on a card, on Back or on a tab @phone", { tag: "@phone" }, 
     await spaceToggles(page, 'after "4"');
   });
 });
+
+// Playing is a screen: opened with a pointer (a click or tap on the player bar's button, the mini
+// player or the Playing tab or item), closing it (Esc, "1", its Close button) is a navigation like
+// any other and leaves the focus on the heading of the screen under it, so Space plays and pauses
+// and never opens Playing again through the button pressed. Opened with the keyboard (Enter on that
+// button, "4"), the focus goes back to what opened it, or to the heading when that went with the
+// screen. At 1280x800 and 760x520 (from the 1280x800 project), 834x1194 and 390x844.
+test.describe("closing Playing @desktop @phone", { tag: ["@desktop", "@phone"] }, () => {
+  /** The visible control named `name` in the frame (the player bar, the mini player, the tabs). */
+  const frame = (page, selector, name) => page.locator(selector).filter({ visible: true }).filter({ hasText: name ?? "" });
+  const opener = {
+    // The player bar's button on a wide shell, the mini player on the phone.
+    button: (page) => page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true }).first(),
+    // The Playing tab (phone), rail icon (tablet) or sidebar item (desktop).
+    tab: (page) => frame(page, ".BottomTabs-tab, .Sidebar-nav .NavItem", "Playing").first(),
+  };
+  const closers = {
+    Esc: (page) => page.keyboard.press("Escape"),
+    '"1"': (page) => page.keyboard.press("1"),
+    "its Close button": async (page, touch) => {
+      const close = page.locator(".FullPlayer").getByRole("button", { name: "Close the player" }).filter({ visible: true });
+      const target = (await close.count()) ? close.first() : page.getByRole("button", { name: "Close the player" }).filter({ visible: true }).first();
+      if (touch) await target.tap();
+      else await target.click();
+    },
+  };
+
+  for (const size of [null, { width: 760, height: 520 }]) {
+    test(`opened with a pointer, closing leaves the focus on the heading; with the keyboard, on its opener${size ? ` (${size.width}x${size.height})` : ""}`, async ({ app, page }, testInfo) => {
+      const name = testInfo.project.name;
+      test.skip(name === "desktop-1920x1080", "1280x800 stands for the desktop");
+      test.skip(!!size && name !== "desktop-1280x800", "760x520 from the 1280x800 project");
+      const touch = !!testInfo.project.use.hasTouch;
+      if (size) await page.setViewportSize(size);
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await playSong(app, page, "Lunar Comets");
+      await page.mouse.move(2, 2);
+      for (const [how, open] of [
+        ["a pointer on the button", (page) => (touch ? opener.button(page).tap() : opener.button(page).click())],
+        ["a pointer on the Playing tab", (page) => (touch ? opener.tab(page).tap() : opener.tab(page).click())],
+      ]) {
+        for (const [close, run] of Object.entries(closers)) {
+          await open(page);
+          await expect(fullPlayer(page)).toBeVisible();
+          await run(page, touch);
+          await expect(fullPlayer(page)).toHaveCount(0);
+          await expect.poll(() => focusFacts(page), `opened by ${how}, closed by ${close}`).toEqual(onHeading("Late Night"));
+          await spaceToggles(page, `after ${close} closed Playing opened by ${how}`);
+          await page.waitForTimeout(150);
+          await expect(fullPlayer(page), `Space after ${close} leaves Playing closed`).toHaveCount(0);
+        }
+      }
+      // With the keyboard: "4" (its opener goes with the screen: the heading), and Enter on the
+      // button (the button again, where the keyboard user was).
+      for (const [close, run] of Object.entries(closers)) {
+        await heading(page).focus();
+        await page.keyboard.press("4");
+        await expect(fullPlayer(page)).toBeVisible();
+        await run(page, touch);
+        await expect(fullPlayer(page)).toHaveCount(0);
+        await expect.poll(() => focusFacts(page), `opened by "4", closed by ${close}`).toEqual(onHeading("Late Night"));
+        await opener.button(page).focus();
+        await page.keyboard.press("Enter");
+        await expect(fullPlayer(page)).toBeVisible();
+        await run(page, touch);
+        await expect(fullPlayer(page)).toHaveCount(0);
+        await expect(opener.button(page), `opened by Enter on its button, closed by ${close}: the button`).toBeFocused();
+      }
+    });
+  }
+});
+

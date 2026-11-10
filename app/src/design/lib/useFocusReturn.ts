@@ -1,23 +1,29 @@
 // The focus never falls to the page when a surface that held it goes: the full player, the selection
 // bar, the first-launch setup. It goes back to what had it when the surface came (the button that
 // opened the player, the row that started Select mode) or, when that is gone, hidden or disabled, to
-// where the screen starts (focusMainArea: its heading). A sheet does the same itself (Sheet.tsx),
+// where the screen starts (focusMainArea: its heading). The full player is a screen: opened with a
+// pointer (a click or a tap on its button, the mini player, a tab), it gives the focus to where the
+// screen under it starts, as every navigation does, so Space stays play and pause; opened with the
+// keyboard, back to what opened it. A sheet does the same itself (Sheet.tsx),
 // with the sheet below as a step between. Nor when the screen in the main area changes under it
 // (useScreenFocus): Enter on a card or a row, Back, a tab digit, Playing, a click on a card, on Back
 // or on a navigation item.
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { focusIfAble, focusMainArea, isTypingTarget } from "./dom";
+import { lastInput } from "./lastInput";
 
 /**
  * While `active`, `box` is a surface that may hold the focus. When it goes with the focus inside it
  * (or with the focus already fallen to the page), the focus goes back to what had it when it came,
  * else to the main area; a focus that is somewhere else by then (a sheet that opened) stays there.
+ * `screen`: the surface is a screen the user went to (the full player). Opened with a pointer, it
+ * gives the focus to the main area when it goes, never back to the button pressed.
  */
-export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true) {
+export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true, screen = false) {
   useLayoutEffect(() => {
     if (!active) return;
     const el = box.current;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const opener = screen && lastInput() === "pointer" ? null : document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return () => {
       const at = document.activeElement;
       if (at && at !== document.body && !el?.contains(at)) return;
@@ -31,7 +37,7 @@ export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true
         if (!focusIfAble(opener)) focusMainArea();
       });
     };
-  }, [active, box]);
+  }, [active, box, screen]);
 }
 
 /**
