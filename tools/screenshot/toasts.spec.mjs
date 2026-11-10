@@ -431,23 +431,29 @@ test.describe("a toast closed by its own action", { tag: ["@desktop", "@phone"] 
       return el.matches("h1, h2") && el.closest(".Shell-main") ? `heading ${el.textContent}` : `${el.tagName} ${el.getAttribute("aria-label") ?? el.textContent}`.slice(0, 40);
     });
 
-  test("a double click or tap on its Undo undoes once and plays no song behind it", async ({ app, page }, testInfo) => {
+  test("a second click or tap where the top toast's Undo was plays no song behind it", async ({ app, page }, testInfo) => {
     const touch = !!testInfo.project.use.hasTouch;
-    await row(page, "Paper Bloom").focus();
-    await page.keyboard.press("Delete");
-    await expect.poll(() => drawn(page)).toEqual(["Removed Paper Bloom from Late Night"]);
+    for (const title of ["Paper Bloom", "Quiet Bloom"]) {
+      await row(page, title).focus();
+      await page.keyboard.press("Delete");
+      await expect(row(page, title)).toHaveCount(0);
+      await app.settled();
+    }
+    await expect.poll(() => drawn(page)).toEqual(["Removed Paper Bloom from Late Night", "Removed Quiet Bloom from Late Night"]);
     await page.waitForTimeout(500);
-    const undo = undoIn(page, "Removed Paper Bloom");
-    const b = await undo.boundingBox();
+    // The older toast is the top one: once it leaves, nothing is drawn in its place but the list.
+    const b = await undoIn(page, "Removed Paper Bloom").boundingBox();
     const x = b.x + b.width / 2;
     const y = b.y + b.height / 2;
-    const behind = await page.evaluate(([x, y]) => document.elementsFromPoint(x, y).find((el) => el.closest(".TrackRow"))?.closest(".TrackRow")?.textContent ?? null, [x, y]);
-    expect(behind, "a song row lies behind the toast's Undo").not.toBeNull();
-    if (touch) {
-      await page.touchscreen.tap(x, y);
-      await page.waitForTimeout(90);
-      await page.touchscreen.tap(x, y);
-    } else await page.mouse.dblclick(x, y);
+    const behind = await page.evaluate(([x, y]) => document.elementsFromPoint(x, y).some((el) => el.matches(".TrackRow")), [x, y]);
+    expect(behind, "a song row lies behind the top toast's Undo").toBe(true);
+    // The undo answers after 300 ms: until then nothing is drawn where the toast was.
+    await page.evaluate(() => (window.__soundhoodMock.delay.undo_batch = 300));
+    for (const gap of [0, 150]) {
+      if (gap > 0) await page.waitForTimeout(gap);
+      if (touch) await page.touchscreen.tap(x, y);
+      else await page.mouse.click(x, y);
+    }
     await page.waitForTimeout(600);
     await app.settled();
     expect(await calls(page, "undo_batch"), "one undo").toBe(1);
