@@ -6,20 +6,24 @@
 // toast shown is a toast of its own, the newest, even in the same words: what the user caused is
 // said every time. Only a notice sent with a `key` stands for an earlier one of that key (shown
 // again as the newest).
-// One press guard for every action: it ignores presses for SETTLE_MS (and says so, aria-disabled)
-// after its own toast came, moved (a toast added under it, the one under it gone) or changed its
-// action (a download's Cancel turned Retry), never because another toast changed. A double click or
-// tap aimed at one action never presses the one that came or slid under it. A download's progress
-// is no change. Moves never keep it unpressable: a move does not stretch a guard that runs, arms a
-// new one after a guard a move armed only once the action has been pressable for REARM_GAP_MS, and
-// none while someone keeps pressing it (a press it ignored in the last PRESSING_MS), so toasts
-// arriving one after another never starve it. A toast leaves before its action runs, so an action that shows a toast again (an
-// Undo refused while another undo runs) pushes nothing out. The rest of a double click or tap on it
-// reaches nothing: the later clicks of that click sequence (detail 2 and on, counted by the system
-// with the user's own double-click time) act on no toast and on nothing behind, and any press in its
-// place within SETTLE_MS is swallowed too. When it had the focus the focus goes to the sheet or
-// setup on top, else to where the screen starts (focusMainArea), never to the page. role="status"
-// (polite).
+// One press guard for every action (usePressGuard): it ignores presses until SETTLE_MS after its
+// latest change, and says so (aria-disabled): its own toast came, moved (a toast added under it, the
+// one under it gone) or changed its action (a download's Cancel turned Retry); never another toast's
+// change, never a download's progress. So a double click or tap aimed at one action never presses
+// the one that came or slid under it. One bounded relief, so moves cannot starve it: someone who
+// keeps pressing it (deliberate presses it ignored, the first REPRESS_MS ago or more, none more than
+// RUN_GAP_MS apart) while it keeps moving (twice or more since the first) is taken at the next
+// deliberate press, despite the move; never within SETTLE_MS of its toast coming or its action
+// changing. A deliberate press is a click or tap that starts a click sequence, a key, or a later
+// click of a sequence that started on this same action; the later clicks of a sequence begun
+// elsewhere (a double click on the song row a toast came over) never press it.
+// A toast leaves before its action runs, so an action that shows a toast again (an Undo refused while
+// another undo runs) pushes nothing out. Once a pointer's press acted on it, the rest of that click
+// sequence reaches nothing: its later clicks (detail 2 and on, counted by the system with the user's
+// own double-click time) act on no toast and on nothing behind, and any press in its place within
+// SETTLE_MS is swallowed too. A sequence whose presses it ignored is not swallowed. When it had the
+// focus the focus goes to the sheet or setup on top, else to where the screen starts
+// (focusMainArea), never to the page. role="status" (polite).
 //
 //   <ToastProvider>              holds the toasts (wrap the app)
 //     <Shell overlays={<ToastViewport />} ... />   draws them inside the shell
@@ -44,7 +48,7 @@ import { refocusTopLayer } from "./Sheet";
 
 export interface ToastOptions {
   text: string;
-  /** One text action; it ignores presses for SETTLE_MS after its toast came, moved or changed it. */
+  /** One text action; it ignores presses until SETTLE_MS after its toast came, moved or changed it. */
   action?: { label: string; onClick: () => void };
   /** 0..1: draws the progress line (a download). */
   progress?: number;
@@ -70,10 +74,10 @@ const ToastContext = createContext<{ toasts: readonly Entry[]; api: ToastApi } |
 const SHOW_MS = 4000;
 /** After its toast comes, moves or changes its action, how long the action ignores presses (ms). */
 export const SETTLE_MS = 400;
-/** After a guard a move armed, a move arms the next only once the action has been pressable this long (ms). */
-export const REARM_GAP_MS = 100;
-/** A move arms no guard within this long of a press the guard ignored (ms): someone is pressing it. */
-export const PRESSING_MS = 600;
+/** The relief: how long someone has kept pressing an action it ignored before a move is let pass (ms). */
+export const REPRESS_MS = 500;
+/** The relief: presses it ignored further apart than this are not someone pressing it (ms). */
+export const RUN_GAP_MS = 2000;
 /** The longest double-click time a system allows (Windows caps it at 5 s): a click sequence ends by then. */
 const SEQUENCE_MAX_MS = 5000;
 
@@ -115,6 +119,8 @@ export function useToast(): ToastApi {
 /** Draws the toasts (two at most). Put it in the Shell's overlays slot. */
 export function ToastViewport() {
   const ctx = useContext(ToastContext);
+  // Installed before any shield's listener, so a press inside a shield still starts a sequence.
+  useEffect(() => watchSequences(), []);
   if (!ctx) return null;
   // What places a toast: the toasts in the stack, in order, and their words (their height).
   const stack = ctx.toasts.map((t) => `${t.id} ${t.text}`).join(" | ");
@@ -128,17 +134,27 @@ export function ToastViewport() {
 }
 
 /**
- * When the guard of the toast in `box` was last armed, and whether that was under SETTLE_MS ago.
- * Its coming and a change of its action always arm it. A move (its place is measured whenever
- * `stack` changes, a toast added or removed, words changed: its top and bottom edges in the window
- * as laid out, the stack's place plus its own in the stack, so its opening animation never counts)
- * never stretches a guard that runs; it arms one when the last has ended (after a guard a move
- * armed, REARM_GAP_MS later) and no press was ignored in the last PRESSING_MS: no run of moves keeps
- * it unpressable for longer than one SETTLE_MS, and someone pressing at least every PRESSING_MS gets
- * through. A first move after its coming arms it as soon as the coming's guard has ended.
+ * The press guard of the action in `box`. Every change arms it again, for SETTLE_MS from that change:
+ * its coming, a change of its action, and a move (its place is measured whenever `stack` changes, a
+ * toast added or removed, words changed: its top and bottom edges in the window as laid out, the
+ * stack's place plus its own in the stack, so its opening animation never counts). The relief takes
+ * a deliberate press despite a move when someone has kept pressing it (the presses it ignored began
+ * REPRESS_MS ago or more, each within RUN_GAP_MS of the last) while it kept moving (twice or more
+ * since the first of them), and its coming and its action's latest change are SETTLE_MS old.
  */
 function usePressGuard(box: RefObject<HTMLDivElement | null>, stack: string, action: string | undefined) {
-  const seen = useRef({ at: "", action: undefined as string | undefined, armedAt: 0, byMove: false, ignoredAt: -Infinity });
+  const seen = useRef({
+    at: "",
+    action: undefined as string | undefined,
+    /** Its latest change of any kind, and its coming or its action's latest change. */
+    changedAt: 0,
+    fixedAt: 0,
+    moves: 0,
+    /** The presses it ignored lately: the first and the last, and how many moves it had made then. */
+    runFrom: -Infinity,
+    runLast: -Infinity,
+    runMoves: 0,
+  });
   const [armedAt, setArmedAt] = useState(0);
   const [quietAt, setQuietAt] = useState(0);
   useLayoutEffect(() => {
@@ -149,14 +165,12 @@ function usePressGuard(box: RefObject<HTMLDivElement | null>, stack: string, act
     const at = `${Math.round(top)} ${Math.round(top + el.offsetHeight)}`;
     const s = seen.current;
     if (at === s.at && action === s.action) return;
-    const moved = s.at !== "" && action === s.action;
+    const now = performance.now();
+    if (s.at === "" || action !== s.action) s.fixedAt = now;
+    else s.moves++;
     s.at = at;
     s.action = action;
-    const now = performance.now();
-    const quiet = SETTLE_MS + (s.byMove ? REARM_GAP_MS : 0);
-    if (moved && (now - s.armedAt < quiet || now - s.ignoredAt < PRESSING_MS)) return;
-    s.armedAt = now;
-    s.byMove = moved;
+    s.changedAt = now;
     setArmedAt(now);
   }, [box, stack, action]);
   useEffect(() => {
@@ -166,14 +180,41 @@ function usePressGuard(box: RefObject<HTMLDivElement | null>, stack: string, act
   return {
     /** The render that shows the change says so (aria-disabled); a timer ends it. */
     settling: armedAt !== quietAt,
-    /** Asked at the press: true when it may act; a press it ignores is noted. */
+    /** Asked at a deliberate press: true when it may act; a press it ignores is noted. */
     take: () => {
       const now = performance.now();
-      if (now - seen.current.armedAt >= SETTLE_MS) return true;
-      seen.current.ignoredAt = now;
+      const s = seen.current;
+      if (now - s.changedAt >= SETTLE_MS) return true;
+      const pressing = now - s.runLast <= RUN_GAP_MS;
+      if (pressing && now - s.runFrom >= REPRESS_MS && s.moves - s.runMoves >= 2 && now - s.fixedAt >= SETTLE_MS) return true;
+      if (!pressing) {
+        s.runFrom = now;
+        s.runMoves = s.moves;
+      }
+      s.runLast = now;
       return false;
     },
   };
+}
+
+/** What the newest click sequence's first press (a mousedown of detail 1, a tap's too) landed on. */
+let sequenceStart: EventTarget | null = null;
+let watchingSequences = 0;
+const noteSequence = (e: MouseEvent) => {
+  if (e.detail <= 1) sequenceStart = e.target;
+};
+
+/** Watches where click sequences start while the toasts are drawn (ToastViewport); returns the stop. */
+function watchSequences(): () => void {
+  if (watchingSequences++ === 0) window.addEventListener("mousedown", noteSequence, true);
+  return () => {
+    if (--watchingSequences === 0) window.removeEventListener("mousedown", noteSequence, true);
+  };
+}
+
+/** True when the click sequence `el` is clicked in started on `el`: its first press landed there. */
+function startedOn(el: Element): boolean {
+  return sequenceStart instanceof Node && el.contains(sequenceStart);
 }
 
 /** The pointer and touch events a shield swallows. */
@@ -291,10 +332,10 @@ function ToastItem({ toast, stack, dismiss }: ToastItemProps) {
           small
           aria-disabled={guard.settling || undefined}
           onClick={(e) => {
-            // The second click of a double click (or tap) is never a press on a toast: the first
-            // one was aimed at something else, or already pressed what was here.
-            if (e.detail >= 2) return;
-            // Pressed within SETTLE_MS of its toast coming, moving or changing it: aimed at what was there.
+            // The later clicks of a click sequence begun elsewhere (a double click on the song row
+            // this toast came over) are no press on it. One begun here, on a press it ignored, is.
+            if (e.detail >= 2 && !startedOn(e.currentTarget)) return;
+            // Pressed within SETTLE_MS of its latest change: aimed at what was there (usePressGuard).
             if (!guard.take()) return;
             // A pointer's press: the rest of its click sequence reaches nothing, here or behind.
             if (e.detail > 0 && box.current) shield(box.current.getBoundingClientRect());
