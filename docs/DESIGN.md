@@ -256,10 +256,10 @@ pressed `--bg-3` with `--fg-0`. `aria-pressed`. A row of chips scrolls sideways 
 text (Generated lyrics).
 
 **SearchField.** A 40 px field on `--bg-1` with a search icon and, while it has text, a clear
-button. Esc clears it; empty, Esc does what it does elsewhere (closes Playing, leaves Select mode)
-and the focus goes to the screen's heading. On the phone and the tablet it sits under the title of
-Playlists, Artists, Folders and an open list, which it filters; on the desktop, in the sidebar.
-Typing never hijacks focus; Ctrl+K and `/` focus it (held, one press).
+button. Esc clears it; empty, it closes Playing if open, else only moves the focus to the screen's
+heading (after Playing, the one under it), never leaving Select mode. On the phone and the tablet it
+sits under the title of Playlists, Artists, Folders and an open list, which it filters; on the
+desktop, in the sidebar. Typing never hijacks focus; Ctrl+K and `/` focus it (held, one press).
 
 **TextField.** A 40 px input on `--bg-2` with a 1 px line; the placeholder in `--fg-1`. Its Enter
 ends in it: where Enter submits and the sheet closes, it never presses what the focus goes back to.
@@ -412,7 +412,7 @@ onto a playlist here are added to it (tier 2, toast with Undo); songs it already
 and a drop that adds nothing says so in a toast without Undo.
 
 **RightPane** (desktop). 320 px on `--bg-0` with the artwork tint across its top 40 %; holds the Queue.
-Open or closed is remembered.
+Open or closed is remembered. A click on its toggle that opens it gives it the focus (no ring).
 
 ### Overlays
 
@@ -466,21 +466,21 @@ shortcuts ask about. `role="dialog"`, `aria-modal`, labelled by its title.
 **Toast.** Bottom centre, above the mini player or the player bar, `--bg-3`, `--r-md`,
 `--shadow-float`, body-sm text and at most one text action: Undo (a tier-2 playlist change, a song
 taken out of the queue), Retry (a failed download), Cancel (the phone's running download) or Settings
-(a link that arrived while the downloader is off). Stays 4 s from when it is shown (the clock stops
-while hovered or focused). The stack holds two: at most two toasts exist, the newest at the bottom; a
-third pushes the oldest out, dismissed with its timer, never shown later (A, B, C, A shows C and A,
-then nothing). An Undo toast pushed out is simply gone: its change stays in the journal, undoable
-from Settings (Undo last change, newest first). Every action ignores presses for 400 ms after its
-own toast came, moved or changed its action (`aria-disabled`), never for another toast's change or a
-download's progress: a double tap never presses what came or slid under it. A move never stretches
-the window, arms the next 100 ms after one a move armed, never within 600 ms of an ignored press: so
-arriving toasts never starve an action. A toast leaves before its action runs (a refused Undo comes
-back, pushing nothing out); the rest of that double click (its later clicks, as the system counts
-them) reaches nothing, and its focus goes to the sheet on top, else the heading. Every toast is its
-own, the newest, in the same words or not (A pressed twice shows two "Added ... to the queue").
-Only a notice sent with a key stands for an earlier one of that key, back as the newest with its 4 s
-started again (today only the unreadable settings at startup). A download toast stays while the
-download runs, with a purple progress line, and is not pushed out while another can go. `role="status"`.
+(a link that arrived while the downloader is off). Stays 4 s from when shown (the clock stops while
+hovered or focused). The stack holds two: at most two toasts exist, the newest at the bottom; a third
+pushes the oldest out, dismissed with its timer, never shown later (A, B, C, A shows C and A, then
+nothing). An Undo toast pushed out is gone (its change stays undoable: Settings, Undo last change).
+**Press guard:** an action ignores presses until 400 ms after its latest change (its toast came, moved
+or changed its action; `aria-disabled`), not for another toast's change or a download's progress: a
+double tap never presses what came or slid under it. So moves never starve it, a deliberate press
+(starting a click sequence, or in one begun on the action) acts despite a move after 0.5 s of ignored
+ones (at most 2 s apart) and two moves, never within 400 ms of its coming or a change of action. A
+toast leaves before its action runs (a refused Undo comes back, pushing nothing out); after a click
+acted, the rest of its sequence reaches nothing; its focus goes to the sheet on top, else the heading.
+Every toast is its own, the newest, in the same words or not (A pressed twice shows two "Added ... to
+the queue"). Only a notice sent with a key stands for an earlier one of its key, back as the newest,
+its 4 s started again (the unreadable settings at startup). A download toast stays while the download
+runs, with a purple progress line, and is not pushed out while another can go. `role="status"`.
 
 **SettingsSheet.** One component on every device: the phone's settings sheet and the desktop's
 Ctrl+comma dialog. Groups in this order, each an overline heading over rows: Library, Playback, YouTube,
@@ -546,8 +546,8 @@ area.
   `--bg-2` (checked by `tools/contrast-lint.mjs`); UI boundaries 3:1 or better.
 - A 2 px aqua outline on `:focus-visible` everywhere, never removed. A control that hides its own
   outline hands the same ring to the box that holds it: the search field's frame while its input has
-  the keyboard (Tab, Ctrl+K, "/"), a playlist card's whole face. Three exceptions, with nothing to
-  press: a sheet's panel on open, a screen's heading after a navigation, the selection bar.
+  the keyboard (Tab, Ctrl+K, "/"), a playlist card's whole face. Exceptions, with nothing to press:
+  a sheet's panel on open, a screen's heading after a navigation, the selection bar, the queue pane.
   `tools/screenshot/focus.spec.mjs` tabs through Playlists, an open playlist and Settings at every
   size and checks every stop's ring.
 - Roving tabindex in lists; every icon button has an `aria-label`; the now-playing title and toasts are
@@ -564,16 +564,16 @@ area.
   repeat (`tools/screenshot/presses.spec.mjs`).
 - The focus never falls to the page. **The focus rule** for all that opens over a screen with an
   opener (a sheet, a list or menu, Select mode, the queue pane, Playing; `useFocusReturn.ts`):
-  opened with the keyboard, back to the opener while it can take it; opened with a pointer (even on
-  a control the keyboard had reached) or with the opener gone, to where the layer under it starts
-  (the sheet below, else the screen's heading), so Space never presses the opener again. After a
-  navigation (Enter on a card or a row, Back, 1 to 4, a click or tap on a card, on Back, on a
-  sidebar item or tab) it goes to the new screen's heading or the full player's title
-  (`tabindex="-1"`, no scrolling; `useScreenFocus`), never to a button, card or row: Space stays
-  play and pause, Ctrl+E with nothing chosen edits the playing song, no row's More shows, Tab leads
-  in, a grid scrolled back to keeps its place, and Tab from a heading out of sight goes to the first
-  card or row in view (`mainTab.ts`). A sidebar item reached with the keyboard keeps it, as does the
-  search field.
+  opened and closed with the keyboard, back to the opener while it can take it; opened or closed
+  with a pointer (even on a control the keyboard had reached, or the toggle that closes it) or with
+  the opener gone, to where the layer under it starts (the sheet below, else the screen's heading),
+  so Space never presses the opener again; a song row a pointer chose keeps it. After a navigation
+  (Enter on a card or a row, Back, 1 to 4, a click or tap on a card, on Back, on a sidebar item or
+  tab) it goes to the new screen's heading or the full player's title (`tabindex="-1"`, no
+  scrolling; `useScreenFocus`), never to a button, card or row: Space stays play and pause, Ctrl+E
+  with nothing chosen edits the playing song, no row's More shows, Tab leads in, a grid scrolled
+  back to keeps its place, Tab from a heading out of sight goes to the first card or row in view
+  (`mainTab.ts`). A sidebar item reached with the keyboard keeps it, as does the search field.
 - The layout survives 130 % text size (photographed in the visual suite).
 - `prefers-reduced-motion` and `prefers-contrast: more` are honoured (above).
 
