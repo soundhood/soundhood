@@ -2,8 +2,9 @@
 // undoes it, a report says what a tag edit and an undo did (and never closes by itself), the
 // developer section opens with its gesture, and a playlist add changes nothing on screen but its
 // toast. The labels are the real core's words (core/src/ingest), which the mock repeats: "Edited
-// tags of <file name>", "Added 1 track to <playlist>", "Restored tags of <file name>"; an undo's
-// report shows them without the file's extension.
+// tags of <file name>", "Added 1 track to <playlist>", "Restored tags of <file name>"; the app
+// shows them (Settings, an undo's report and toast) with songs for tracks and without the file's
+// extension.
 //
 // Every Undo names its own change: a toast's Undo undoes the change its gesture made, by id, and
 // nothing else (not a newer change, not the change of a report that is open), and a second press
@@ -80,7 +81,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
 
     await openSettings(app, page);
     // Undo names the change next to its button, not in a tooltip.
-    await expect(undoHelp(page)).toHaveText("Added 1 track to Focus");
+    await expect(undoHelp(page)).toHaveText("Added 1 song to Focus");
     await expect(undoButton(page)).toBeEnabled();
     // The change goes to the lines "Copy log" carries, not to the log on screen.
     const log = await logText(page);
@@ -113,7 +114,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     // aqua and purple into blue pixels.
     await goTo(page, "Folders");
     await openSettings(app, page);
-    await expect(undoHelp(page)).toHaveText("Edited tags of Quiet Bloom - Anouk Lirr.ogg");
+    await expect(undoHelp(page)).toHaveText("Edited tags of Quiet Bloom - Anouk Lirr");
     await expect(undoButton(page)).toBeEnabled();
     await expect(status(page)).not.toContainText("[change]");
     await settle(app, page);
@@ -169,7 +170,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await toast(page, "Removed Static Garden from").getByRole("button", { name: "Undo" }).click();
     await untilCalled(app, page, mark, "undo_");
     expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
-    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
+    await expect(toast(page, "Undone: Removed 1 song from Late Night")).toBeVisible();
     await expect(row(page, "Quiet Bloom (Night Edit)")).toBeVisible();
     await expect(row(page, "Static Garden")).toBeVisible();
   });
@@ -189,7 +190,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await t.getByRole("button", { name: "Undo" }).click();
     await untilCalled(app, page, mark, "undo_");
     expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
-    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
+    await expect(toast(page, "Undone: Removed 1 song from Late Night")).toBeVisible();
     // The report is the tag edit's, as it was, with its own Undo.
     await expect(report(page).getByRole("heading")).toHaveText("Saved the tags of Quiet Bloom - Anouk Lirr");
     await expect(report(page).getByRole("button", { name: "Undo this batch" })).toBeEnabled();
@@ -217,7 +218,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await openPlaylist(page, PLAYLIST);
     const t = await removeWithDelete(page, "Neon Bloom");
     await t.getByRole("button", { name: "Undo" }).dblclick();
-    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
+    await expect(toast(page, "Undone: Removed 1 song from Late Night")).toBeVisible();
     await page.waitForTimeout(500);
     expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
   });
@@ -278,7 +279,7 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await goTo(page, "Folders");
     await openPhoneSettings(app, page);
     await expect(undoButton(page)).toBeEnabled();
-    await expect(undoHelp(page)).toHaveText("Edited tags of Static Garden - Sola Brakke.opus");
+    await expect(undoHelp(page)).toHaveText("Edited tags of Static Garden - Sola Brakke");
     // No change lines in the log on screen, as before the rebuild.
     await expect(status(page)).not.toContainText("[change]");
     await settle(app, page);

@@ -2,6 +2,7 @@
 // has no picker for real paths), Rescan, Make playlists from folders, and Undo last change with
 // the change named in plain words; Undo undoes that change by its id (a second press while it runs
 // does nothing). An undo ends in a report or a toast that says what it did.
+import { shownLabel } from "../../coreIpc";
 import { Button, SettingGroup, SettingRow, TextField } from "../../design";
 import { useApp } from "../../app/context";
 import { shownFolder } from "../../testLibrary";
@@ -50,7 +51,11 @@ export function LibraryGroup() {
               Make
             </Button>
           </SettingRow>
-          <SettingRow label="Undo last change" help={lib.lastChange ? lib.lastChange.label : "Nothing to undo"} className="UndoRow">
+          <SettingRow
+            label="Undo last change"
+            help={lib.lastChange ? shownLabel(lib.lastChange.label, null, isMobile) : "Nothing to undo"}
+            className="UndoRow"
+          >
             <Button
               small
               icon="undo"

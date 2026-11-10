@@ -224,7 +224,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await t.getByRole("button", { name: "Undo" }).click();
     await untilCalled(app, page, mark, "undo_");
     expect(await history(page)).toEqual([]);
-    await expect(toast(page, "Undone: Added 1 track to Night Drive; Created playlist Night Drive")).toBeVisible();
+    await expect(toast(page, "Undone: Added 1 song to Night Drive; Created playlist Night Drive")).toBeVisible();
   });
 });
 

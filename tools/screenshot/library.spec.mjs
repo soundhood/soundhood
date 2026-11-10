@@ -140,7 +140,7 @@ test.describe("mouse and keyboard (platform windows)", { tag: "@desktop" }, () =
     await goTo(page, "Playlists");
     await expect(card(page, "Focus")).toContainText("8 songs");
     await openSettings(app, page);
-    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 track to Focus");
+    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 song to Focus");
     await closeSettings(page);
     await toast(page).getByRole("button", { name: "Undo" }).click();
     await expect(card(page, "Focus")).toContainText("7 songs");

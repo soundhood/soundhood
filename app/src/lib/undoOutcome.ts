@@ -52,7 +52,7 @@ function labelOf(s: UndoStep, isMobile: boolean): string {
     ...(r?.skipped ?? []).map((x) => x.path),
     ...(r?.failed ?? []).map((x) => x.path),
   ];
-  return shownLabel(s.change.label, paths, isMobile);
+  return shownLabel(s.change.label, paths.some(Boolean) ? paths : null, isMobile);
 }
 
 export type UndoOutcome = {

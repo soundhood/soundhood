@@ -103,6 +103,17 @@ describe("changeOf and shownLabel", () => {
 
   it("drops the extensions of the files it names, and only those", () => {
     expect(shownLabel("Edited tags of Mr. Brightside.mp3", ["Rock/Mr. Brightside.mp3"], true)).toBe("Edited tags of Mr. Brightside");
-    expect(shownLabel("Added 1 track to Late Night", [null, undefined], false)).toBe("Added 1 track to Late Night");
+    expect(shownLabel("Moved Live.2024 - Band.opus to Archive", ["Archive/Live.2024 - Band.opus"], true)).toBe("Moved Live.2024 - Band to Archive");
+  });
+
+  it("without paths (a last_change summary) drops audio extensions only", () => {
+    expect(shownLabel("Edited tags of Quiet Bloom - Anouk Lirr.ogg and 2 more", null, true)).toBe("Edited tags of Quiet Bloom - Anouk Lirr and 2 more");
+    expect(shownLabel("Moved Mr. Brightside.MP3 to the bin", null, false)).toBe("Moved Mr. Brightside to the Recycle Bin");
+    expect(shownLabel("Restored playlist Vol. 2.5", null, true)).toBe("Restored playlist Vol. 2.5");
+  });
+
+  it("says songs, not tracks", () => {
+    expect(shownLabel("Added 1 track to Late Night", [null, undefined], false)).toBe("Added 1 song to Late Night");
+    expect(shownLabel("Removed 3 tracks from Focus", null, true)).toBe("Removed 3 songs from Focus");
   });
 });

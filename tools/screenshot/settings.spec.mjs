@@ -150,7 +150,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await app.open();
     await addQuietBloomToFocus(page);
     await openSettings(app, page);
-    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 track to Focus");
+    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Added 1 song to Focus");
     await page.evaluate(() => {
       window.__soundhoodMock.undoSkipped = [{ path: "_Playlists/Focus.m3u8", reason: "changed since, not undone" }];
     });

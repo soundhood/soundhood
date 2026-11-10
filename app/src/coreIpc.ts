@@ -43,21 +43,31 @@ export function changeOf(r: BatchReport | null | undefined): Change | null {
   return { batch: r.batch, label, paths };
 }
 
+/** An audio file's extension at the end of a name in a label ("Quiet Bloom - Anouk Lirr.ogg"). */
+const AUDIO_EXTENSION = /\.(mp3|m4a|mp4|aac|flac|ogg|oga|opus|wav|wma|webm|aiff?|alac)(?=$|[\s,;)])/gi;
+
 /**
- * A change's words as a report or a toast shows them: file names without their extension, and the
- * bin by the name it has on this device ("the Recycle Bin" on a PC). `paths` are the library paths
- * the entry names (before and after).
+ * A change's words as the app shows them (the core's words, as the journal keeps them, stay in the
+ * log): songs, not tracks; file names without their extension; the bin by the name it has on this
+ * device ("the Recycle Bin" on a PC). `paths` are the library paths the entry names (before and
+ * after); without them (a `last_change` summary) the audio extensions the library holds are dropped.
  */
-export function shownLabel(label: string, paths: readonly (string | null | undefined)[], isMobile: boolean): string {
+export function shownLabel(label: string, paths: readonly (string | null | undefined)[] | null, isMobile: boolean): string {
   let s = label;
-  for (const p of paths) {
-    if (!p) continue;
-    const name = p.slice(p.replace(/\\/g, "/").lastIndexOf("/") + 1);
-    const bare = name.replace(/\.[^./\\]+$/, "");
-    if (bare && bare !== name) s = s.split(name).join(bare);
+  if (paths) {
+    for (const p of paths) {
+      if (!p) continue;
+      const name = p.slice(p.replace(/\\/g, "/").lastIndexOf("/") + 1);
+      const bare = name.replace(/\.[^./\\]+$/, "");
+      if (bare && bare !== name) s = s.split(name).join(bare);
+    }
+  } else {
+    s = s.replace(AUDIO_EXTENSION, "");
   }
+  s = s.replace(/\b(\d+) tracks?\b/g, (_, n: string) => `${n} ${n === "1" ? "song" : "songs"}`);
   return isMobile ? s : s.replace(/\bthe bin\b/g, "the Recycle Bin");
 }
+
 
 /** `rebuild_index`. */
 export type RefreshReport = { total: number; read: number; removed: number; millis: number };
