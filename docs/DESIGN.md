@@ -473,7 +473,7 @@ then nothing). An Undo toast pushed out is simply gone: its change stays in the 
 from Settings (Undo last change, newest first). Every action ignores presses for 400 ms after its
 own toast came, moved or changed its action (`aria-disabled`), never for another toast's change or a
 download's progress: a double tap never presses what came or slid under it. A move never stretches
-that window and arms one only 100 ms after the last ended and 600 ms after a press it ignored, so
+the window, arms the next 100 ms after one a move armed, never within 600 ms of an ignored press: so
 arriving toasts never starve an action. A toast leaves before its action runs (a refused Undo comes
 back, pushing nothing out); the rest of that double click (its later clicks, as the system counts
 them) reaches nothing, and its focus goes to the sheet on top, else the heading. Every toast is its

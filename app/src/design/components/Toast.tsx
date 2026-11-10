@@ -11,9 +11,9 @@
 // action (a download's Cancel turned Retry), never because another toast changed. A double click or
 // tap aimed at one action never presses the one that came or slid under it. A download's progress
 // is no change. Moves never keep it unpressable: a move does not stretch a guard that runs, arms a
-// new one only once the action has been pressable for REARM_GAP_MS, and none while someone keeps
-// pressing it (a press it ignored in the last PRESSING_MS), so toasts arriving one after another
-// never starve it. A toast leaves before its action runs, so an action that shows a toast again (an
+// new one after a guard a move armed only once the action has been pressable for REARM_GAP_MS, and
+// none while someone keeps pressing it (a press it ignored in the last PRESSING_MS), so toasts
+// arriving one after another never starve it. A toast leaves before its action runs, so an action that shows a toast again (an
 // Undo refused while another undo runs) pushes nothing out. The rest of a double click or tap on it
 // reaches nothing: the later clicks of that click sequence (detail 2 and on, counted by the system
 // with the user's own double-click time) act on no toast and on nothing behind, and any press in its
@@ -70,7 +70,7 @@ const ToastContext = createContext<{ toasts: readonly Entry[]; api: ToastApi } |
 const SHOW_MS = 4000;
 /** After its toast comes, moves or changes its action, how long the action ignores presses (ms). */
 export const SETTLE_MS = 400;
-/** A move arms the guard again only once the action has been pressable this long (ms). */
+/** After a guard a move armed, a move arms the next only once the action has been pressable this long (ms). */
 export const REARM_GAP_MS = 100;
 /** A move arms no guard within this long of a press the guard ignored (ms): someone is pressing it. */
 export const PRESSING_MS = 600;
@@ -132,12 +132,13 @@ export function ToastViewport() {
  * Its coming and a change of its action always arm it. A move (its place is measured whenever
  * `stack` changes, a toast added or removed, words changed: its top and bottom edges in the window
  * as laid out, the stack's place plus its own in the stack, so its opening animation never counts)
- * arms it only when the action has been pressable for REARM_GAP_MS and no press was ignored in the
- * last PRESSING_MS: no run of moves keeps it unpressable for longer than one SETTLE_MS, and someone
- * pressing at least every PRESSING_MS gets through.
+ * never stretches a guard that runs; it arms one when the last has ended (after a guard a move
+ * armed, REARM_GAP_MS later) and no press was ignored in the last PRESSING_MS: no run of moves keeps
+ * it unpressable for longer than one SETTLE_MS, and someone pressing at least every PRESSING_MS gets
+ * through. A first move after its coming arms it as soon as the coming's guard has ended.
  */
 function usePressGuard(box: RefObject<HTMLDivElement | null>, stack: string, action: string | undefined) {
-  const seen = useRef({ at: "", action: undefined as string | undefined, armedAt: 0, ignoredAt: -Infinity });
+  const seen = useRef({ at: "", action: undefined as string | undefined, armedAt: 0, byMove: false, ignoredAt: -Infinity });
   const [armedAt, setArmedAt] = useState(0);
   const [quietAt, setQuietAt] = useState(0);
   useLayoutEffect(() => {
@@ -152,8 +153,10 @@ function usePressGuard(box: RefObject<HTMLDivElement | null>, stack: string, act
     s.at = at;
     s.action = action;
     const now = performance.now();
-    if (moved && (now - s.armedAt < SETTLE_MS + REARM_GAP_MS || now - s.ignoredAt < PRESSING_MS)) return;
+    const quiet = SETTLE_MS + (s.byMove ? REARM_GAP_MS : 0);
+    if (moved && (now - s.armedAt < quiet || now - s.ignoredAt < PRESSING_MS)) return;
     s.armedAt = now;
+    s.byMove = moved;
     setArmedAt(now);
   }, [box, stack, action]);
   useEffect(() => {
