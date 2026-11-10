@@ -168,6 +168,32 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(sheet(page).locator(".ErrorRow")).toHaveCount(0);
   });
 
+  test("a stopped queue's Retry downloads that link alone, and then says how many still wait, not Queue done", async ({ app, page }) => {
+    await beforeLoad(page, () => {
+      window.__soundhoodMock.store.set("share_queue", [
+        { url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", added: 3 },
+        { url: "https://www.youtube.com/watch?v=bbbbbbbbbbb", added: 2 },
+        { url: "https://www.youtube.com/watch?v=ccccccccccc", added: 1 },
+      ]);
+    });
+    await app.open();
+    await openSettings(app, page);
+    await sheet(page).getByRole("button", { name: "Download queue (3)" }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    await emit(page, "ytdlp:stderr", "ERROR: [youtube] aaaaaaaaaaa: Sign in to confirm you're not a bot");
+    await emit(page, "ytdlp:done", 1);
+    const retry = toast(page, "Queue stopped").getByRole("button", { name: "Retry" });
+    await expect(retry).toBeVisible();
+    await retry.click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(2);
+    await emit(page, "ytdlp:done", 0);
+    await expect(toast(page, "2 links still waiting in the queue")).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(await page.locator(".Toast > span").allTextContents(), "never Queue done while links wait").not.toContain("Queue done");
+    expect(await ipcCount(page, "downloads"), "the waiting links are not started").toBe(2);
+    await expect(sheet(page).getByRole("button", { name: "Download queue (2)" })).toBeVisible();
+  });
+
   test("a channel link is refused when pasted, in the download sheet and in the queue", async ({ app, page }) => {
     await beforeLoad(page, () => {
       window.__soundhoodMock.store.set("share_queue", [{ url: "https://www.youtube.com/@someartist/videos", added: 1 }]);

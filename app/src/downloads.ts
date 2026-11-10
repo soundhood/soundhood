@@ -135,3 +135,13 @@ export function lastErrorLine(output: string): string {
 export function queueStopStatus(output: string, exitCode: number): string {
   return `Queue stopped: ${lastErrorLine(output) || `the download did not finish (code ${exitCode})`}`;
 }
+
+/**
+ * What the toast says when the queue has nothing more to start: "Queue done" when a run went
+ * through its links and none is left waiting; else how many links still wait (after a stopped run's
+ * Retry, which downloads that one link and starts no other); null when there is nothing to say.
+ */
+export function queueEndStatus(ranRun: boolean, waiting: number): string | null {
+  if (waiting > 0) return `${waiting} ${waiting === 1 ? "link" : "links"} still waiting in the queue`;
+  return ranRun ? "Queue done" : null;
+}

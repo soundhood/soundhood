@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { MutableRefObject } from "react";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
-import { CHANNEL_REFUSAL, isChannelLink, lastErrorLine, queueStopStatus } from "../downloads";
+import { CHANNEL_REFUSAL, isChannelLink, lastErrorLine, queueEndStatus, queueStopStatus } from "../downloads";
 import { checkFolderName, folderNameRefusal } from "../folderName";
 import { firstUrl, isPlaylistLink } from "../lib/links";
 import { DEFAULT_DOWNLOAD_TARGET, KEY_DOWNLOAD_PLAYLISTS, KEY_DOWNLOAD_TARGET, KEY_SHARE_QUEUE, storePromise } from "../lib/store";
@@ -243,6 +243,9 @@ export function useDownloads({
   // While "Download queue" runs: which link of how many (the download toast says "2 of 5").
   const [run, setRun] = useState<{ at: number; of: number } | null>(null);
   const runTotalRef = useRef(0);
+  // A queued link's Retry after its run stopped: when it has downloaded, the toast says how many
+  // links still wait (the run is over; nothing else starts by itself).
+  const retriedQueuedRef = useRef(false);
 
   // Where downloads land: a first-level folder under the Music root (= a playlist).
   const [dlTarget, setDlTarget] = useState<string>(DEFAULT_DOWNLOAD_TARGET);
@@ -335,6 +338,8 @@ export function useDownloads({
     const retry = () => {
       setFailure(null);
       queueRunRef.current = [];
+      runTotalRef.current = 0;
+      retriedQueuedRef.current = !!retryWith.queued;
       setRun(null);
       void startDownload(retryWith.url, retryWith.target, retryWith.playlists, retryWith.queued);
     };
@@ -391,7 +396,7 @@ export function useDownloads({
         endBusy();
         setDlLogs((prev) => prev + `\n[error] ${String(err)}\n`);
         const reason = String(err).split("\n")[0].slice(0, 120);
-        if (queued) { activeDlRef.current = { ...activeDlRef.current, queued: null }; queueRunRef.current = []; setRun(null); }
+        if (queued) { activeDlRef.current = { ...activeDlRef.current, queued: null }; queueRunRef.current = []; runTotalRef.current = 0; setRun(null); }
         failed("Download failed", `Download failed: ${reason}`, reason, { url, target: folderName, playlists, queued });
         return false;
       }
@@ -447,8 +452,9 @@ export function useDownloads({
           setTimeout(() => nextQueuedRef.current(), 300);
         } else {
           // A refusal (bot wall, rate limit) would meet every remaining link too: stop the run here.
-          // The failed link stays queued.
+          // The failed link stays queued; the run is over, its Retry downloads that link alone.
           queueRunRef.current = [];
+          runTotalRef.current = 0;
           setRun(null);
           const stop = queueStopStatus(dlOutputRef.current, exitCode);
           failed("Queue stopped", stop, stop.replace(/^Queue stopped: /, ""), retryWith);
@@ -481,7 +487,11 @@ export function useDownloads({
     }
     const item = queueRunRef.current.shift();
     if (!item) {
-      if (run || runTotalRef.current) notify({ text: "Queue done" });
+      // The links left in the queue file are still waiting: after a Retry, the rest of a stopped run.
+      const ran = !!run || runTotalRef.current > 0;
+      const text = queueEndStatus(ran, ran || retriedQueuedRef.current ? shareQueueRef.current.length : 0);
+      if (text) notify({ text });
+      retriedQueuedRef.current = false;
       runTotalRef.current = 0;
       setRun(null);
       return;
