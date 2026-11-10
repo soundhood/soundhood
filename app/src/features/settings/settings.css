@@ -1,0 +1,156 @@
+/* The settings sheet, its sub-sheets (the log, the links waiting), the download sheet and the
+   dialogs: how the design system's rows and fields sit together there. Tokens only. */
+
+/* A row's control may be a field with buttons beside it (a link and Paste, a path and Use). */
+.SettingsSheet .SettingRow-inline .Button,
+.SheetForm .SettingRow-inline .Button {
+  flex: none;
+}
+
+/* An error row inside a group or a sheet keeps the sheet's side gutter. */
+.SettingGroup > .ErrorRow,
+.SheetForm > .ErrorRow {
+  margin: var(--sp-1) 0;
+  padding-left: var(--gutter);
+  padding-right: var(--sp-2);
+}
+
+/* View log: the newest line as its help line, cut to one line. */
+.LogRow .SettingRow-help {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The Proton login: three fields and Connect, one under the other. */
+.ProtonLogin {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.ProtonLogin .Button {
+  justify-self: start;
+}
+
+/* A plain line of help under a sheet's fields. */
+.SheetNote {
+  margin: 0;
+  padding: var(--sp-3) var(--gutter) 0;
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+/* The fields of a dialog (edit tags, "Where should this go?"). */
+.SheetForm {
+  display: grid;
+}
+
+.SheetForm .TextField {
+  width: 100%;
+}
+
+.SheetForm .SheetActions {
+  display: flex;
+  justify-content: flex-start;
+  padding: var(--sp-2) var(--gutter) 0;
+}
+
+/* The names a delete dialog lists. */
+.DeleteList {
+  margin: 0;
+  padding: var(--sp-2) var(--gutter) 0;
+  list-style: none;
+  font: var(--t-body);
+}
+
+.DeleteList li {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.DeleteList .is-more {
+  color: var(--fg-1);
+  font: var(--t-body-sm);
+}
+
+/* The log: its lines as they are, wrapped, on the sheet's surface. */
+.LogText {
+  margin: 0;
+  padding: var(--sp-2) var(--gutter) 0;
+  font: var(--t-body-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A link waiting: the link over where it goes, then Copy and Remove. */
+.LinkRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--sp-1);
+  min-height: var(--row-h);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--gutter);
+}
+
+.LinkRow + .LinkRow {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.LinkRow.is-fresh {
+  background: var(--aqua-dim);
+}
+
+.LinkRow-text {
+  display: grid;
+  min-width: 0;
+}
+
+.LinkRow-url {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: var(--t-body);
+}
+
+.LinkRow-dest {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+/* The first-launch setup covers the whole shell. */
+.Onboarding {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--bg-0);
+}
+
+.Onboarding .OnboardingStep {
+  min-height: 100%;
+}
+
+.Onboarding .SettingRow {
+  width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: left;
+}
+
+.Onboarding .SettingRow-inline {
+  width: 100%;
+}
+
+.Onboarding .SettingRow-inline .TextField {
+  flex: 1;
+  min-width: 0;
+}
+
+.Onboarding-progress {
+  margin: 0;
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}

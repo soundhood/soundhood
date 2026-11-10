@@ -1,114 +1,154 @@
-// What Phase 0 added, on the rebuilt shell: Undo enabled after an edit, the developer section open,
-// and the desktop after a playlist add, which must look exactly like the screen before it apart
-// from the toast that says what happened. Undo, the status line and the developer section are the
-// old ones, inside the settings sheet, until Settings is rebuilt. The labels are the real core's words
-// (core/src/ingest), which the mock repeats: "Edited tags of <file name>", "Added 1 track to
-// <playlist>", "Restored tags of <file name>".
+// What Phase 0 added, on the rebuilt settings: Undo last change names the change in plain words and
+// undoes it, a report says what a tag edit and an undo did (and never closes by itself), the
+// developer section opens with its gesture, and a playlist add changes nothing on screen but its
+// toast. The labels are the real core's words (core/src/ingest), which the mock repeats: "Edited
+// tags of <file name>", "Added 1 track to <playlist>", "Restored tags of <file name>".
 import { changedPixelsOutside } from "./pixels.mjs";
 import { expect, test } from "./harness.mjs";
-import { closeSettings, goTo, openPlaylist, openSettings, playSong, row, settle, status } from "./ui.mjs";
+import { closeSettings, goTo, openPlaylist, openSettings, playSong, report, row, settingRow, settle, status } from "./ui.mjs";
 
 const PLAYLIST = "Late Night";
+const sheet = (page) => page.locator(".SettingsSheet");
+const undoButton = (page) => settingRow(page, "Undo last change").getByRole("button", { name: "Undo" });
+const undoHelp = (page) => settingRow(page, "Undo last change").locator(".SettingRow-help");
+const developer = (page) => sheet(page).locator("section", { has: page.locator("h3", { hasText: "Developer" }) });
+const toast = (page, text) => page.locator(".Toast").filter({ hasText: text }).last();
+
+/** Opens View log and returns its text, then closes it again. */
+async function logText(page) {
+  await sheet(page).getByRole("button", { name: /^View log/ }).click();
+  const log = page.getByRole("dialog", { name: "Log" });
+  const text = (await log.locator(".LogText, .SheetNote").first().textContent()) ?? "";
+  await log.getByRole("button", { name: "Close", exact: true }).click();
+  return text;
+}
 
 test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
-  const undoButton = (page) => page.locator(".topbar .btn", { hasText: /^Undo$/ });
-
   test("a playlist add: only the toast changes on screen; Undo then names it", async ({ app, page }) => {
     await app.open();
     await openPlaylist(page, PLAYLIST);
     await playSong(app, page, "Quiet Bloom");
     await openSettings(app, page);
     await expect(undoButton(page)).toBeDisabled();
-    await expect(undoButton(page)).toHaveAttribute("title", "Nothing to undo");
+    await expect(undoHelp(page)).toHaveText("Nothing to undo");
     await closeSettings(page);
     await settle(app, page);
     const before = await page.screenshot({ animations: "disabled", caret: "hide" });
 
     await page.locator(".PlayerBar").getByRole("button", { name: "Add to playlist" }).click();
     await page.getByRole("dialog", { name: "Add to playlist" }).locator(".ListRow", { hasText: "Focus" }).click();
-    const toast = page.locator(".Toast");
-    await expect(toast).toHaveText(/Added Quiet Bloom to Focus/);
+    const t = page.locator(".Toast");
+    await expect(t).toHaveText(/Added Quiet Bloom to Focus/);
     await settle(app, page);
     // The toast and its shadow (a float shadow reaches past its box).
-    const t = await page.locator(".Toasts").boundingBox();
-    const allowed = [{ x: t.x - 32, y: t.y - 32, width: t.width + 64, height: t.height + 64 }];
+    const box = await page.locator(".Toasts").boundingBox();
+    const allowed = [{ x: box.x - 32, y: box.y - 32, width: box.width + 64, height: box.height + 64 }];
     const after = await page.screenshot({ animations: "disabled", caret: "hide" });
     expect(changedPixelsOutside(before, after, allowed), "pixels changed outside the toast").toBe(0);
 
     // The toast goes by itself; the screen is the one before the add again.
-    await expect(toast).toHaveCount(0, { timeout: 8000 });
+    await expect(t).toHaveCount(0, { timeout: 8000 });
     await settle(app, page);
     await expect(page).toHaveScreenshot(app.shot("after-playlist-add"));
 
     await openSettings(app, page);
-    await expect(status(page)).toHaveText("Status: Added to Focus");
+    // Undo names the change next to its button, not in a tooltip.
+    await expect(undoHelp(page)).toHaveText("Added 1 track to Focus");
     await expect(undoButton(page)).toBeEnabled();
-    await expect(undoButton(page)).toHaveAttribute("title", "Undo: Added 1 track to Focus");
-    // The change goes to the lines "Copy log" carries, not to a log panel on screen.
-    await expect(page.locator(".downloadLogs")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Copy log" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Clear logs" })).toBeDisabled();
+    // The change goes to the lines "Copy log" carries, not to the log on screen.
+    const log = await logText(page);
+    expect(log).not.toContain("[change]");
+    expect(log).not.toContain("Focus");
   });
 
-  test("Undo enabled after a tag edit, then the edit undone", async ({ app, page }) => {
+  test("a tag edit ends in a report; Undo then names it and undoes it", async ({ app, page }) => {
     await app.open();
     await openPlaylist(page, PLAYLIST);
     await row(page, "Quiet Bloom").click({ modifiers: ["Control"] });
     await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Edit tags" }).click();
-    const title = page.locator(".modal input").first();
+    const dialog = page.getByRole("dialog", { name: "Edit tags" });
+    const title = dialog.getByRole("textbox", { name: "Title" });
     await expect(title).toHaveValue("Quiet Bloom");
     await title.fill("Quiet Bloom (Night Edit)");
-    await page.locator(".modal .primaryBtn", { hasText: "Save" }).click();
-    await expect(page.locator(".modal")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(dialog).toHaveCount(0);
+    // Tier 1: a report with the before and after, and Undo this batch. It stays until Done.
+    const r = report(page);
+    await expect(r.getByRole("heading")).toHaveText("Saved the tags of Quiet Bloom - Anouk Lirr");
+    await expect(r.locator(".BatchRow.is-done")).toContainText("Quiet Bloom (Night Edit) - Anouk Lirr");
+    await expect(r.locator(".BatchRow.is-done")).toContainText("Was Quiet Bloom - Anouk Lirr");
+    await expect(r.getByRole("button", { name: "Undo this batch" })).toBeEnabled();
+    await r.getByRole("button", { name: "Done" }).last().click();
+    await expect(report(page)).toHaveCount(0);
     await expect(row(page, "Quiet Bloom (Night Edit)")).toBeVisible();
     await page.keyboard.press("Escape"); // drop the selection
     // The settings sheet is photographed over a screen without artwork: a blurred cover grid mixes
     // aqua and purple into blue pixels.
     await goTo(page, "Folders");
     await openSettings(app, page);
-    await expect(status(page)).toHaveText("Status: Tags saved: Quiet Bloom - Anouk Lirr");
+    await expect(undoHelp(page)).toHaveText("Edited tags of Quiet Bloom - Anouk Lirr.ogg");
     await expect(undoButton(page)).toBeEnabled();
-    await expect(undoButton(page)).toHaveAttribute("title", "Undo: Edited tags of Quiet Bloom - Anouk Lirr.ogg");
-    await expect(page.locator(".downloadLogs")).toHaveCount(0);
+    await expect(status(page)).not.toContainText("[change]");
     await settle(app, page);
 
-    await expect(page).toHaveScreenshot(app.shot("undo"));
+    await expect(page).toHaveScreenshot(app.shot("settings-undo"));
 
     await undoButton(page).click();
-    await expect(status(page)).toHaveText("Status: Undone: Edited tags of Quiet Bloom - Anouk Lirr.ogg");
+    const u = report(page);
+    await expect(u.getByRole("heading")).toHaveText("Undone: Edited tags of Quiet Bloom - Anouk Lirr.ogg");
+    await expect(u.locator(".BatchRow.is-done")).toHaveText("Restored tags of Quiet Bloom - Anouk Lirr.ogg");
+    // An undo cannot be undone from its own report.
+    await expect(u.getByRole("button", { name: "Undo this batch" })).toHaveCount(0);
+    await u.getByRole("button", { name: "Done" }).last().click();
     await expect(undoButton(page)).toBeDisabled();
-    await expect(page.locator(".downloadLogs")).toHaveCount(0);
+    await expect(undoHelp(page)).toHaveText("Nothing to undo");
+    expect(await logText(page)).not.toContain("[change]");
     // The tags are back: the row and the editor read the old title again.
     await closeSettings(page);
     await goTo(page, "Playlists");
     await openPlaylist(page, PLAYLIST);
     await row(page, "Quiet Bloom").click({ modifiers: ["Control"] });
     await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Edit tags" }).click();
-    await expect(page.locator(".modal input").first()).toHaveValue("Quiet Bloom");
-    await page.locator(".modal .btn", { hasText: "Cancel" }).click();
+    await expect(page.getByRole("dialog", { name: "Edit tags" }).getByRole("textbox", { name: "Title" })).toHaveValue("Quiet Bloom");
+    await page.getByRole("dialog", { name: "Edit tags" }).getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog", { name: "Edit tags" })).toHaveCount(0);
+  });
+
+  test("a refused tag write keeps the dialog open with the reason", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, PLAYLIST);
+    await row(page, "Quiet Bloom").click({ modifiers: ["Control"] });
+    await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Edit tags" }).click();
+    const dialog = page.getByRole("dialog", { name: "Edit tags" });
+    // The core refuses a file a sync client rewrote a moment ago.
+    await page.evaluate(() => (window.__soundhoodMock.writeTagsError = "changed a few seconds ago"));
+    await dialog.getByRole("textbox", { name: "Title" }).fill("Quiet Bloom (Live)");
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(dialog.locator(".ErrorRow")).toContainText("Not saved");
+    await expect(dialog.locator(".ErrorRow")).toContainText("changed a few seconds ago");
+    await expect(report(page)).toHaveCount(0);
   });
 
   test("developer section open", async ({ app, page }) => {
     await app.open();
     await goTo(page, "Folders");
     await openSettings(app, page);
-    await expect(page.locator(".devBar")).toHaveCount(0);
+    await expect(developer(page)).toHaveCount(0);
     await page.keyboard.press("Control+Alt+Shift+KeyD");
-    await expect(page.locator(".devBar")).toBeVisible();
-    await expect(status(page)).toHaveText("Status: Developer tools on");
-    await expect(page.getByRole("switch")).toHaveText("Test library: off");
+    await expect(developer(page)).toBeVisible();
+    await expect(toast(page, "Developer tools on")).toBeVisible();
+    await expect(sheet(page).getByRole("switch", { name: "Test library" })).toHaveAttribute("aria-checked", "false");
+    await expect(page.locator(".Toast")).toHaveCount(0, { timeout: 8000 });
+    await developer(page).scrollIntoViewIfNeeded();
     await settle(app, page);
 
-    await expect(page).toHaveScreenshot(app.shot("developer"));
+    await expect(page).toHaveScreenshot(app.shot("settings-developer"));
   });
 });
 
 test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
-  const undoRow = (page) => page.getByRole("button", { name: "Undo last change" });
-
   async function openPhoneSettings(app, page) {
     await openSettings(app, page);
-    await expect(page.locator(".mSettings")).toBeVisible();
     await app.settled("plugin:soundhood-ytdl|ytdlp_version");
   }
 
@@ -119,41 +159,55 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await row(page, "Static Garden").tap();
     const bar = page.getByRole("toolbar", { name: "Selection" });
     await bar.getByRole("button", { name: "Edit tags" }).tap();
-    await page.locator(".modal input").first().fill("Static Garden (Live)");
-    await page.locator(".modal .primaryBtn", { hasText: "Save" }).tap();
-    await expect(page.locator(".modal")).toHaveCount(0);
+    const dialog = page.getByRole("dialog", { name: "Edit tags" });
+    await dialog.getByRole("textbox", { name: "Title" }).fill("Static Garden (Live)");
+    await dialog.getByRole("button", { name: "Save" }).tap();
+    await expect(dialog).toHaveCount(0);
+    await expect(report(page).getByRole("heading")).toHaveText("Saved the tags of Static Garden - Sola Brakke");
+    await report(page).getByRole("button", { name: "Done" }).last().tap();
     await bar.getByRole("button", { name: "Leave Select mode" }).tap();
 
     await goTo(page, "Folders");
     await openPhoneSettings(app, page);
-    await expect(status(page)).toHaveText("Tags saved: Static Garden - Sola Brakke");
-    await expect(undoRow(page)).toBeEnabled();
-    await expect(page.locator(".mSettings")).toContainText("Edited tags of Static Garden - Sola Brakke.opus");
-    // No change lines in the settings log, as before the rebuild.
-    await expect(page.locator(".mSettings .downloadLogs")).toHaveCount(0);
+    await expect(undoButton(page)).toBeEnabled();
+    await expect(undoHelp(page)).toHaveText("Edited tags of Static Garden - Sola Brakke.opus");
+    // No change lines in the log on screen, as before the rebuild.
+    await expect(status(page)).not.toContainText("[change]");
     await settle(app, page);
 
     await expect(page).toHaveScreenshot(app.shot("settings-undo"));
 
-    await undoRow(page).tap();
-    await expect(status(page)).toHaveText("Undone: Edited tags of Static Garden - Sola Brakke.opus");
-    await expect(undoRow(page)).toBeDisabled();
-    await expect(page.locator(".mSettings")).toContainText("Nothing to undo");
-    await expect(page.locator(".mSettings .downloadLogs")).toHaveCount(0);
+    await undoButton(page).tap();
+    await expect(report(page).getByRole("heading")).toHaveText("Undone: Edited tags of Static Garden - Sola Brakke.opus");
+    await report(page).getByRole("button", { name: "Done" }).last().tap();
+    await expect(undoButton(page)).toBeDisabled();
+    await expect(undoHelp(page)).toHaveText("Nothing to undo");
+    expect(await logText(page)).not.toContain("[change]");
   });
 
   test("developer section open", async ({ app, page }) => {
     await app.open();
     await goTo(page, "Folders");
     await openPhoneSettings(app, page);
-    await expect(page.getByRole("switch")).toHaveCount(0);
-    await expect(page.locator(".mSettings")).toContainText("Nothing to undo");
-    // Seven taps on the status pill, each within 1.5 s of the last.
-    for (let i = 0; i < 7; i++) await status(page).tap();
-    await expect(status(page)).toHaveText("Developer tools on");
-    await expect(page.getByRole("switch")).toHaveText("Test library: off");
+    await expect(sheet(page).getByRole("switch", { name: "Test library" })).toHaveCount(0);
+    await expect(undoHelp(page)).toHaveText("Nothing to undo");
+    // Seven taps on the version row (About), each within 1.5 s of the last.
+    const version = sheet(page).locator(".VersionRow");
+    await version.scrollIntoViewIfNeeded();
+    for (let i = 0; i < 6; i++) await version.tap();
+    await expect(developer(page)).toHaveCount(0);
+    await version.tap();
+    await expect(toast(page, "Developer tools on")).toBeVisible();
+    await expect(developer(page)).toBeVisible();
+    await expect(sheet(page).getByRole("switch", { name: "Test library" })).toHaveAttribute("aria-checked", "false");
+    await expect(page.locator(".Toast")).toHaveCount(0, { timeout: 8000 });
+    await developer(page).scrollIntoViewIfNeeded();
     await settle(app, page);
 
     await expect(page).toHaveScreenshot(app.shot("settings-developer"));
+
+    // The same gesture hides it again.
+    for (let i = 0; i < 7; i++) await version.tap();
+    await expect(developer(page)).toHaveCount(0);
   });
 });

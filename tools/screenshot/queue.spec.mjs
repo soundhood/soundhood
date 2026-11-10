@@ -204,11 +204,11 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await app.open();
     await openPlaylist(page, PLAYLIST);
     await fromRowMenu(page, "Paper Bloom", "Edit tags");
-    await expect(page.locator(".modalTitle")).toHaveText("Edit tags");
+    await expect(page.getByRole("dialog", { name: "Edit tags" })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.locator(".modalTitle")).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await fromRowMenu(page, "Paper Bloom", "Delete song");
-    await expect(page.locator(".modalTitle")).toHaveText("Delete this track?");
+    await expect(page.getByRole("dialog", { name: "Delete this track?" })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     // The keyboard opens it too (ContextMenu on the row); Esc closes it and the row keeps the focus.
     await row(page, "Paper Bloom").focus();

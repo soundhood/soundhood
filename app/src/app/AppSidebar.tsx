@@ -1,5 +1,6 @@
 // The sidebar (desktop; the rail on a tablet): the wordmark, the search field, Playlists, Artists,
-// Folders and Playing with their counts, the playlists (the playing one marked), Settings, and the
+// Folders and Playing with their counts, Download (while the downloader is on: "Where should this
+// go?" with an empty link), the playlists (the playing one marked), Settings, and the
 // collapse button and the resizable edge, both remembered (useShellPrefs). Songs dragged from a list
 // onto a playlist are added to it (journaled, with Undo in the toast); songs it already holds are
 // left out, and a drop that adds nothing says so without an Undo.
@@ -14,10 +15,10 @@ import { usePlaylistEdits } from "../features/playlists/usePlaylistEdits";
 import { useToast } from "../design";
 import { useApp } from "./context";
 
-type NavId = TopTab | "playing";
+type NavId = TopTab | "playing" | "download";
 
 export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
-  const { lib, nav, player, actions } = useApp();
+  const { lib, nav, player, actions, dl, prefs: settings } = useApp();
   const playlistEdits = usePlaylistEdits();
   const toast = useToast();
   const lists = lib.playlistFiles.map((p) => (lib.tracksOfPlaylist.get(p.name) ?? []).map((t) => t.path));
@@ -29,6 +30,7 @@ export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
     { id: "artists", label: "Artists", icon: "artists", count: lib.artists.length },
     { id: "folders", label: "Folders", icon: "folders", count: folderCount },
     { id: "playing", label: "Playing", icon: "playing", disabled: !player.currentPath },
+    ...(settings.downloader ? [{ id: "download" as const, label: "Download", icon: "download" as const }] : []),
   ];
   // A playlist open from the sidebar is marked there, not under Playlists.
   const openPlaylist = nav.screen === "detail" && nav.detail?.kind === "playlist" ? nav.detail.name : null;
@@ -40,7 +42,7 @@ export function AppSidebar({ prefs }: { prefs: ShellPrefs }) {
     <Sidebar<NavId>
       nav={entries}
       current={current}
-      onNavigate={nav.goTo}
+      onNavigate={(id) => (id === "download" ? dl.openDraft() : nav.goTo(id))}
       search={<SearchField value={nav.query} onChange={nav.setQuery} placeholder={placeholder} shortcut />}
       playlists={lib.playlistFiles.map((p, i) => ({
         id: p.name,

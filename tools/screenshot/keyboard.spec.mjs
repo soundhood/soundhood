@@ -127,9 +127,9 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
 
     await row(page, "Static Comets").click({ modifiers: ["Control"] });
     await page.keyboard.press("Control+e");
-    await expect(page.locator(".modalTitle")).toHaveText("Edit tags");
+    await expect(page.getByRole("dialog", { name: "Edit tags" })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.locator(".modalTitle")).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await row(page, "Static Comets").focus();
     await page.keyboard.press("Delete");

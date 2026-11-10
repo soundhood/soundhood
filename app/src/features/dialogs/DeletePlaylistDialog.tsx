@@ -1,33 +1,47 @@
-// "Delete this playlist?": only the playlist file goes to the bin; the songs stay.
-import type { Dialogs } from "../../hooks/useDialogs";
-import type { Playlists } from "../../hooks/usePlaylists";
+// "Delete this playlist?": only the playlist file goes to the bin (the app's own bin on the phone,
+// the Recycle Bin on the PC); the songs stay where they are. A toast with Undo says it is done.
+import { useState } from "react";
+import { Button, Sheet } from "../../design";
+import { useApp } from "../../app/context";
+import "../settings/settings.css";
 
-type DeletePlaylistDialogProps = {
-  isMobile: boolean;
-  name: string;
-  dialogs: Dialogs;
-  playlists: Playlists;
-};
-
-export function DeletePlaylistDialog({ isMobile, name, dialogs, playlists }: DeletePlaylistDialogProps) {
-  const { setConfirmDeletePlaylist } = dialogs;
+export function DeletePlaylistDialog({ name }: { name: string }) {
+  const { isMobile, dialogs, playlists } = useApp();
+  const close = () => dialogs.setConfirmDeletePlaylist("");
+  // One press deletes once: the button waits until the dialog closes.
+  const [busy, setBusy] = useState(false);
   return (
-    <div className="modalBackdrop" onMouseDown={() => setConfirmDeletePlaylist("")}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="modalTitle">Delete this playlist?</div>
-        <div className="modalBody">
-          <div className="modalTrack">{name}</div>
-          <div className="modalHint">
-            {isMobile
-              ? "Only the playlist file goes to the app's bin; Undo last change in settings brings it back. The songs stay exactly where they are."
-              : "Only the playlist file goes to the Recycle Bin; Undo in the top bar brings it back. The songs stay exactly where they are."}
-          </div>
-        </div>
-        <div className="modalActions">
-          <button className="btn" onClick={() => setConfirmDeletePlaylist("")} autoFocus>Cancel</button>
-          <button className="btn dangerBtn" onClick={() => playlists.deletePlaylist(name)}>Delete playlist</button>
-        </div>
-      </div>
-    </div>
+    <Sheet
+      open
+      onClose={close}
+      title="Delete this playlist?"
+      footer={
+        <>
+          <Button variant="text" onClick={close}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            icon="trash"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void playlists.deletePlaylist(name);
+            }}
+          >
+            Delete playlist
+          </Button>
+        </>
+      }
+    >
+      <ul className="DeleteList">
+        <li>{name}</li>
+      </ul>
+      <p className="SheetNote">
+        {isMobile
+          ? "Only the playlist file goes to the app's bin; Undo brings it back. The songs stay exactly where they are."
+          : "Only the playlist file goes to the Recycle Bin; Undo brings it back. The songs stay exactly where they are."}
+      </p>
+    </Sheet>
   );
 }

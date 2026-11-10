@@ -36,7 +36,7 @@ export async function openPlayer(page) {
   await expect(page.locator(".FullPlayer")).toBeVisible();
 }
 
-/** The settings sheet (the old settings and tools inside it until Settings is rebuilt). */
+/** The settings sheet. */
 export async function openSettings(app, page) {
   await shown(page.getByRole("button", { name: "Settings", exact: true })).first().click();
   await expect(page.locator(".SettingsSheet")).toBeVisible();
@@ -49,8 +49,21 @@ export async function closeSettings(page) {
   await expect(page.locator(".SettingsSheet")).toHaveCount(0);
 }
 
-/** The old status line, inside the settings sheet. */
-export const status = (page) => page.locator(".SettingsSheet .topbar .status");
+/**
+ * The newest line of the log, which Settings shows under View log (Tools). The screens have no
+ * status line: the messages it carried that are not toasts or reports go to the log.
+ */
+export const status = (page) => page.locator(".SettingsSheet .LogRow .SettingRow-help");
+
+/** A settings row by its label (inside the open settings sheet). */
+export const settingRow = (page, label) =>
+  page.locator(".SettingsSheet .SettingRow").filter({ has: page.locator(".SettingRow-label", { hasText: new RegExp(`^${label}$`) }) });
+
+/** The toasts on screen. */
+export const toasts = (page) => page.locator(".Toast");
+
+/** The report that ends a tier-1 write (a BatchReport). */
+export const report = (page) => page.locator(".Sheet").filter({ has: page.locator(".BatchReport") });
 
 /**
  * Ready for a photograph: fonts loaded, every image loaded and decoded (lazy ones too), the artwork

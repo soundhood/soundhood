@@ -27,7 +27,8 @@ export interface BatchReportProps {
   rows: readonly BatchRow[];
   /** Reason lines under the counts ("1 skipped: already in the bin"). */
   reasons?: readonly string[];
-  onUndo: () => void;
+  /** Undo this batch. Without it the button is not drawn (nothing was applied, or the batch was itself an undo). */
+  onUndo?: () => void;
   onDone: () => void;
   /** The undo is running: its button waits. */
   undoing?: boolean;
@@ -56,9 +57,11 @@ export function BatchReport({ open, title, rows, reasons, onUndo, onDone, undoin
       closeLabel="Done"
       footer={
         <>
-          <Button icon="undo" onClick={onUndo} disabled={undoing}>
-            Undo this batch
-          </Button>
+          {onUndo && (
+            <Button icon="undo" onClick={onUndo} disabled={undoing}>
+              Undo this batch
+            </Button>
+          )}
           <Button variant="primary" onClick={onDone}>
             Done
           </Button>
@@ -107,12 +110,14 @@ interface BatchRowViewProps extends HTMLAttributes<HTMLDivElement> {
 
 function BatchRowView({ row, className, ...rest }: BatchRowViewProps) {
   const done = row.status === "done";
+  // A done row with nothing to say about before (a playlist put back) shows no "Was" line.
+  const sub = done ? (row.before ? `Was ${row.before}` : "") : (row.reason ?? `Not changed: ${row.after}`);
   return (
     <div role="option" className={cx("BatchRow", `is-${row.status}`, className)} {...rest}>
       <Icon name={STATUS_ICON[row.status]} size={20} title={STATUS_LABEL[row.status]} />
       <div className="BatchRow-text">
         <span className="BatchRow-main">{done ? row.after : row.before}</span>
-        <span className="BatchRow-sub">{done ? `Was ${row.before}` : (row.reason ?? `Not changed: ${row.after}`)}</span>
+        {sub && <span className="BatchRow-sub">{sub}</span>}
       </div>
     </div>
   );

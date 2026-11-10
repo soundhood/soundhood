@@ -12,9 +12,11 @@ import { useDownloads, useYtdlpEvents } from "../hooks/useDownloads";
 import { useLibrary } from "../hooks/useLibrary";
 import { useCoreBatchLog, useLog } from "../hooks/useLog";
 import { useNavigation } from "../hooks/useNavigation";
+import { useNotices } from "../hooks/useNotices";
 import { usePhoneLayout } from "../hooks/usePhoneLayout";
 import { usePlayer } from "../hooks/usePlayer";
 import { usePlaylists } from "../hooks/usePlaylists";
+import { usePrefs } from "../hooks/usePrefs";
 import { useProton } from "../hooks/useProton";
 import { useSelection } from "../hooks/useSelection";
 import { useStartup } from "../hooks/useStartup";
@@ -23,11 +25,6 @@ import { forgetCovers } from "../lib/covers";
 import type { Track } from "../lib/types";
 import { AppShell } from "./AppShell";
 import { AppContext, type AppActions, type AppContextValue, type Picker } from "./context";
-import { scopeLegacyCss } from "./legacy/scopeCss";
-import { LEGACY_STYLES } from "./legacyStyles";
-
-// The old stylesheet, confined to the parts of the UI that are still old (`.legacy`).
-const LEGACY_CSS = scopeLegacyCss(LEGACY_STYLES);
 
 export default function App() {
   return (
@@ -42,11 +39,15 @@ function AppRoot() {
   // It decides what the host can do (Proton sync, the bin), never the layout: that is the shell's width.
   const [platform, setPlatform] = useState<string>("");
   const isMobile = platform === "android" || platform === "ios";
-  const [status, setStatus] = useState<string>("Idle");
+  // No status line: messages go to toasts, reports and the log (useNotices). The hooks that still
+  // report in status lines get setStatus, which routes each line.
+  const notices = useNotices();
+  const setStatus = notices.setStatus;
+  const prefs = usePrefs();
 
   // Library first: its effect keeps folderRef current, which every later hook reads.
   const lib = useLibrary({ setStatus });
-  const log = useLog({ folderRef: lib.folderRef, isMobile, platform, setStatus });
+  const log = useLog({ folderRef: lib.folderRef, isMobile, platform, notices });
   // The player's effects (volume, autoplay, audio listeners, cover, Media Session) keep their own order.
   const player = usePlayer({
     isMobile,
@@ -66,7 +67,9 @@ function AppRoot() {
   // The phone's plugin listeners stay in their old order: download progress here, Proton sync below.
   const dl = useDownloads({
     isMobile,
-    setStatus,
+    notices,
+    downloader: prefs.downloader,
+    openSettings: () => phone.setMSettings(true),
     folder: lib.folder,
     folderRef: lib.folderRef,
     allTracks: lib.allTracks,
@@ -75,7 +78,6 @@ function AppRoot() {
     refreshLastChange: lib.refreshLastChange,
     setDlLogs: log.setDlLogs,
     appendLog: log.appendLog,
-    setMSettings: phone.setMSettings,
   });
   const playlists = usePlaylists({
     isMobile,
@@ -90,17 +92,15 @@ function AppRoot() {
   });
   const edits = useTrackEdits({
     isMobile,
-    setStatus,
+    notices,
     folderRef: lib.folderRef,
     setAllTracks: lib.setAllTracks,
     loadPlaylists: lib.loadPlaylists,
     refreshLastChange: lib.refreshLastChange,
-    lastChange: lib.lastChange,
     plView: lib.plView,
     setPlView: lib.setPlView,
     setSelectedPaths: sel.setSelectedPaths,
     appendLog: log.appendLog,
-    currentPath: player.currentPath,
     currentPathRef: player.currentPathRef,
     setCurrentPath: player.setCurrentPath,
     setCurrentPlaylist: player.setCurrentPlaylist,
@@ -114,7 +114,7 @@ function AppRoot() {
   const proton = useProton({
     isMobile,
     mSettings: phone.mSettings,
-    setStatus,
+    notices,
     folderRef: lib.folderRef,
     fixtureRoot: lib.fixtureRoot,
     setDlLogs: log.setDlLogs,
@@ -125,7 +125,7 @@ function AppRoot() {
   });
   const dev = useDevMode({
     isMobile,
-    setStatus,
+    notices,
     folderRef: lib.folderRef,
     fixtureRoot: lib.fixtureRoot,
     setFixtureRoot: lib.setFixtureRoot,
@@ -163,6 +163,7 @@ function AppRoot() {
     setQuery: lib.setQuery,
     loadPlaylists: lib.loadPlaylists,
     refreshLastChange: lib.refreshLastChange,
+    prefs,
   });
   useYtdlpEvents({
     noteDlOutput: dl.noteDlOutput,
@@ -204,12 +205,11 @@ function AppRoot() {
     [openSettings],
   );
 
-  const ctx: AppContextValue = { isMobile, status, lib, player, sel, dialogs, playlists, edits, dl, log, proton, dev, phone, nav, actions };
+  const ctx: AppContextValue = { isMobile, lib, player, sel, dialogs, playlists, edits, dl, log, proton, dev, phone, nav, actions, notices, prefs };
 
   return (
     <AppContext.Provider value={ctx}>
       <audio ref={player.audioRef} preload="metadata" />
-      <style>{LEGACY_CSS}</style>
       <AppShell picker={picker} closePicker={() => setPicker(null)} />
     </AppContext.Provider>
   );
