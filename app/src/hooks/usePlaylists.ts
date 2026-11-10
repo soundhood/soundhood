@@ -54,10 +54,11 @@ export function usePlaylists({
     try {
       const { value: pls, report, sure } = await journaled<PlaylistFile[]>("playlists_from_folders", { libraryDir: lib });
       setPlaylistFiles(pls);
+      // The change's own words, as the Undo row and the undo's toast say it ("Made 5 playlists from
+      // folders"; one playlist: "Created playlist <name>").
       const change = changeOf(report);
-      const made = report?.applied.length ?? 0;
-      if (change) notices.undoable(`Created ${made} playlist file${made === 1 ? "" : "s"} in _Playlists`, [change]);
-      else notices.notify({ text: sure ? "Every folder already has its playlist" : "Playlists made from folders" });
+      if (change) notices.undoable(change.label, [change]);
+      else notices.notify({ text: sure ? "Every folder already has its playlist" : "Made playlists from folders" });
     } catch (err) {
       setStatus(`Playlists: ${String(err)}`);
     } finally {

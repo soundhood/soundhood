@@ -184,11 +184,13 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await openSettings(app, page);
     const make = settingRow(page, "Make playlists from folders").getByRole("button", { name: "Make" });
 
-    // Five folders without a playlist of their name: five made, said as five, with Undo.
+    // Five folders without a playlist of their name: five made, said as five, with Undo, in the
+    // words the Undo row and the undo's toast use too.
     await make.click();
-    const made = toast(page, "Created 5 playlist files in _Playlists");
+    const made = toast(page, "Made 5 playlists from folders");
     await expect(made).toBeVisible();
     expect(await history()).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg", "Made 5 playlists from folders"]);
+    await expect(settingRow(page, "Undo last change").locator(".SettingRow-help")).toHaveText("Made 5 playlists from folders");
 
     // Again: nothing to make, nothing journaled, and no Undo to press.
     await make.click();

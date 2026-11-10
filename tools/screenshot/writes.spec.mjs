@@ -226,6 +226,30 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect(await history(page)).toEqual([]);
     await expect(toast(page, "Undone: Added 1 song to Night Drive; Created playlist Night Drive")).toBeVisible();
   });
+
+  test("a partial add says how many were really added; its Undo takes back only those", async ({ app, page }) => {
+    await app.open();
+    await openFolder(page, "Evenings");
+    // Static Garden is in Late Night already; Static Tide is not.
+    for (const t of ["Static Garden", "Static Tide"]) await row(page, t).click({ modifiers: ["Control"] });
+    await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Add to playlist" }).click();
+    const picker = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Add 2 songs to a playlist" }) });
+    await picker.getByRole("option", { name: /^Late Night/ }).click();
+    const t = toast(page, "Added 1 song to Late Night; 1 was already there");
+    await expect(t).toBeVisible();
+    expect(await history(page)).toEqual(["Added 1 track to Late Night"]);
+    const mark = await ipcMark(page);
+    await t.getByRole("button", { name: "Undo" }).click();
+    await untilCalled(app, page, mark, "undo_");
+    await expect(toast(page, "Undone: Added 1 song to Late Night")).toBeVisible();
+    expect(await history(page)).toEqual([]);
+    // The song that was there before stays; the one the add brought is gone again.
+    await page.keyboard.press("Escape");
+    await goTo(page, "Playlists");
+    await openPlaylist(page, "Late Night");
+    await expect(row(page, "Static Garden")).toBeVisible();
+    await expect(row(page, "Static Tide")).toHaveCount(0);
+  });
 });
 
 test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
