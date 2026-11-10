@@ -29,15 +29,9 @@ export function useDownloadSlot({ isMobile, notify, onPhoneLine, appendLog }: Sl
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(-1);
   const [seconds, setSeconds] = useState(0);
-  useEffect(() => {
-    if (!running) setProgress(-1);
-  }, [running]);
   // Seconds since the helper started, so a silent yt-dlp is distinguishable from a dead one.
   useEffect(() => {
-    if (!running) {
-      setSeconds(0);
-      return;
-    }
+    if (!running) return;
     const t0 = Date.now();
     const t = setInterval(() => setSeconds(Math.round((Date.now() - t0) / 1000)), 1000);
     return () => clearInterval(t);
@@ -101,6 +95,8 @@ export function useDownloadSlot({ isMobile, notify, onPhoneLine, appendLog }: Sl
       held.current = true;
       setBusy(true);
       setRunning(true);
+      setProgress(-1);
+      setSeconds(0);
       return true;
     },
     /**
