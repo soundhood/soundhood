@@ -11,8 +11,10 @@
 // its action), so a double click or tap aimed at one never presses the one that came or slid under
 // it; one whose toast did not change takes a press at once, whatever the other toast does. Toasts
 // arriving one after another never starve it: someone who keeps pressing it while it keeps moving
-// is taken within a second or two (a tap every 0.5 to 1.2 s). Clicks every 0.35 to 0.5 s on a fresh
-// toast (one click sequence to the system): the first after its 400 ms acts. A toast leaves before
+// is taken within a second or two (a tap every 0.5 to 1.2 s). The later clicks of a click sequence
+// never press an action: clicks every 0.35 to 0.5 s that began on a toast just come (one sequence to
+// the system) press nothing, a new click after them does, and a real double click whose first press
+// met an Undo that had just slid there undoes nothing. A toast leaves before
 // its action runs: an Undo refused while another undo runs comes back without pushing the other
 // toast out, the rest of a double click on it (its second click, however slow the user's
 // double-click time) reaches no other toast and nothing behind it, and the focus it had goes to the
@@ -182,6 +184,49 @@ test.describe("the toast stack", { tag: "@desktop" }, () => {
     });
   }
 
+  // Round 11: a real double click aimed at the older toast's Undo just as a third toast pushes that
+  // toast out and the newer one slides into its place. Its first press meets the newer Undo inside
+  // its 400 ms and is ignored; its second press, later than 400 ms, is the rest of the same click
+  // sequence and presses nothing either. Nothing is undone.
+  test("a double click whose first press meets an Undo that just slid under it undoes nothing", async ({ app, page }) => {
+    for (const title of ["Paper Bloom", "Quiet Bloom"]) {
+      await row(page, title).focus();
+      await page.keyboard.press("Delete");
+      await expect(row(page, title)).toHaveCount(0);
+      await app.settled();
+    }
+    await expect.poll(() => drawn(page)).toEqual(["Removed Paper Bloom from Late Night", "Removed Quiet Bloom from Late Night"]);
+    await page.waitForTimeout(500);
+    const b = await undoIn(page, "Removed Paper Bloom").boundingBox();
+    const p = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    await page.mouse.move(p.x, p.y - 200);
+    await page.evaluate(() => {
+      window.__came = null;
+      window.__downs = [];
+      const watch = new MutationObserver(() => {
+        if (![...document.querySelectorAll(".Toast")].some((t) => t.textContent.includes("No link found"))) return;
+        window.__came = performance.now();
+        watch.disconnect();
+      });
+      watch.observe(document.querySelector(".Toasts"), { childList: true, subtree: true });
+      window.addEventListener("mousedown", () => window.__downs.push(Math.round(performance.now() - window.__came)), true);
+      window.__soundhoodShare("no link here");
+    });
+    await page.mouse.move(p.x, p.y);
+    await page.waitForFunction(() => window.__came !== null && performance.now() - window.__came >= 100, null, { polling: 4 });
+    await page.mouse.down({ clickCount: 1 });
+    await page.mouse.up({ clickCount: 1 });
+    await page.waitForTimeout(350);
+    await page.mouse.down({ clickCount: 2 });
+    await page.mouse.up({ clickCount: 2 });
+    await page.waitForTimeout(600);
+    await app.settled();
+    const downs = await page.evaluate(() => window.__downs);
+    expect(downs[0], `the first press met the slid Undo inside its 400 ms: ${JSON.stringify(downs)}`).toBeLessThan(400);
+    expect(downs[1], `the second press came after them: ${JSON.stringify(downs)}`).toBeGreaterThanOrEqual(400);
+    expect(await calls(page, "undo_batch"), "nothing undone").toBe(0);
+  });
+
   test("an Undo toast that did not move takes a press at once, even as the toast above it leaves", async ({ app, page }) => {
     await row(page, "Paper Bloom").focus();
     await page.keyboard.press("a");
@@ -217,7 +262,8 @@ test.describe("the toast stack", { tag: "@desktop" }, () => {
 
   // An Undo toast that slides while its own first 400 ms still run: the 400 ms count again from the
   // slide, its latest change. Presses 60 and 280 ms after the slide do nothing; one 450 ms after it acts.
-  for (const d of [200, 350]) {
+  // (300 at most: the test needs the slide inside the first 400 ms, also on a loaded machine.)
+  for (const d of [200, 300]) {
     test(`a second toast ${d} ms after an Undo toast slides it: presses within 400 ms of the slide do nothing, one after acts`, async ({ app, page }) => {
       await page.evaluate((d) => {
         window.__slide = { presses: [] };
@@ -264,11 +310,12 @@ test.describe("the toast stack", { tag: "@desktop" }, () => {
   }
 
   // Clicks at one point every 0.35 to 0.5 s from the moment a toast comes: to the system one click
-  // sequence (detail 1, 2, 3...). The first click, inside the toast's 400 ms, is ignored; the
-  // sequence it began is no double click on some other target, so the first click after the 400 ms
-  // acts.
+  // sequence (detail 1, 2, 3...). The first click, inside the toast's 400 ms, is ignored: it was
+  // aimed at what was there before. The later clicks of that sequence press nothing either (round 11:
+  // the same rule keeps a double click from pressing what slid under it). A new click after the
+  // sequence (detail 1 again) acts.
   for (const gap of [350, 400, 500]) {
-    test(`clicks every ${gap} ms on a toast that just came: the first after its 400 ms acts`, async ({ app, page }) => {
+    test(`clicks every ${gap} ms on a toast that just came: none of that sequence acts, a new click does`, async ({ app, page }) => {
       await page.evaluate((gap) => {
         window.__seq = { clicks: [] };
         const g = window.__seq;
@@ -280,11 +327,13 @@ test.describe("the toast stack", { tag: "@desktop" }, () => {
           const b = a.querySelector("button");
           const r = b.getBoundingClientRect();
           const at = { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 };
-          for (let k = 1; k <= 4; k++) {
+          // Four clicks of one sequence, then a fifth that starts a new one (detail 1).
+          for (let k = 1; k <= 5; k++) {
             setTimeout(() => {
               if (!a.isConnected) return;
               const t = Math.round(performance.now() - g.came);
-              for (const type of ["mousedown", "mouseup", "click"]) b.dispatchEvent(new MouseEvent(type, { ...at, detail: k }));
+              const detail = k === 5 ? 1 : k;
+              for (const type of ["mousedown", "mouseup", "click"]) b.dispatchEvent(new MouseEvent(type, { ...at, detail }));
               setTimeout(() => g.clicks.push({ k, t, taken: !a.isConnected }), 40);
             }, 100 + (k - 1) * gap);
           }
@@ -295,9 +344,8 @@ test.describe("the toast stack", { tag: "@desktop" }, () => {
       await page.keyboard.press("Delete");
       await expect.poll(() => page.evaluate(() => window.__seq.clicks.some((c) => c.taken)), { timeout: 5000 }).toBe(true);
       const clicks = await page.evaluate(() => window.__seq.clicks);
-      const first = clicks.findIndex((c) => c.t >= 400);
       expect(clicks[0], `the first click is inside the 400 ms: ${JSON.stringify(clicks)}`).toMatchObject({ k: 1, taken: false });
-      expect(clicks.findIndex((c) => c.taken), `the first click after the 400 ms acts: ${JSON.stringify(clicks)}`).toBe(first);
+      expect(clicks.findIndex((c) => c.taken), `only the new click acts: ${JSON.stringify(clicks)}`).toBe(4);
       await expect.poll(() => calls(page, "undo_batch"), "one undo").toBe(1);
       await expect(row(page, "Quiet Bloom")).toBeVisible();
     });

@@ -14,9 +14,10 @@
 // keeps pressing it (deliberate presses it ignored, the first REPRESS_MS ago or more, none more than
 // RUN_GAP_MS apart) while it keeps moving (twice or more since the first) is taken at the next
 // deliberate press, despite the move; never within SETTLE_MS of its toast coming or its action
-// changing. A deliberate press is a click or tap that starts a click sequence, a key, or a later
-// click of a sequence that started on this same action; the later clicks of a sequence begun
-// elsewhere (a double click on the song row a toast came over) never press it.
+// changing. A deliberate press is a click or tap that starts a click sequence, or a key. The later
+// clicks of a click sequence (a double click, quick repeated clicks, detail 2 and on) never press an
+// action, wherever the sequence began: its first press was aimed at what was there then, so a
+// double click whose first press met a toast that had just come or slid there presses nothing.
 // A toast leaves before its action runs, so an action that shows a toast again (an Undo refused while
 // another undo runs) pushes nothing out. Once a pointer's press acted on it, the rest of that click
 // sequence reaches nothing: its later clicks (detail 2 and on, counted by the system with the user's
@@ -119,8 +120,6 @@ export function useToast(): ToastApi {
 /** Draws the toasts (two at most). Put it in the Shell's overlays slot. */
 export function ToastViewport() {
   const ctx = useContext(ToastContext);
-  // Installed before any shield's listener, so a press inside a shield still starts a sequence.
-  useEffect(() => watchSequences(), []);
   if (!ctx) return null;
   // What places a toast: the toasts in the stack, in order, and their words (their height).
   const stack = ctx.toasts.map((t) => `${t.id} ${t.text}`).join(" | ");
@@ -195,26 +194,6 @@ function usePressGuard(box: RefObject<HTMLDivElement | null>, stack: string, act
       return false;
     },
   };
-}
-
-/** What the newest click sequence's first press (a mousedown of detail 1, a tap's too) landed on. */
-let sequenceStart: EventTarget | null = null;
-let watchingSequences = 0;
-const noteSequence = (e: MouseEvent) => {
-  if (e.detail <= 1) sequenceStart = e.target;
-};
-
-/** Watches where click sequences start while the toasts are drawn (ToastViewport); returns the stop. */
-function watchSequences(): () => void {
-  if (watchingSequences++ === 0) window.addEventListener("mousedown", noteSequence, true);
-  return () => {
-    if (--watchingSequences === 0) window.removeEventListener("mousedown", noteSequence, true);
-  };
-}
-
-/** True when the click sequence `el` is clicked in started on `el`: its first press landed there. */
-function startedOn(el: Element): boolean {
-  return sequenceStart instanceof Node && el.contains(sequenceStart);
 }
 
 /** The pointer and touch events a shield swallows. */
@@ -332,9 +311,9 @@ function ToastItem({ toast, stack, dismiss }: ToastItemProps) {
           small
           aria-disabled={guard.settling || undefined}
           onClick={(e) => {
-            // The later clicks of a click sequence begun elsewhere (a double click on the song row
-            // this toast came over) are no press on it. One begun here, on a press it ignored, is.
-            if (e.detail >= 2 && !startedOn(e.currentTarget)) return;
+            // The later clicks of a click sequence are no press: its first press was aimed at what
+            // was there then (a song row, or the toast that slid away from under it).
+            if (e.detail >= 2) return;
             // Pressed within SETTLE_MS of its latest change: aimed at what was there (usePressGuard).
             if (!guard.take()) return;
             // A pointer's press: the rest of its click sequence reaches nothing, here or behind.

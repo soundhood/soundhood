@@ -473,7 +473,7 @@ nothing). An Undo toast pushed out is gone (its change stays undoable: Settings,
 **Press guard:** an action ignores presses until 400 ms after its latest change (its toast came, moved
 or changed its action; `aria-disabled`), not for another toast's change or a download's progress: a
 double tap never presses what came or slid under it. So moves never starve it, a deliberate press
-(starting a click sequence, or in one begun on the action) acts despite a move after 0.5 s of ignored
+(a click starting a sequence; later clicks never press) acts despite a move after 0.5 s of ignored
 ones (at most 2 s apart) and two moves, never within 400 ms of its coming or a change of action. A
 toast leaves before its action runs (a refused Undo comes back, pushing nothing out); after a click
 acted, the rest of its sequence reaches nothing; its focus goes to the sheet on top, else the heading.
