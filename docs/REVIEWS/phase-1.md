@@ -89,3 +89,87 @@ startup crash and names a stuck startup call.
 | Break the network | **signed**. Every probe passes; paste and Ctrl+comma under the setup or a menu start nothing; net-log check passed. Observation: a phone share during the setup opened the download sheet under it |
 | Break the library | **signed**. Write path untouched; forced re-reads byte-identical; recovery forces only this device's last open entry; every confirm acts once. Minors: a held Enter removed every waiting link and undid three changes in a row |
 | Break the design | **blocked**: the phone's share path ignored the rule that no sheet opens under the setup or a menu; open dropdown lists were not a layer, so shortcuts and new sheets went behind them. Minors: a doubled toast; a full report for a tag save that changed nothing |
+
+### Round-4 fixes
+
+Dropdown lists and menus form a layer stack beside the sheets (`popoverStack.ts`): keys and new
+sheets go to the top one; a phone share during the setup or a menu waits for it (`useSharedLinks.ts`);
+a held Enter or Space is one press on buttons and list options; a repeated toast is not doubled; a tag
+save that changed nothing says "Nothing to change"; the harness reloads a page only after a failed or
+unanswered dev-server request and names a startup call that never answers.
+
+## Round 5 (`3b59ebf`)
+
+| Reviewer | Result |
+|---|---|
+| Break the network | **signed**. A held share cannot start a download in 15 new cases (cold and warm start; switch off, on, unknown or unreadable; during the setup; two shares; a restart); command set and bundle unchanged; net-log check passed. Minor: a share held during the setup lives only in memory, so closing the app before the setup ends loses it (now in OPEN) |
+| Break the library | **signed**. Round-4 minors fixed; every confirm acts once; "Nothing to change" writes nothing. Minor: a held Enter on "Edit tags" opened the editor and saved it at once |
+| Break the build | **signed**. All gates; visual 848; stress 2,544 of 2,544 at 12 workers. Minor: no `maxFailures` on CI, so a systemic break would run out the job |
+| Break the design | **blocked**: the Playlists list in "Where should this go?" flipped upward and the sheet clipped it, so the first playlists could not be reached (older; the owner has 29 playlists); toast deduplication hid repeated actions (regression); held keys still repeated on the switch, the mini player's play button and a phone song row. Minor: focus fell to the page in three places |
+
+### Round-5 fixes
+
+Lists and menus render in the shell's overlay layer, placed against their button on the side where they
+fit (`overlayLayer.ts`, `placement.ts`; every one of 29 playlists reachable at every size); only toasts
+with an explicit key replace each other; one capture rule for a held Enter or Space on every control,
+Edit tags included (`heldKeys.ts`); the focus returns to what opened a list or menu (`useFocusReturn`);
+CI stops after 25 failures; an OPEN row for a share lost during the setup.
+
+## Round 6 (`d28ee28`)
+
+| Reviewer | Result |
+|---|---|
+| Break the library | **signed**. Write path untouched; 866 visual, 376 unit; held keys and double presses act once. Minor (older): with two Undo toasts, a double click on the older one could also press the newer one's Undo after the stack moved under the pointer |
+| Break the build | **signed**. All gates; visual 866 twice; stress 2,598 of 2,598; CI estimated at 15 to 18 minutes |
+| Break the network | **signed**. Startup reads in the same order, once; an unreadable store leaves the downloader off with one toast; command set and bundle unchanged |
+| Break the design | **blocked**: toasts past two were queued and came back later, stale and out of order, one with a misleading Undo text. Minors: the row menu dropped the focus when it closed on a scroll or resize, and at 760x520 could be cut short and close on its own scroll; keyboard navigation dropped the focus to the page |
+
+### Round-6 fixes
+
+At most two toasts exist: a third pushes the oldest out, which never comes back, and each toast's timer
+starts when it shows; a press on a toast's action is ignored for 400 ms after the stack moves; the row
+menu gives the focus back to its row, ignores its own scroll and opens where it fits whole; the focus
+moves to the new screen after a navigation.
+
+## Round 7 (`874e3f6`)
+
+| Reviewer | Result |
+|---|---|
+| Break the library | **signed**. Pushed-out Undo toasts never act later; each Undo by its own id; the press guard stops the press landing on the wrong toast. Minor: a toast ran its action before closing, so a refused Undo briefly made three toasts and pushed another out |
+| Break the build | **signed**. All gates; visual 886 twice; stress 2,658 of 2,658; no React warnings |
+| Break the network | **signed**. Command set and bundle unchanged. Minor: on the phone, the download toast's Cancel was ignored within 400 ms of any toast change |
+| Break the design | **blocked**: the round-6 fix put the focus on a button, card or row after a navigation, so Space pressed it instead of play/pause ("4" then Space opened the queue) and Ctrl+E edited the first row instead of the playing song (regression, normal use). Minors: Back to a scrolled grid focused a card off screen; a row's More button showed without a hover; the press guard counted any change of the stack; a refused Undo read "0 restored, 1 left as they are"; on the phone, the Add to playlist sheet over the full player seemed to lose the focus |
+
+### Round-7 fixes
+
+After a navigation the focus goes to the screen's heading (`tabindex=-1`, no ring, no scroll), never to
+a button, card or row, so Space stays play/pause and Ctrl+E with nothing chosen edits the playing song;
+Back keeps a scrolled grid's scroll; only an Undo whose own toast moved or arrived is guarded, never
+Cancel or Retry; a toast closes before its action runs; a refused Undo reads "Not undone: Late Night
+changed again after this. Undo the newer change first." The phone sheet's lost focus came from the
+probe's own focus call landing late; a sheet now takes back any focus that goes behind it anyway.
+
+## Round 8 (`58dfcdd`)
+
+| Reviewer | Result |
+|---|---|
+| Break the library | **signed**. Each toast Undo undoes only its own change under repeated clicks with undo delays of 0, 300 and 700 ms; a refused Undo comes back as the newest and leaves the other toast; a pushed-out toast never acts; Ctrl+E names the playing song, keeps it when the song changes and saves through the journaled path with its own Undo; core and host unchanged |
+| Break the build | **signed**. Fresh preparation, every gate; visual 899 twice; stress 572 and 1,144 runs at 14 and 16 workers, no flake, no unplanned reload |
+| Break the network | **signed**. Command set and bundle strings unchanged; the switch off still blocks Retry; a failed download stops the queue. Minors: on the phone, a quick double tap on Cancel could restart the download through the Retry that replaced it, and a double tap on Retry could cancel the download it started; after a stopped queue's Retry the toast said "Queue done" with links still waiting (older) |
+| Break the design | **blocked**: after opening the full player with the pointer and closing it with Esc or 1 to 3, the focus went back to the player bar's button, so Space reopened Playing instead of pausing (older path, normal use). Minors: holding Space on a heading scrolled the page; an off-screen heading after Back to a scrolled list; a pressed toast dropped the focus to the page; Enter in New playlist from the sidebar's "+" opened a second, empty New playlist; Select dropped the focus on narrow sizes; the first-launch setup did not keep Tab inside |
+
+### Round-8 fixes
+
+The full player notes how it was opened: opened with a pointer, closing it (Esc, a digit or Close) puts
+the focus on the screen's heading, so Space pauses; opened with the keyboard, the focus goes back to its
+opener. A held shortcut key does nothing more than its first press and no longer scrolls. Tab from an
+off-screen heading goes to the first card or row in view. A toast that held the focus hands it to the
+sheet or setup on top, else the heading, and a toast closed by a click shields its place for 400 ms.
+Fields end their own Enter, so saving New playlist opens nothing else. Under 1080 px Select gives the
+focus to the selection bar. The setup keeps Tab inside like a sheet, and a sheet returns the focus to
+what last had it inside. One press guard for every toast action: only its own toast arriving, moving or
+changing its action starts it, never another toast or a download's progress; so a double tap on Cancel
+or Retry acts once. A stopped queue's Retry reads "2 links still waiting in the queue", not "Queue done".
+Each fix has a test that fails on `58dfcdd` (46 failed, 6 guards passed) and passes on `043e874`.
+Left in OPEN: Shift+Tab from an off-screen heading still scrolls up to the header; a download toast
+pushed up by a new toast ignores Cancel for 400 ms, as any moved toast does.
