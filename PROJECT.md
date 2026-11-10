@@ -29,8 +29,8 @@ files, played and edited the same way on the PC and the phone.
 Musicolet is the functional reference, Spotify the layout reference.
 
 - Everything is one gesture away; adding to the queue is always one gesture faster than playing now.
-- The queue is first-class: visible one tap or one key away, editable, savable as a playlist, kept
-  across restarts.
+- The queue is first-class: visible one tap or one key away, editable, savable as a playlist. It
+  lives in memory and starts empty with the app until Phase 3 keeps it across restarts.
 - Search is instant and covers songs, artists, playlists and folders.
 - Actions live where the hand already is: on the row (right-click or the row's menu), on the keyboard,
   and for a whole selection at once.
