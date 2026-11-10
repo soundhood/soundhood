@@ -1,4 +1,4 @@
-// Switch: a 32 x 18 track, purple with a lilac knob when on. role="switch" on a real button, so
+// Switch: a 32 x 18 track, purple with a lilac edge and knob when on. role="switch" on a real button, so
 // Space and Enter toggle it natively. In a settings row the whole row is the click target
 // (SwitchRow in Settings.tsx).
 import type { ButtonHTMLAttributes, Ref } from "react";
