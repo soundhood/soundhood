@@ -217,12 +217,21 @@ impl Core {
     }
   }
 
-  /// Phase 0 keeps it simple: any applied change refreshes the whole index (incremental, so only
-  /// the touched files are re-read).
+  /// Any applied change refreshes the index (incremental), and every file the batch's report names
+  /// (before and after) is read again even when its mtime and size match the index: a tag rewrite can
+  /// keep the size, and an edit and its undo can land in the same second.
   fn refresh_after(&self, report: &BatchReport) -> Result<()> {
-    if !report.applied.is_empty() {
-      self.index.refresh(&self.lib)?;
+    if report.applied.is_empty() {
+      return Ok(());
     }
+    let touched: Vec<RelPath> = report
+      .applied
+      .iter()
+      .flat_map(|a| [a.path_before.as_deref(), a.path_after.as_deref()])
+      .flatten()
+      .filter_map(|p| RelPath::new(p).ok())
+      .collect();
+    self.index.refresh_touched(&self.lib, &touched)?;
     Ok(())
   }
 

@@ -77,13 +77,20 @@ impl Index {
   /// Incremental refresh from disk; re-reads tags only where mtime+size changed. Never writes into
   /// the library.
   pub fn refresh(&self, lib: &Library) -> Result<RefreshReport> {
-    self.pass(lib, refresh::Mode::Incremental)
+    self.pass(lib, refresh::Mode::Incremental, &[])
+  }
+
+  /// `refresh`, and the files in `touched` are read again whatever their mtime and size say: the
+  /// files a journaled batch just wrote. A tag rewrite of an m4a, opus or ogg file keeps its size, and
+  /// an edit and its undo can land in the same second, so their stamps can match the index's.
+  pub fn refresh_touched(&self, lib: &Library, touched: &[RelPath]) -> Result<RefreshReport> {
+    self.pass(lib, refresh::Mode::Incremental, touched)
   }
 
   /// "Rebuild index": drop every row, then refresh from scratch, reading every file (the legacy
   /// cache is never used here). Runs as one transaction: a rebuild that fails leaves the old index.
   pub fn rebuild(&self, lib: &Library) -> Result<RefreshReport> {
-    self.pass(lib, refresh::Mode::Rebuild)
+    self.pass(lib, refresh::Mode::Rebuild, &[])
   }
 
   /// The UI's track list, with the pre-rebuild artist fallback. Same order as the old scan:

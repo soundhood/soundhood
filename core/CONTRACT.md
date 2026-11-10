@@ -215,6 +215,10 @@ impl Index {
   /// Incremental: scan, re-read tags only where mtime+size changed, delete vanished rows, reconcile
   /// playlist_items (track_id NULL = missing), fill art_hash. Never writes into the library.
   pub fn refresh(&self, lib: &Library) -> Result<RefreshReport>;
+  /// refresh, and the files in `touched` are re-read whatever their mtime and size say. `Core` calls
+  /// it after every batch that applied something (write or undo), with each path the report names: a
+  /// tag rewrite of m4a / opus / ogg keeps the size, and an edit and its undo can share one second.
+  pub fn refresh_touched(&self, lib: &Library, touched: &[RelPath]) -> Result<RefreshReport>;
   /// Drop every row and run refresh from scratch ("Rebuild index").
   pub fn rebuild(&self, lib: &Library) -> Result<RefreshReport>;
   /// The UI's Track list, with the old artist fallback (filename side that names a known artist).

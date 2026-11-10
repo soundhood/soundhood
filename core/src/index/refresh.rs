@@ -90,7 +90,9 @@ impl From<&legacy::Entry> for Fields {
 }
 
 impl Index {
-  pub(super) fn pass(&self, lib: &Library, mode: Mode) -> Result<RefreshReport> {
+  /// `touched`: files to re-read whatever their stamps say (the files a journaled batch just wrote),
+  /// compared by `RelPath::key()`. Empty for a plain refresh or a rebuild.
+  pub(super) fn pass(&self, lib: &Library, mode: Mode, touched: &[RelPath]) -> Result<RefreshReport> {
     let _pass = lock(&self.pass);
     let started = Instant::now();
     let (stamps, skipped) = fs::scan_report(&lib.root)?;
@@ -109,10 +111,15 @@ impl Index {
       }
     };
 
+    let touched: HashSet<String> = touched.iter().map(RelPath::key).collect();
     let mut to_read: Vec<&FileStamp> = Vec::new();
     let mut seeded: Vec<(&FileStamp, &legacy::Entry)> = Vec::new();
     for s in &stamps {
+      // A tag rewrite can keep the size and land in the second the index already holds: the
+      // stamps alone cannot tell, so a file the batch wrote is read again either way.
+      let forced = !touched.is_empty() && touched.contains(&s.rel.key());
       let unchanged = mode == Mode::Incremental
+        && !forced
         && existing
           .get(s.rel.as_str())
           .is_some_and(|r| r.mtime == s.mtime && r.size == clamp_i64(s.size));
@@ -120,7 +127,7 @@ impl Index {
         continue;
       }
       match seed.get(s.rel.as_str()) {
-        Some(e) if e.matches(s.mtime, s.size) => seeded.push((s, e)),
+        Some(e) if !forced && e.matches(s.mtime, s.size) => seeded.push((s, e)),
         _ => to_read.push(s),
       }
     }
