@@ -423,9 +423,13 @@ scrolls; a footer with the actions right-aligned: the primary as the aqua pill (
 action as the danger pill, Cancel as a text button. On open the focus moves to the sheet itself, so
 its title is read out, and the panel draws no focus ring for it (the ring belongs to the controls
 inside); a sheet built around one field starts in that field instead (Edit tags, New playlist, "Where
-should this go?" opened with an empty link). Focus is trapped in the sheet; Esc closes; focus returns
-to what opened it, or, when that is gone or disabled (Settings' Add once its link is taken), to the
-sheet below. A sheet opened from another one (Settings, then "Where should this go?", the log or the
+should this go?" opened with an empty link). Where the focus starts is decided once, when the sheet
+opens: typing into its field never moves the focus again. Focus is trapped in the sheet; when the
+control that has it goes away (a link removed from Links waiting) it moves to the control that takes
+its place, else the one before it, else the sheet itself; Esc closes; focus returns to what opened
+it, or, when that is gone or disabled (Settings' Add once its link is taken), to the sheet below,
+and with no sheet below to the main area (the list on screen, else the screen header's first
+control): never to the page. A sheet opened from another one (Settings, then "Where should this go?", the log or the
 links waiting; the queue sheet, then New playlist or "Clear the queue?") goes on top of it with its
 own backdrop, whatever order the app mounts them in: the newest open sheet is the one drawn on top, the
 one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about. `role="dialog"`,
@@ -466,14 +470,17 @@ nothing was applied and on the report of an undo.
 
 **SelectModeBar.** While songs are chosen (Select mode, or Ctrl+click and Shift+click with a mouse):
 Leave Select mode (`close`), "N chosen", Select all or Select none (words), then the actions as icon
-buttons, most used first: Add to playlist, Edit tags (one song only) and Remove from the open playlist
-(`playlistRemove`, only while one is open and holds some of them); the rarer ones in a "More actions"
-menu: Move to folder (only on a folder's list or All songs, the storage views) and Delete as a danger
-item. Below the desktop width the bar keeps four buttons, Leave, two actions and More actions: the
-first two the selection can use, in their usual order (two songs chosen in a playlist: Add to
-playlist and Remove from, Edit tags then being for one song only), disabled ones only where fewer
-can be used. The menu there starts with Select all (or Select none) and the other actions, so every
-action stays reachable without a row of six glyphs. Play and Add to queue are not on it; the rows' menu has them for a
+buttons, most used first: Add to playlist, Edit tags (one song only) and, on a playlist's list, Remove
+from it (`playlistRemove`, disabled while none of the chosen songs is in it); the rarer ones in a
+"More actions" menu: Move to folder (only on a folder's list or All songs, the storage views), Play
+next (on an artist's list) and Delete as a danger item ("Delete" while nothing is chosen, then "Delete
+song", "Delete 3 songs"). Below the desktop width the bar keeps four buttons, Leave, two actions and
+More actions, and the two are chosen by the kind of list, never by the selection, so no button turns
+into another under a finger: a playlist, Add to playlist and Remove from it; a folder or All songs,
+Add to playlist and Move to folder; an artist, Add to playlist and Play next. They are disabled while
+the selection cannot use them. The menu there starts with Select all (or Select none) and holds
+every other action, Edit tags among them, so every action stays reachable without a row of six
+glyphs. Play and Add to queue are not on it; the rows' menu has them for a
 selection. It stays in view at the top of the list; below the desktop width it takes the screen
 header's place, on the desktop it sits above the list. Esc leaves Select mode.
 
