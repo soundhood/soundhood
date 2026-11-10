@@ -86,4 +86,5 @@ export { TINT_FALLBACK, tintFromPixels } from "./tint/tint";
 
 // Helpers
 export { cx, cssVars } from "./lib/cx";
+export { onePress } from "./lib/dom";
 export { formatTime } from "./lib/time";
