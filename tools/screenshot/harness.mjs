@@ -172,8 +172,25 @@ export async function loadPage(page, testInfo, { url, ready, onRetry = () => {} 
     // A blank document first, so the next load is a whole new one (the same URL with a #page would
     // otherwise only scroll); once it is there, everything the broken load reported has arrived,
     // and the caller drops it.
-    await page.goto("about:blank");
+    await blank(page);
     onRetry(line);
+  }
+}
+
+/**
+ * Navigates to a blank document. When the page's own document request failed, the browser is still
+ * on its way to its error page, and that navigation interrupts this one: then it waits for it and
+ * goes again (at most three times).
+ */
+async function blank(page) {
+  for (let tries = 1; ; tries++) {
+    try {
+      await page.goto("about:blank");
+      return;
+    } catch (e) {
+      if (tries >= 3 || !/interrupted by another navigation/.test(String(e?.message))) throw e;
+      await page.waitForLoadState("load").catch(() => {});
+    }
   }
 }
 

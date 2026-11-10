@@ -31,6 +31,15 @@ test.describe("app.open() and loadPage", { tag: "@desktop" }, () => {
     expect(retries(testInfo)).toEqual([expect.stringMatching(/^load 1 of \/ failed: \/src\/main\.tsx net::ERR_FAILED; loading it again$/)]);
   });
 
+  test("the page's own document request fails once: the app is loaded again and starts", async ({ app, page }, testInfo) => {
+    // The browser then goes to its error page, which can interrupt the harness's blank page.
+    const doc = await failFirst(page, (url) => url.pathname === "/", 1);
+    await app.open();
+    expect(doc.count, "the document was asked for twice").toBe(2);
+    await expect(page.locator(".PlaylistCard")).toHaveCount(5);
+    expect(retries(testInfo)).toEqual([expect.stringMatching(/^load 1 of \/ failed: \/ net::ERR_FAILED; loading it again$/)]);
+  });
+
   test("a module deep in the app's imports fails once: the app is loaded again and starts", async ({ app, page }, testInfo) => {
     const deep = await failFirst(page, /\/src\/design\/components\/Sheet\.tsx(\?.*)?$/, 1);
     await app.open();
