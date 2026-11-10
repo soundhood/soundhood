@@ -389,6 +389,20 @@ for (const [size, resize] of SIZES) {
         await expect(field).toHaveValue("abc");
       });
     }
+
+    test("the field a sheet opened in (Edit tags): a focus given behind comes back to it, and typing goes on there", async ({ app, page }) => {
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await row(page, "Paper Bloom").focus();
+      await page.keyboard.press("Control+e");
+      const title = dialog(page, "Edit tags").getByRole("textbox", { name: "Title" });
+      await expect(title).toBeFocused();
+      await page.evaluate(() => [...document.querySelectorAll(".Shell-frame button")].find((b) => b.getClientRects().length > 0)?.focus());
+      await expect(title, "the Title field again").toBeFocused();
+      await page.keyboard.press("End");
+      await page.keyboard.type("W");
+      await expect(title).toHaveValue("Paper BloomW");
+    });
   });
 }
 

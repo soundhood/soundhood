@@ -166,12 +166,12 @@ function SheetPanel({
     const box = panel.current;
     openSheets.open(self);
     self.last = null;
-    (openFocus?.current ?? box)?.focus({ preventScroll: true });
-    // What has the focus inside, so a focus taken away comes back to it.
+    // What has the focus inside (from the field it opens in on), so a focus taken away comes back to it.
     const onInside = (e: FocusEvent) => {
       if (e.target instanceof HTMLElement) self.last = e.target;
     };
     box?.addEventListener("focusin", onInside);
+    (openFocus?.current ?? box)?.focus({ preventScroll: true });
     // The focus fell to the page from anywhere (the control that had it inside went away, a toast
     // that had it left): once the browser has settled where it went, the sheet on top takes it back,
     // so Tab and Esc keep working in it. A native listener on the document: the focusout of a node
