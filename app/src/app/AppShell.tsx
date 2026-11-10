@@ -38,14 +38,22 @@ function MainSlot() {
   }, []);
 
   // Each screen's scroll position is noted as it scrolls (when the next screen is drawn the old
-  // position may already be cut short by a shorter page); coming back restores it, and a screen
-  // seen for the first time starts at the top.
+  // position may already be cut short by a shorter page), and again at every key or pointer press,
+  // before it can change the screen (a scroll's event comes a frame late: a press within that frame
+  // would go without it); coming back restores it, and a screen seen for the first time starts at
+  // the top.
   useLayoutEffect(() => {
     const main = scroller.current;
     if (!ready || !main) return;
     const note = () => positions.current.set(shownKey.current, main.scrollTop);
     main.addEventListener("scroll", note, { passive: true });
-    return () => main.removeEventListener("scroll", note);
+    window.addEventListener("keydown", note, true);
+    window.addEventListener("pointerdown", note, true);
+    return () => {
+      main.removeEventListener("scroll", note);
+      window.removeEventListener("keydown", note, true);
+      window.removeEventListener("pointerdown", note, true);
+    };
   }, [ready]);
   useLayoutEffect(() => {
     const main = scroller.current;

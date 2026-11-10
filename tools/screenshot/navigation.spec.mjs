@@ -201,9 +201,9 @@ test.describe("a click on a card, on Back or on a navigation item @desktop", { t
     await app.open();
     const scrollTop = () => page.locator(".Shell-main").evaluate((e) => e.scrollTop);
     const workout = page.locator(".PlaylistCard-open").filter({ hasText: "Workout" });
+    // Enter follows the scroll at once, before the frame that brings its scroll event: the screen
+    // notes where it is at the press too.
     await workout.scrollIntoViewIfNeeded();
-    // The screen notes its scroll on the scroll event, which the next frame brings.
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const at = await scrollTop();
     expect(at, "the grid is scrolled").toBeGreaterThan(200);
     for (const how of ["Enter", "click"]) {
