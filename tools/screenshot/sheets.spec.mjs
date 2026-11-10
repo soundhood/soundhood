@@ -392,3 +392,55 @@ for (const [size, resize] of SIZES) {
   });
 }
 
+// A field whose Enter submits (New playlist, "Where should this go?", Edit tags) keeps that Enter:
+// it never reaches the control the focus goes back to when the sheet closes (the sidebar's "+", the
+// Download item), which would open the sheet again. 1280x800 (the sidebar), the tablet's rail and
+// 760x520 where they show.
+test.describe("a submitting Enter stays in its field", { tag: ["@desktop", "@phone"] }, () => {
+  for (const [size, resize] of SIZES) {
+    test(`New playlist from the sidebar's "+", and "Where should this go?" from the Download item${size}`, async ({ app, page }, testInfo) => {
+      await page.addInitScript(() => window.__soundhoodMock.store.set("downloader_enabled", true));
+      await resize(page, testInfo);
+      await app.open();
+      const plus = page.locator(".Shell-sidebar").getByRole("button", { name: "New playlist" }).filter({ visible: true });
+      if (await plus.count()) {
+        await plus.click();
+        await expect(dialog(page, "New playlist")).toBeVisible();
+        await page.keyboard.type("Zebra Mix");
+        await page.keyboard.press("Enter");
+        await expect(page.locator(".ScreenHeader h1").filter({ visible: true })).toHaveText("Zebra Mix");
+        await page.waitForTimeout(400);
+        await expect(page.getByRole("dialog"), "Enter made the playlist and opened nothing more").toHaveCount(0);
+      }
+      const item = page.locator(".Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Download" });
+      test.skip((await item.count()) === 0 && (await plus.count()) === 0, "the phone has neither");
+      if (await item.count()) {
+        await item.click();
+        const link = dialog(page, "Where should this go?").getByRole("textbox", { name: "Link" });
+        await expect(link).toBeFocused();
+        await page.keyboard.type(VIDEO);
+        await page.keyboard.press("Enter");
+        await expect.poll(() => page.evaluate(() => window.__soundhoodMock.downloads.length + (window.__soundhoodMock.store.get("share_queue")?.length ?? 0))).toBeGreaterThan(0);
+        await page.waitForTimeout(400);
+        await expect(page.getByRole("dialog"), "Enter downloaded and opened nothing more").toHaveCount(0);
+      }
+    });
+  }
+
+  test("Edit tags saved with Enter: the report stays, and nothing in it is pressed", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await row(page, "Paper Bloom").focus();
+    await page.keyboard.press("Control+e");
+    const title = dialog(page, "Edit tags").getByRole("textbox", { name: "Title" });
+    await expect(title).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" X");
+    await page.keyboard.press("Enter");
+    const report = page.locator(".Sheet").filter({ has: page.locator(".BatchReport") });
+    await expect(report).toBeVisible();
+    await page.waitForTimeout(400);
+    await expect(report, "the report stays open").toBeVisible();
+    expect(await page.evaluate(() => window.__soundhoodIpc.calls.filter((c) => c === "undo_batch").length), "Undo this batch is not pressed").toBe(0);
+  });
+});

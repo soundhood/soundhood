@@ -59,7 +59,9 @@ export function SearchField({
       e.stopPropagation();
       if (value) onChange("");
       else e.currentTarget.blur();
-    } else if (e.key === "Enter") {
+    } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      // Its own: never a press of what the focus moves to next (TextField).
+      e.preventDefault();
       onSubmit?.(value);
     }
   };
