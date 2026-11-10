@@ -203,3 +203,67 @@ test.describe("held Enter on the phone", { tag: "@phone" }, () => {
     expect(await changes(page, "aria-checked", () => hold(page, "Enter", 12, 40)), "one flip").toBe(1);
   });
 });
+
+// A shortcut that does not repeat acts once however long its key is held, and its repeats do nothing
+// else either: a held Space on a screen's heading (where the focus goes after a navigation) plays or
+// pauses once and never scrolls the screen, nor the full player. 1280x800 and 760x520 (from the
+// 1280x800 project).
+test.describe("held Space on a screen's heading", { tag: "@desktop" }, () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-1280x800", "1280x800 and 760x520, from the 1280x800 project");
+  });
+
+  /** Every scrolled box's scrollTop: the main area and anything in the full player. */
+  const scrolls = (page) =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".Shell-main, .FullPlayer, .FullPlayer *")]
+        .filter((e) => e.scrollHeight > e.clientHeight + 4 && /(auto|scroll)/.test(getComputedStyle(e).overflowY))
+        .map((e) => Math.round(e.scrollTop)),
+    );
+  const playButton = (page) => page.locator('button[aria-label="Pause"], button[aria-label="Play"]').filter({ visible: true }).first();
+  /** How often the play button's label changes while Space is held for 12 keydowns. */
+  const heldSpace = (page) => changesOf(page, playButton(page), () => hold(page, " ", 12, 35));
+  async function changesOf(page, locator, fn) {
+    await locator.evaluate((b) => {
+      window.__flips = 0;
+      window.__flipWatch = new MutationObserver(() => window.__flips++);
+      window.__flipWatch.observe(b, { attributes: true, attributeFilter: ["aria-label"] });
+    });
+    await fn();
+    await page.waitForTimeout(300);
+    return page.evaluate(() => {
+      window.__flipWatch.disconnect();
+      return window.__flips;
+    });
+  }
+
+  for (const size of [
+    { width: 1280, height: 800 },
+    { width: 760, height: 520 },
+  ]) {
+    test(`plays or pauses once and scrolls nothing (${size.width}x${size.height})`, async ({ app, page }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() =>
+        window.__soundhoodMock.addPlaylists(["Acoustic Mornings", "Autumn Drive", "Bedroom Pop", "Blue Hour", "Chill Beats", "City Lights", "Deep Work", "Dinner Party", "Early Bird", "Gym Sessions", "Indie Gold", "Jazz Corner", "Workout"]),
+      );
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await playSong(app, page, "Paper Bloom");
+      for (const [where, go] of [
+        ['"1"', () => page.keyboard.press("1")],
+        ["Enter on a card", async () => {
+          await page.locator(".PlaylistCard-open").filter({ hasText: "Late Night" }).focus();
+          await page.keyboard.press("Enter");
+        }],
+        ['"4"', () => page.keyboard.press("4")],
+      ]) {
+        await go();
+        await page.waitForTimeout(400);
+        expect(await page.evaluate(() => document.activeElement?.matches("h1, h2")), `${where}: the focus on a heading`).toBe(true);
+        const before = await scrolls(page);
+        expect(await heldSpace(page), `${where}, then Space held: one play or pause`).toBe(1);
+        expect(await scrolls(page), `${where}, then Space held: nothing scrolled`).toEqual(before);
+      }
+    });
+  }
+});

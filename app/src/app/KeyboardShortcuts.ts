@@ -1,8 +1,11 @@
 // Runs the keyboard map (keyboard.ts): one window listener, mounted once inside the shell
 // (AppShell.tsx, after the other slots, so the components that own a key see it first and mark it
 // handled). A key another part of the app already took (defaultPrevented) is left alone, except that
-// Ctrl+arrows always reach the player, as SHORTCUTS.md promises, even from a slider.
-import { useEffect, useEffectEvent } from "react";
+// Ctrl+arrows always reach the player, as SHORTCUTS.md promises, even from a slider. A shortcut that
+// does not repeat acts once however long its key is held, and the repeats of a key whose press ran
+// one do nothing at all, not even what the WebView would do with them (a held Space would scroll the
+// screen under the heading the focus is on, a held Ctrl+arrow would move the slider that has it).
+import { useEffect, useEffectEvent, useRef } from "react";
 import { isControlTarget, isTypingTarget } from "../design/lib/dom";
 import { clamp } from "../lib/format";
 import { libraryView } from "../hooks/useNavigation";
@@ -33,6 +36,8 @@ export function KeyboardShortcuts(): null {
   const queue = useQueueEdits();
   const playlistEdits = usePlaylistEdits();
   const toast = useToast();
+  // The keys (KeyboardEvent.code) whose press ran a shortcut that does not repeat, while held.
+  const held = useRef(new Set<string>());
 
   /** The selection, else the song row that has the focus. */
   function songs(target: EventTarget | null): Track[] {
@@ -139,7 +144,10 @@ export function KeyboardShortcuts(): null {
     if (!shortcut) return;
     const ctrlArrow = shortcut.command === "next" || shortcut.command === "previous" || shortcut.command === "volumeUp" || shortcut.command === "volumeDown";
     if (e.defaultPrevented && !(ctrlArrow && isRange(e.target))) return;
-    if (e.repeat && !shortcut.repeats) return;
+    if (e.repeat && !shortcut.repeats) {
+      if (held.current.has(e.code)) e.preventDefault();
+      return;
+    }
     if (isTypingTarget(e.target) && !shortcut.whileTyping) return;
     // A list or menu takes its own keys (type-ahead), and nothing behind an open one answers.
     if (topPopover()) return;
@@ -153,13 +161,24 @@ export function KeyboardShortcuts(): null {
       const allowed = sheet?.classList.contains("QueueSheet") ? IN_QUEUE_SHEET : PLAYBACK;
       if (!allowed.has(shortcut.command)) return;
     }
-    if (run(shortcut.command, e)) e.preventDefault();
+    if (run(shortcut.command, e)) {
+      e.preventDefault();
+      if (!shortcut.repeats) held.current.add(e.code);
+    }
   });
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => onKey(e);
+    const up = (e: KeyboardEvent) => held.current.delete(e.code);
+    const lost = () => held.current.clear();
     window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", lost);
+    return () => {
+      window.removeEventListener("keydown", h);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", lost);
+    };
   }, []);
 
   return null;
