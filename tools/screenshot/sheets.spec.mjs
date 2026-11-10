@@ -365,3 +365,30 @@ for (const [size, resize] of SIZES) {
     });
   });
 }
+
+// When something takes the focus out of the sheet on top (a late focus() on the screens behind, a
+// blur to the page), the sheet takes it back to what had it inside, so typing goes on in the same
+// field; only when that is gone does the sheet itself take it. At every size.
+for (const [size, resize] of SIZES) {
+  test.describe(`a sheet takes the focus back to where it was${size}`, { tag: ["@desktop", "@phone"] }, () => {
+    test.beforeEach(async ({ page }, testInfo) => resize(page, testInfo));
+
+    for (const [how, take] of [
+      ["a focus given to the screen behind", () => document.querySelector(".Shell-main h1, .Shell-main button")?.focus()],
+      ["a focus fallen to the page", () => document.activeElement?.blur()],
+    ]) {
+      test(`${how}: back in the field that had it, and typing goes on there`, async ({ app, page }) => {
+        await app.open();
+        await openSettings(app, page);
+        const field = dialog(page, "Settings").getByRole("textbox", { name: "Link" });
+        await field.focus();
+        await page.keyboard.type("ab");
+        await page.evaluate(take);
+        await expect(field, `${how}: the field again`).toBeFocused();
+        await page.keyboard.type("c");
+        await expect(field).toHaveValue("abc");
+      });
+    }
+  });
+}
+

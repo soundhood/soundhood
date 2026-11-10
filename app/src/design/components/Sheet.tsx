@@ -4,9 +4,10 @@
 // a prop. A title (h2) and a close button, a body that scrolls, a footer with the actions
 // right-aligned (primary aqua pill, danger pill, Cancel as a text button).
 // Focus moves into the sheet once, when it opens (to `initialFocus`, read then and never again, so
-// typing into a field can never rerun the opening), and is trapped there; Esc closes. When what has
-// the focus inside goes away (a removed row), or anything gives it to the screens or the player
-// behind (a focus given back in the full player), the sheet takes it back. On close the focus
+// typing into a field can never rerun the opening), and is trapped there; Esc closes. When the focus
+// falls to the page (what had it inside went away, a toast that had it left) or anything gives it to
+// the screens or the player behind (a focus given back in the full player), the sheet takes it back,
+// to what had it inside when that is still there, else to the sheet itself. On close the focus
 // returns to what opened it or, when that is gone or disabled, to the sheet below, else to the main
 // area (where the screen starts: its heading): never to the page.
 // A sheet opened while another is open goes on top of it, with its own backdrop, whatever order the
@@ -32,8 +33,11 @@ import { createSheetStack } from "../lib/sheetStack";
 import { useSwipe } from "../lib/useSwipe";
 import { IconButton } from "./IconButton";
 
-/** An open sheet, as the stack holds it: its panel, where the focus goes when the one above closes. */
-type OpenSheet = { panel: RefObject<HTMLElement | null> };
+/**
+ * An open sheet, as the stack holds it: its panel, where the focus goes when the one above closes,
+ * and what last had the focus inside it, where the focus goes back when something took it away.
+ */
+type OpenSheet = { panel: RefObject<HTMLElement | null>; last: HTMLElement | null };
 
 /** Every open sheet in the app, oldest first. */
 const openSheets = createSheetStack<OpenSheet>();
@@ -53,6 +57,30 @@ export function topSheet(): HTMLElement | null {
 /** The first-launch setup: the one modal dialog that is not a sheet, drawn above every sheet. */
 function setupDialog(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[aria-modal="true"]:not(.Sheet)');
+}
+
+/** Puts the focus back in `sheet`: on what last had it inside, while that can take it, else the panel. */
+function refocus(sheet: OpenSheet) {
+  const box = sheet.panel.current;
+  if (sheet.last && sheet.last !== box && box?.contains(sheet.last) && focusIfAble(sheet.last)) return;
+  box?.focus({ preventScroll: true });
+}
+
+/**
+ * Gives the focus back to the layer on top after it fell to the page (a toast that had it left):
+ * the first-launch setup, else the sheet on top (to what had the focus in it). False when neither
+ * is open, for the caller to put it where the screen starts.
+ */
+export function refocusTopLayer(): boolean {
+  const setup = setupDialog();
+  if (setup) {
+    setup.focus({ preventScroll: true });
+    return true;
+  }
+  const top = openSheets.top();
+  if (!top?.panel.current) return false;
+  refocus(top);
+  return true;
 }
 
 /**
@@ -119,7 +147,7 @@ function SheetPanel({
   const titleId = useId();
   const panel = useRef<HTMLElement>(null);
   const swipe = useSwipe({ axis: "down", onSwipe: onClose });
-  const [self] = useState<OpenSheet>(() => ({ panel }));
+  const [self] = useState<OpenSheet>(() => ({ panel, last: null }));
   const layer = Math.min(
     useSyncExternalStore(openSheets.subscribe, () => openSheets.layer(self)),
     MAX_LAYER,
@@ -137,32 +165,39 @@ function SheetPanel({
     const opener = held ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const box = panel.current;
     openSheets.open(self);
+    self.last = null;
     (openFocus?.current ?? box)?.focus({ preventScroll: true });
-    // The control that had the focus went away (a removed row) or the focus fell out of the sheet
-    // some other way: once the browser has settled where it went, the sheet on top takes it back
-    // from the page, so Tab and Esc keep working in it. A native listener: the focusout of a node
+    // What has the focus inside, so a focus taken away comes back to it.
+    const onInside = (e: FocusEvent) => {
+      if (e.target instanceof HTMLElement) self.last = e.target;
+    };
+    box?.addEventListener("focusin", onInside);
+    // The focus fell to the page from anywhere (the control that had it inside went away, a toast
+    // that had it left): once the browser has settled where it went, the sheet on top takes it back,
+    // so Tab and Esc keep working in it. A native listener on the document: the focusout of a node
     // React is removing never reaches React's own handlers.
     const onFocusOut = (e: FocusEvent) => {
       if (e.relatedTarget) return;
       requestAnimationFrame(() => {
         const at = document.activeElement;
-        if ((!at || at === document.body) && openSheets.top() === self) box?.focus({ preventScroll: true });
+        if ((!at || at === document.body) && openSheets.top() === self) refocus(self);
       });
     };
-    box?.addEventListener("focusout", onFocusOut);
+    document.addEventListener("focusout", onFocusOut);
     // The sheet on top keeps the focus against anything that gives it to the screens or the player
     // behind it (a focus given back in the full player, a late focus() from anywhere): it takes it
-    // back. The layers drawn above sheets live in the overlays with it (a list or menu opened from
-    // it, the toasts, the setup) and may have it.
+    // back, to what had it inside. The layers drawn above sheets live in the overlays with it (a list
+    // or menu opened from it, the toasts, the setup) and may have it.
     const overlays = box?.closest(".Shell-overlays");
     const onFocusIn = (e: FocusEvent) => {
       if (openSheets.top() !== self || !overlays || !(e.target instanceof Node) || overlays.contains(e.target)) return;
-      box?.focus({ preventScroll: true });
+      refocus(self);
     };
     document.addEventListener("focusin", onFocusIn);
     return () => {
       document.removeEventListener("focusin", onFocusIn);
-      box?.removeEventListener("focusout", onFocusOut);
+      document.removeEventListener("focusout", onFocusOut);
+      box?.removeEventListener("focusin", onInside);
       const wasTop = openSheets.top() === self;
       const at = document.activeElement;
       const focusInside = !at || at === document.body || !!box?.contains(at);
