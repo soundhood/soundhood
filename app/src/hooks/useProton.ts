@@ -105,7 +105,7 @@ export function useProton({
       setAllTracks(found);
       await loadPlaylists(lib);
       await loadQueueFromLibrary(lib);
-      if (r.ok) notify({ text: `Synced: ${found.length} tracks` });
+      if (r.ok) notify({ text: `Synced: ${found.length === 1 ? "1 song" : `${found.length} songs`}` });
       else setError({ title: "Proton sync finished with errors", detail: "Some files did not copy. Copy the log to see which.", retry });
     } catch (e) {
       setError({ title: "Proton sync failed", detail: firstLine(e), retry });
