@@ -315,6 +315,23 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect.poll(() => journalLabels(page)).toEqual(["Added 1 track to Empty", "Added 1 track to Focus"]);
   });
 
+  test("an end that comes while no download runs files nothing, into the last download's playlists or anywhere", async ({ app, page }) => {
+    await app.open();
+    await downloadItem(page).click();
+    await where(page).getByRole("textbox", { name: "Link" }).fill(B_LINK);
+    await togglePlaylist(page, "Focus");
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    await emit(page, "ytdlp:files", [app.data.tracks[2].path]);
+    await emit(page, "ytdlp:done", 0);
+    await expect.poll(() => journalLabels(page)).toEqual(["Added 1 track to Focus"]);
+    // A second end, with another file (in no playlist yet), for no download.
+    await emit(page, "ytdlp:files", [app.data.tracks[3].path]);
+    await emit(page, "ytdlp:done", 0);
+    await page.waitForTimeout(600);
+    expect(await journalLabels(page), "nothing filed for it").toEqual(["Added 1 track to Focus"]);
+  });
+
   test("the downloader switched off hides the download UI; a pasted link says where to turn it on", async ({ app, page }) => {
     await app.open();
     await openSettings(app, page);
