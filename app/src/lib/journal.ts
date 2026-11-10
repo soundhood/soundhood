@@ -8,6 +8,11 @@
 // the host and back (`soundhood:flush`): the host delivers events in the order it emitted them, so
 // when the marker is back the command's own report has arrived, if it sent one. Writes run one at a
 // time, so a report that arrives while a write runs is that write's.
+//
+// When the marker does not come back in time, a report of that write may still be on its way. The
+// next write then first sends another marker and waits for it with no write running, so a late
+// report is dropped there and never taken for the next write's; until a marker comes back, no write
+// is sure of its report. A write that is not sure hands back no report, so it never offers an Undo.
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { emit as tauriEmit, listen as tauriListen } from "@tauri-apps/api/event";
 import type { BatchReport } from "../coreIpc";
@@ -15,9 +20,12 @@ import type { BatchReport } from "../coreIpc";
 /** What a journaled write returned, and the report it sent. */
 export type Written<T> = {
   value: T;
-  /** The command's own report; null when it changed nothing (or `sure` is false). */
+  /** The command's own report; null when it changed nothing, and always null when `sure` is false. */
   report: BatchReport | null;
-  /** False when the marker did not come back in time: whether it sent a report is not known. */
+  /**
+   * False when a marker did not come back in time (after this write, or before it, after an earlier
+   * write's timeout): which report is this write's is not known.
+   */
   sure: boolean;
 };
 
@@ -39,6 +47,8 @@ export function createJournal(host: JournalHost, flushMs = 5000) {
   let current: BatchReport[] | null = null;
   const markers = new Map<string, () => void>();
   let seq = 0;
+  // A marker did not come back in time: the host's events may still hold an earlier write's report.
+  let behind = false;
 
   function listenOnce() {
     ready ??= Promise.all([
@@ -71,6 +81,10 @@ export function createJournal(host: JournalHost, flushMs = 5000) {
 
   async function run<T>(cmd: string, args: Record<string, unknown>): Promise<Written<T>> {
     await listenOnce();
+    // The fence: catch up with the host's events before this write starts. A late report that
+    // arrives now finds no write running and is dropped.
+    if (behind) behind = !(await flush());
+    const fenced = !behind;
     const reports: BatchReport[] = [];
     current = reports;
     try {
@@ -82,9 +96,12 @@ export function createJournal(host: JournalHost, flushMs = 5000) {
         failure = { error };
       }
       // Also after a refusal: a report it sent must not be taken for the next write's.
-      const sure = await flush();
+      const back = await flush();
+      // Back: every event the host sent before it has arrived, late ones included.
+      behind = !back;
+      const sure = fenced && back;
       if (failure) throw failure.error;
-      return { value: value as T, report: reports[0] ?? null, sure };
+      return { value: value as T, report: sure ? (reports[0] ?? null) : null, sure };
     } finally {
       current = null;
     }
