@@ -267,8 +267,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
       window.__soundhoodMock.store.delete("library_dir");
       window.__soundhoodMock.store.set("dev_mode", true);
     });
-    await page.goto("/");
-    await app.settled("platform");
+    await app.open({ until: "platform" });
     // An install that ran before but has no folder: the setup asks for the folder alone.
     await expect(page.locator(".Onboarding")).toContainText("Step 1 of 1");
     await page.locator(".Onboarding").getByRole("button", { name: "Skip" }).click();

@@ -285,6 +285,36 @@ test.describe("touch (platform android)", { tag: "@phone" }, () => {
     await expect(toast(page)).toContainText("Removed Paper Bloom from Late Night");
   });
 
+  test("Select mode below the desktop width: the two action buttons are the first ones the selection can use", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await page.getByRole("button", { name: "Select", exact: true }).tap();
+    const bar = page.getByRole("toolbar", { name: "Selection" });
+    /** The buttons on screen, each with whether it can be pressed. */
+    const onScreen = () =>
+      bar
+        .getByRole("button")
+        .filter({ visible: true })
+        .evaluateAll((els) => els.map((el) => `${el.getAttribute("aria-label")}${el.disabled ? " (disabled)" : ""}`));
+    // Nothing chosen: no action can be used, so the first two keep their places.
+    expect(await onScreen()).toEqual(["Leave Select mode", "Add to playlist (disabled)", "Edit tags (disabled)", "More actions"]);
+    // Two songs of the open playlist: Edit tags (one song only) gives its place to Remove from, and
+    // the buttons keep their usual order.
+    await row(page, "Paper Bloom").tap();
+    await row(page, "Amber Comets").tap();
+    await expect(bar).toContainText("2 chosen");
+    expect(await onScreen()).toEqual(["Leave Select mode", "Add to playlist", "Remove from Late Night", "More actions"]);
+    await bar.getByRole("button", { name: "More actions" }).tap();
+    await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Select all", "Edit tags", "Delete 2 songs"]);
+    await expect(page.getByRole("menuitem", { name: "Edit tags" })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    // One song again: every action can be used, and the first two are back.
+    await row(page, "Amber Comets").tap();
+    await expect(bar).toContainText("1 chosen");
+    expect(await onScreen()).toEqual(["Leave Select mode", "Add to playlist", "Edit tags", "More actions"]);
+  });
+
   test("the mini player opens Playing; the tabs hide under it", async ({ app, page }) => {
     test.skip(page.viewportSize().width >= 720, "the mini player and the tabs are the phone shell's (under 720 px)");
     await app.open();

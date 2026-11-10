@@ -16,8 +16,12 @@ const toast = (page, text) => page.locator(".Toast").filter({ hasText: text }).l
 const where = (page) => page.getByRole("dialog", { name: "Where should this go?" });
 
 /**
- * A cold start with a link shared into the app: MainActivity hands it over the moment
- * window.__soundhoodShare exists (it retries until then), with the downloader stored `on` or off.
+ * A cold start with a link shared into the app, with the downloader stored `on` or off.
+ * MainActivity hands the link over as soon as window.__soundhoodShare exists (it retries until
+ * then). Here it is handed over the moment the app defines it, from a setter, which is always
+ * before startup has read the stored switch: the app defines it in its first effects, where the
+ * store reads only start. (A timer that polled for it raced startup and lost about one run in
+ * seven under load.) window.__shared holds what the hand-over returned.
  */
 async function coldShare(page, on) {
   await beforeLoad(
@@ -27,11 +31,16 @@ async function coldShare(page, on) {
       m.store.set("downloader_enabled", enabled);
       m.store.set("onboarding_done", true);
       window.__shared = [];
-      const t = setInterval(() => {
-        if (typeof window.__soundhoodShare !== "function") return;
-        clearInterval(t);
-        window.__shared.push(window.__soundhoodShare("https://www.youtube.com/watch?v=AbCdEfGhIjK"));
-      }, 1);
+      let share;
+      Object.defineProperty(window, "__soundhoodShare", {
+        configurable: true,
+        get: () => share,
+        set(fn) {
+          share = fn;
+          if (typeof fn !== "function" || window.__shared.length > 0) return;
+          window.__shared.push(fn("https://www.youtube.com/watch?v=AbCdEfGhIjK"));
+        },
+      });
     },
     on,
   );
@@ -44,8 +53,7 @@ async function newInstall(app, page) {
     m.store.clear();
     m.pickFolder = window.__SOUNDHOOD_FIXTURE__.root;
   });
-  await page.goto("/");
-  await app.settled("platform");
+  await app.open({ until: "platform" });
 }
 
 test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
@@ -120,8 +128,7 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
       window.__soundhoodMock.store.delete("library_dir");
       window.__soundhoodMock.store.set("volume", 0.8);
     });
-    await page.goto("/");
-    await app.settled("platform");
+    await app.open({ until: "platform" });
     await expect(setup(page)).toContainText("Step 1 of 1");
     const path = setup(page).getByRole("textbox", { name: "Music folder path" });
     await expect(path).toHaveValue("/storage/emulated/0/Music");

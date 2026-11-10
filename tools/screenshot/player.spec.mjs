@@ -53,10 +53,11 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
  * Counts how often each song row re-renders: a stand-in for React DevTools' hook, installed before
  * React loads. After every commit it walks the tree and compares each TrackItem's props object
  * with the one it had at the previous commit; a row that rendered again has a new props object.
+ * `lastAt` is when React last committed anything.
  */
 function countRowRenders() {
   const seen = new Map();
-  const counter = { rows: 0, commits: 0 };
+  const counter = { rows: 0, commits: 0, lastAt: 0 };
   window.__rowRenders = counter;
   const walk = (fiber) => {
     for (let f = fiber; f; f = f.sibling) {
@@ -79,6 +80,7 @@ function countRowRenders() {
     onScheduleFiberRoot() {},
     onCommitFiberRoot(_id, root) {
       counter.commits++;
+      counter.lastAt = performance.now();
       walk(root.current);
     },
     onPostCommitFiberRoot() {},
@@ -204,6 +206,11 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await openPlaylist(page, "Late Night");
     await playSong(app, page, "Static Garden");
     await expect(page.locator(".PlayerBar .SliderRow-end")).toHaveText("0:03");
+    // The artwork tint is worked out in a worker and lands when it is ready, re-rendering the shell
+    // around the list; it used to land after the count below now and then. Wait for it, and for
+    // React to have been quiet for a moment, so that only the ticks can render a row from here.
+    await expect.poll(() => page.locator(".Shell").getAttribute("style")).toMatch(/--tint: oklch/);
+    await page.waitForFunction(() => performance.now() - window.__rowRenders.lastAt > 300, null, { polling: 50 });
     const before = await page.evaluate(() => ({ ...window.__rowRenders }));
     expect(before.commits, "the render counter saw React commit").toBeGreaterThan(0);
     // The mocked file cannot be seeked (no range requests), so the element reports a made-up time.

@@ -5,11 +5,13 @@
 // the suite's toHaveScreenshot settings; lazy images are loaded and decoded before each shot.
 // Baselines: __screenshots__/<os>/components/<Page>/<width>x<height>-<mode>.png.
 //
-// The pages need no Tauri mock: the design system never talks to the host.
+// The pages need no Tauri mock: the design system never talks to the host. Each page is loaded with
+// the harness's loadPage, which loads it again when a request to the dev server fails.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { LOAD_WAIT_MS, loadPage } from "./harness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PAGES = JSON.parse(readFileSync(path.resolve(HERE, "../../app/src/design/fixtures/pages.json"), "utf8"));
@@ -55,8 +57,12 @@ for (const name of PAGES) {
       if (m.type() === "error" || m.type() === "warning") problems.push(m.text());
     });
 
-    await page.goto(`/fixtures.html#${name}`);
-    await page.waitForFunction((n) => document.documentElement.dataset.fixture === n, name);
+    await loadPage(page, testInfo, {
+      url: `/fixtures.html#${name}`,
+      ready: () => page.waitForFunction((n) => document.documentElement.dataset.fixture === n, name, { timeout: LOAD_WAIT_MS }),
+      // What a broken load printed (the failed request's own console error) is not the page's.
+      onRetry: () => problems.splice(0),
+    });
     const mode = modeOf(testInfo);
     if (MEDIA[mode]) {
       expect(await page.evaluate((q) => matchMedia(q).matches, MEDIA[mode]), `${mode} is emulated`).toBe(true);
@@ -76,8 +82,10 @@ for (const name of PAGES) {
 
 test("pages.json lists every fixture page @component", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "components-1280x800", "one viewport is enough");
-  await page.goto("/fixtures.html");
-  await page.waitForFunction(() => document.documentElement.dataset.fixture === "index");
+  await loadPage(page, testInfo, {
+    url: "/fixtures.html",
+    ready: () => page.waitForFunction(() => document.documentElement.dataset.fixture === "index", null, { timeout: LOAD_WAIT_MS }),
+  });
   const registered = await page.evaluate(() => window.__FIXTURE_PAGES__);
   expect([...registered].sort()).toEqual([...PAGES].sort());
 });

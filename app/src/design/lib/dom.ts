@@ -18,6 +18,17 @@ export function focusables(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0);
 }
 
+/**
+ * Moves the focus to `el` when it can still take it (in the page, shown, not disabled, not inert);
+ * true when the focus is there afterwards.
+ */
+export function focusIfAble(el: HTMLElement | null | undefined): boolean {
+  if (!el?.isConnected || el === el.ownerDocument.body) return false;
+  if (el.matches(":disabled") || el.closest("[inert]") || el.getClientRects().length === 0) return false;
+  el.focus({ preventScroll: true });
+  return el.ownerDocument.activeElement === el;
+}
+
 export interface Box {
   top: number;
   left: number;

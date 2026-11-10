@@ -59,6 +59,67 @@ async function ipcSettled(page, mustHave = null, quietMs = 300) {
   );
 }
 
+/** How many times a page is loaded before the load counts as broken for good. */
+export const LOAD_ATTEMPTS = 3;
+
+/** How long a load may leave the page without its first content (a request that never ends). */
+export const LOAD_WAIT_MS = 15_000;
+
+/**
+ * Loads `url` and waits for `ready()`. A load in which a request to the dev server fails, or that
+ * `ready()` gives up on, is thrown away and the page loaded again from a blank document, at most
+ * LOAD_ATTEMPTS times in all. On Windows a socket can be refused while many connections open and
+ * close (net::ERR_NO_BUFFER_SPACE): one of the ~140 module requests of a load fails and the page
+ * stays blank. Each retry is logged on stderr and as a test annotation ("page load"), and
+ * `onRetry(reason)` runs before the next load so the caller can drop what the broken one reported
+ * (its page errors, its console errors). Only the load is repeated: a test's own steps start after
+ * this returns. A request cut short because the page navigated (net::ERR_ABORTED) is not a failure.
+ */
+export async function loadPage(page, testInfo, { url, ready, onRetry = () => {} }) {
+  const origin = new URL(testInfo.project.use.baseURL).origin;
+  for (let attempt = 1; ; attempt++) {
+    const failed = [];
+    let signal;
+    const failure = new Promise((resolve) => (signal = resolve));
+    const onFailed = (request) => {
+      const why = request.failure()?.errorText ?? "failed";
+      if (!request.url().startsWith(origin) || why === "net::ERR_ABORTED") return;
+      failed.push(`${new URL(request.url()).pathname} ${why}`);
+      signal();
+    };
+    page.on("requestfailed", onFailed);
+    const load = (async () => {
+      // Only until the response arrives: a module request that never ends would hold the load
+      // event, and the goto with it, for the whole test. `ready()` waits, with its own limit.
+      await page.goto(url, { waitUntil: "commit" });
+      await ready();
+    })();
+    // A load given up on may still be waiting when the next one starts; its outcome no longer counts.
+    load.catch(() => {});
+    let problem = null;
+    try {
+      await Promise.race([load, failure]);
+    } catch (e) {
+      // The test is over (its timeout, the page closed): nothing to load again.
+      if (page.isClosed()) throw e;
+      problem = String(e?.message ?? e).split("\n")[0];
+    } finally {
+      page.off("requestfailed", onFailed);
+    }
+    if (failed.length) problem = `failed: ${failed.join(", ")}`;
+    if (!problem) return;
+    if (attempt >= LOAD_ATTEMPTS) throw new Error(`${url} did not load in ${LOAD_ATTEMPTS} attempts; the last one ${problem}`);
+    const line = `load ${attempt} of ${url} ${problem}; loading it again`;
+    testInfo.annotations.push({ type: "page load", description: line });
+    console.warn(`[${testInfo.project.name}] ${testInfo.title}: ${line}`);
+    // A blank document first, so the next load is a whole new one (the same URL with a #page would
+    // otherwise only scroll); once it is there, everything the broken load reported has arrived,
+    // and the caller drops it.
+    await page.goto("about:blank");
+    onRetry(line);
+  }
+}
+
 /** What each mode emulates, checked once the app has loaded. */
 const MEDIA = {
   "reduced-motion": "(prefers-reduced-motion: reduce)",
@@ -92,10 +153,22 @@ export const test = base.extend({
     const { width, height } = testInfo.project.use.viewport;
     await use({
       data,
-      /** Loads the app and waits for the startup IPC (settings store, scan, playlists) to settle. */
-      async open() {
-        await page.goto("/");
-        await ipcSettled(page, "list_playlists");
+      /**
+       * Loads the app (loadPage: a broken load is loaded again) and waits for the startup IPC
+       * (settings store, scan, playlists) to settle, `until` among it: "list_playlists" when a
+       * library opens, "platform" for a start that shows the first-launch setup.
+       */
+      async open({ until = "list_playlists" } = {}) {
+        const errorsBefore = pageErrors.length;
+        await loadPage(page, testInfo, {
+          url: "/",
+          ready: async () => {
+            await page.waitForFunction(() => !!document.getElementById("root")?.firstElementChild, null, { timeout: LOAD_WAIT_MS, polling: 50 });
+            await ipcSettled(page, until);
+          },
+          // Errors thrown while a broken load ran belong to it, not to the test.
+          onRetry: () => pageErrors.splice(errorsBefore),
+        });
         if (MEDIA[mode]) expect(await page.evaluate((q) => matchMedia(q).matches, MEDIA[mode]), `${mode} is emulated`).toBe(true);
         if (mode === "text-130") {
           expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--text-scale")), "text size").toBe("1.3");

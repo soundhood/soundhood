@@ -424,7 +424,12 @@ action as the danger pill, Cancel as a text button. On open the focus moves to t
 its title is read out, and the panel draws no focus ring for it (the ring belongs to the controls
 inside); a sheet built around one field starts in that field instead (Edit tags, New playlist, "Where
 should this go?" opened with an empty link). Focus is trapped in the sheet; Esc closes; focus returns
-to what opened it. `role="dialog"`, `aria-modal`, labelled by its title.
+to what opened it, or, when that is gone or disabled (Settings' Add once its link is taken), to the
+sheet below. A sheet opened from another one (Settings, then "Where should this go?", the log or the
+links waiting; the queue sheet, then New playlist or "Clear the queue?") goes on top of it with its
+own backdrop, whatever order the app mounts them in: the newest open sheet is the one drawn on top, the
+one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about. `role="dialog"`,
+`aria-modal`, labelled by its title.
 
 **Toast.** Bottom centre, above the mini player or the player bar, `--bg-3`, `--r-md`,
 `--shadow-float`, body-sm text and at most one text action: Undo (a tier-2 playlist change, a song
@@ -464,8 +469,10 @@ Leave Select mode (`close`), "N chosen", Select all or Select none (words), then
 buttons, most used first: Add to playlist, Edit tags (one song only) and Remove from the open playlist
 (`playlistRemove`, only while one is open and holds some of them); the rarer ones in a "More actions"
 menu: Move to folder (only on a folder's list or All songs, the storage views) and Delete as a danger
-item. Below the desktop width the bar keeps four buttons, Leave, the first two actions and More
-actions, and the menu there starts with Select all (or Select none) and the other actions, so every
+item. Below the desktop width the bar keeps four buttons, Leave, two actions and More actions: the
+first two the selection can use, in their usual order (two songs chosen in a playlist: Add to
+playlist and Remove from, Edit tags then being for one song only), disabled ones only where fewer
+can be used. The menu there starts with Select all (or Select none) and the other actions, so every
 action stays reachable without a row of six glyphs. Play and Add to queue are not on it; the rows' menu has them for a
 selection. It stays in view at the top of the list; below the desktop width it takes the screen
 header's place, on the desktop it sits above the list. Esc leaves Select mode.

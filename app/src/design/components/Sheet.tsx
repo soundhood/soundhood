@@ -3,13 +3,44 @@
 // centred panel at most 640 px wide. The switch is the shell's container query (overlays.css), never
 // a prop. A title (h2) and a close button, a body that scrolls, a footer with the actions
 // right-aligned (primary aqua pill, danger pill, Cancel as a text button).
-// Focus moves into the sheet and is trapped there; Esc closes; focus returns to what opened it.
-// role="dialog", aria-modal, labelled by its title. Place it in the Shell's overlays slot.
-import { useId, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+// Focus moves into the sheet and is trapped there; Esc closes; focus returns to what opened it, or,
+// when that is gone or disabled, to the sheet below.
+// A sheet opened while another is open goes on top of it, with its own backdrop, whatever order the
+// overlays slot mounts them in: the newest open sheet is the one drawn on top, the one Tab and Esc
+// work in, and the one the app's shortcuts ask about (topSheet). role="dialog", aria-modal, labelled
+// by its title. Place it in the Shell's overlays slot.
+import {
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { cssVars, cx } from "../lib/cx";
-import { focusables } from "../lib/dom";
+import { focusIfAble, focusables } from "../lib/dom";
+import { createSheetStack } from "../lib/sheetStack";
 import { useSwipe } from "../lib/useSwipe";
 import { IconButton } from "./IconButton";
+
+/** An open sheet, as the stack holds it: its panel, where the focus goes when the one above closes. */
+type OpenSheet = { panel: RefObject<HTMLElement | null> };
+
+/** Every open sheet in the app, oldest first. */
+const openSheets = createSheetStack<OpenSheet>();
+
+/**
+ * Layers a sheet may climb above the first one's (z-index 30 + layer, overlays.css): the row menu
+ * and the first-launch setup (40) and the toasts (50) stay above every sheet.
+ */
+const MAX_LAYER = 9;
+
+/** The panel of the sheet on top (the newest open one), or null while none is open. */
+export function topSheet(): HTMLElement | null {
+  return openSheets.top()?.panel.current ?? null;
+}
 
 export interface SheetProps {
   open: boolean;
@@ -46,14 +77,29 @@ function SheetPanel({
   const titleId = useId();
   const panel = useRef<HTMLElement>(null);
   const swipe = useSwipe({ axis: "down", onSwipe: onClose });
+  const [self] = useState<OpenSheet>(() => ({ panel }));
+  const layer = Math.min(
+    useSyncExternalStore(openSheets.subscribe, () => openSheets.layer(self)),
+    MAX_LAYER,
+  );
 
   useLayoutEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    (initialFocus?.current ?? panel.current)?.focus({ preventScroll: true });
+    const box = panel.current;
+    openSheets.open(self);
+    (initialFocus?.current ?? box)?.focus({ preventScroll: true });
     return () => {
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
+      const wasTop = openSheets.top() === self;
+      const at = document.activeElement;
+      const focusInside = !at || at === document.body || !!box?.contains(at);
+      openSheets.close(self);
+      // A sheet closing under the one on top leaves the focus where it is, in that one.
+      if (!wasTop && !focusInside) return;
+      // What opened it, unless it is gone or disabled now (Settings' Add, once its link is taken);
+      // then the sheet below, so Tab stays in it and Esc closes it next.
+      if (!focusIfAble(opener)) openSheets.top()?.panel.current?.focus({ preventScroll: true });
     };
-  }, [initialFocus]);
+  }, [initialFocus, self]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key === "Escape") {
@@ -82,7 +128,12 @@ function SheetPanel({
 
   return (
     <>
-      <div className="Backdrop" aria-hidden="true" onClick={dismissible ? onClose : undefined} />
+      <div
+        className="Backdrop"
+        aria-hidden="true"
+        style={cssVars({ "--sheet-layer": layer })}
+        onClick={dismissible ? onClose : undefined}
+      />
       <section
         ref={panel}
         className={cx("Sheet", tall && "is-tall", swipe.dragging && "is-dragging", className)}
@@ -90,7 +141,7 @@ function SheetPanel({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        style={cssVars({ "--drag-y": `${swipe.offset}px` })}
+        style={cssVars({ "--drag-y": `${swipe.offset}px`, "--sheet-layer": layer })}
         onKeyDown={onKeyDown}
       >
         <div className="Sheet-top" {...swipe.handlers}>
