@@ -7,9 +7,12 @@
 //   2. Online lookups: one switch, off. Stored; nothing uses it yet.
 //   3. YouTube helper: Enable downloader (off) and Keep download helper updated (off). The first
 //      shows or hides the download UI; the second is stored for the helper manager.
+// When it ends (Done, Skip on the last step) the focus goes to the main area (useFocusReturn), never
+// to the page.
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button, OnboardingStep, SettingRow, SwitchRow, TextField } from "../../design";
+import { useFocusReturn } from "../../design/lib/useFocusReturn";
 import { useApp } from "../../app/context";
 import { KEY_REAL_LIBRARY_DIR, storePromise } from "../../lib/store";
 import { shownFolder } from "../../testLibrary";
@@ -103,6 +106,7 @@ export function Onboarding() {
   useEffect(() => {
     if (shown) box.current?.focus({ preventScroll: true });
   }, [shown, at]);
+  useFocusReturn(box, shown);
   if (!steps || !steps.length) return null;
   const i = Math.min(at, steps.length - 1);
   const total = steps.length;

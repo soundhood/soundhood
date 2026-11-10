@@ -6,10 +6,12 @@
 // Where the player is 600 px wide or more (the main pane of a tablet or desktop shell) the same
 // component lays out in two columns: artwork; then where it plays from, the title in display size,
 // the artist, facts (length, format...) and the action row. The transport stays in the player bar.
-// The layout switch is CSS only (a container query on the player).
-import { useEffect, useEffectEvent, type ReactNode } from "react";
+// The layout switch is CSS only (a container query on the player). When it closes with the focus in
+// it, the focus goes back to what opened it, else to the main area (useFocusReturn).
+import { useEffect, useEffectEvent, useRef, type ReactNode } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { formatTime } from "../lib/time";
+import { useFocusReturn } from "../lib/useFocusReturn";
 import { useSwipe } from "../lib/useSwipe";
 import { Icon } from "./Icon";
 import { IconButton } from "./IconButton";
@@ -49,6 +51,8 @@ export interface FullPlayerProps {
 
 export function FullPlayer(p: FullPlayerProps) {
   const swipe = useSwipe({ axis: "down", onSwipe: () => p.onClose?.(), enabled: !!p.onClose });
+  const root = useRef<HTMLDivElement>(null);
+  useFocusReturn(root);
 
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     if (e.key === "Escape" && !e.defaultPrevented && p.onClose) p.onClose();
@@ -63,6 +67,7 @@ export function FullPlayer(p: FullPlayerProps) {
 
   return (
     <div
+      ref={root}
       className={cx("FullPlayer", p.className)}
       role="region"
       aria-label="Now playing"

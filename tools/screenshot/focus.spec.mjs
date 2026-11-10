@@ -2,10 +2,12 @@
 // the settings sheet, and every stop shows the 2 px aqua outline. A control that hides its own
 // outline must hand the ring to a box that holds it: the search field's frame, a playlist card (its
 // ::after). Checked by computed style at every stop, and by the pixels around the search field,
-// which Tab, Ctrl+K and "/" reach.
+// which Tab, Ctrl+K and "/" reach. And the focus never falls to the page when what had it goes
+// (useFocusReturn): Esc leaving Select mode from the bar's More menu, Esc closing the full player,
+// the setup's Done.
 import { PNG } from "pngjs";
 import { expect, test } from "./harness.mjs";
-import { openPlaylist, openSettings, playSong, searchField, settle } from "./ui.mjs";
+import { openPlayer, openPlaylist, openSettings, playSong, row, searchField, settle } from "./ui.mjs";
 
 const AQUA = "rgb(0, 255, 191)";
 const MAX_STOPS = 90;
@@ -130,6 +132,74 @@ for (const [tag, layout] of [
       for (const kind of ["button.Switch", "button.Button"]) {
         expect([...inSettings], `the settings walk reaches ${kind}`).toContain(kind);
       }
+    });
+  });
+}
+
+/** Where the focus is: "the page" when nowhere, else the element and whether it is in the main area. */
+const focusPlace = (page) =>
+  page.evaluate(() => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLElement) || el === document.body) return "the page";
+    return `${el.closest(".Shell-main") ? "main" : "elsewhere"}: ${el.getAttribute("aria-label") ?? el.textContent?.trim().slice(0, 30)}`;
+  });
+
+for (const tag of ["@desktop", "@phone"]) {
+  test.describe(`the focus never falls to the page ${tag}`, { tag }, () => {
+    test.beforeEach(({}, testInfo) => {
+      test.skip(!["desktop-1280x800", "phone-390x844"].includes(testInfo.project.name), "one PC and one phone size");
+    });
+
+    test("Esc twice from the selection bar's More menu: the menu closes, then Select mode, and the focus is back in the list", async ({ app, page }) => {
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      if (tag === "@phone") {
+        await page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).first().click();
+        await row(page, "Paper Bloom").click();
+      } else await row(page, "Paper Bloom").click({ modifiers: ["Control"] });
+      const bar = page.getByRole("toolbar", { name: "Selection" });
+      await bar.getByRole("button", { name: "More actions" }).filter({ visible: true }).click();
+      await expect(page.getByRole("menu")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menu")).toHaveCount(0);
+      await expect(bar.getByRole("button", { name: "More actions" }).filter({ visible: true })).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(bar).toHaveCount(0);
+      await expect.poll(() => focusPlace(page)).toMatch(/^main: /);
+      if (tag === "@desktop") await expect(row(page, "Paper Bloom"), "back on the row that started Select mode").toBeFocused();
+    });
+
+    test("Esc closing the full player from its More menu: the focus is back on what opened it", async ({ app, page }) => {
+      test.skip(tag === "@phone", "on the phone the mini player opens it, by touch");
+      for (const size of [{ width: 1280, height: 800 }, { width: 760, height: 520 }]) {
+        await page.setViewportSize(size);
+        await app.open();
+        await openPlaylist(page, "Late Night");
+        await playSong(app, page, "Lunar Comets");
+        await openPlayer(page);
+        await page.locator(".FullPlayer").getByRole("button", { name: /^More for/ }).click();
+        await expect(page.getByRole("menu")).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(page.locator(".FullPlayer")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true }), `${size.width}x${size.height}`).toBeFocused();
+      }
+    });
+
+    test("the setup's Done: the focus is in the main area", async ({ app, page }) => {
+      await page.addInitScript(() => {
+        const m = window.__soundhoodMock;
+        m.store.clear();
+        m.pickFolder = window.__SOUNDHOOD_FIXTURE__.root;
+      });
+      await app.open({ until: "platform" });
+      const setup = page.getByRole("dialog", { name: "Set up Soundhood" });
+      await expect(setup).toBeVisible();
+      for (const step of ["Skip", "Skip"]) await setup.getByRole("button", { name: step }).click();
+      await setup.getByRole("button", { name: "Done" }).click();
+      await expect(setup).toHaveCount(0);
+      await expect.poll(() => focusPlace(page)).toMatch(/^main: /);
     });
   });
 }
