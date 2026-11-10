@@ -103,10 +103,12 @@ export function useToast(): ToastApi {
 export function ToastViewport() {
   const ctx = useContext(ToastContext);
   if (!ctx) return null;
+  // What places a toast: the toasts in the stack, in order, and their words (their height).
+  const stack = ctx.toasts.map((t) => `${t.id} ${t.text}`).join(" | ");
   return (
     <div className="Toasts" role="status" aria-live="polite">
       {ctx.toasts.map((t) => (
-        <ToastItem key={t.id} toast={t} dismiss={() => ctx.api.dismiss(t.id)} />
+        <ToastItem key={t.id} toast={t} stack={stack} dismiss={() => ctx.api.dismiss(t.id)} />
       ))}
     </div>
   );
@@ -114,11 +116,11 @@ export function ToastViewport() {
 
 /**
  * When the toast in `box` last moved or came, and whether that was under SETTLE_MS ago. Its place
- * is measured after every render (a change of the stack renders every toast): its top and bottom
- * edges in the window as laid out (the stack's place plus its own in the stack), so its opening
- * animation never counts as a move.
+ * is measured whenever `stack` changes (a toast added or removed, words changed): its top and
+ * bottom edges in the window as laid out (the stack's place plus its own in the stack), so its
+ * opening animation never counts as a move.
  */
-function usePlaceChange(box: RefObject<HTMLDivElement | null>) {
+function usePlaceChange(box: RefObject<HTMLDivElement | null>, stack: string) {
   const place = useRef({ at: "", movedAt: 0 });
   const [movedAt, setMovedAt] = useState(0);
   const [quietAt, setQuietAt] = useState(0);
@@ -131,7 +133,7 @@ function usePlaceChange(box: RefObject<HTMLDivElement | null>) {
     if (at === place.current.at) return;
     place.current = { at, movedAt: performance.now() };
     setMovedAt(place.current.movedAt);
-  });
+  }, [box, stack]);
   useEffect(() => {
     const t = setTimeout(() => setQuietAt(movedAt), SETTLE_MS);
     return () => clearTimeout(t);
@@ -146,14 +148,16 @@ function usePlaceChange(box: RefObject<HTMLDivElement | null>) {
 
 interface ToastItemProps {
   toast: Entry;
+  /** The stack as it is now (ToastViewport): a change of it may move this toast. */
+  stack: string;
   dismiss: () => void;
 }
 
-function ToastItem({ toast, dismiss }: ToastItemProps) {
+function ToastItem({ toast, stack, dismiss }: ToastItemProps) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const place = usePlaceChange(box);
+  const place = usePlaceChange(box, stack);
   const expire = useEffectEvent(dismiss);
   const held = hovered || focused || !!toast.persistent;
   const guarded = !!toast.action?.guarded;
