@@ -551,7 +551,7 @@ test.describe("a download's Cancel and Retry", { tag: ["@desktop", "@phone"] }, 
 
   // Real taps (the browser counts them in `detail`) at one rate, with toasts arriving every 250 ms
   // all along: someone who keeps tapping Cancel gets through within 2 s of the first tap.
-  for (const gap of [600, 900, 1200]) {
+  for (const gap of [600, 700, 900, 1200]) {
     test(`toasts arriving every 250 ms: Cancel tapped every ${gap} ms acts within 2 s of the first tap`, async ({ app, page }, testInfo) => {
       test.skip(!testInfo.project.use.hasTouch, "the PC host cannot cancel");
       await app.open();
