@@ -59,6 +59,18 @@ export const status = (page) => page.locator(".SettingsSheet .LogRow .SettingRow
 export const settingRow = (page, label) =>
   page.locator(".SettingsSheet .SettingRow").filter({ has: page.locator(".SettingRow-label", { hasText: new RegExp(`^${label}$`) }) });
 
+/** How many IPC calls the page has made so far: a mark for `untilCalled`. */
+export const ipcMark = (page) => page.evaluate(() => window.__soundhoodIpc.calls.length);
+
+/**
+ * Waits until the page called a command starting with `prefix` after `mark`, then until IPC goes
+ * quiet: the action that call belongs to has finished, whatever it then shows.
+ */
+export async function untilCalled(app, page, mark, prefix) {
+  await page.waitForFunction(([m, p]) => window.__soundhoodIpc.calls.slice(m).some((c) => c.startsWith(p)), [mark, prefix]);
+  await app.settled();
+}
+
 /** The toasts on screen. */
 export const toasts = (page) => page.locator(".Toast");
 

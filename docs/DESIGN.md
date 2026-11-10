@@ -425,11 +425,11 @@ phone or Ctrl+Alt+Shift+D on the PC.
 rule): a title saying what was done ("Moved 3 songs to the bin"), counts (done, skipped with the reason,
 failed), the rows with before and after, and two buttons: **Undo this batch** and Done. It never closes
 by itself: no timer, a backdrop tap does nothing, Esc counts as Done. Over eight rows the list is a
-VirtualList in a tall sheet. A selection is still one journaled change per song, so Undo this batch
-undoes the batch's own changes newest first, checking before each one that it is still the newest
-change on this device, and stops at the first that is not, with a line saying which change is in the
-way; the report that follows says how many were undone ("Undid 2 of 3 changes"). Undo this batch is
-left out when nothing was applied and on the report of an undo.
+VirtualList in a tall sheet. A selection is still one journaled change per song, so the report keeps
+the id each change's own report carried, and Undo this batch undoes exactly those, newest first,
+whatever came after them, stopping at the first one that is refused with a line naming it; the report
+that follows counts what was really undone ("Undid 2 of 3 changes"). Undo this batch is left out when
+nothing was applied and on the report of an undo.
 
 **TidyRow.** A proposed change waiting for a tick in Tidy (Phase 2): a checkbox, before and after
 (changed parts in `--fg-0`, unchanged in `--fg-1`), a confidence hint, and the reason.

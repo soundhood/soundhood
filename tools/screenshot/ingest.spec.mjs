@@ -241,7 +241,6 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
     await sheet(page).getByRole("switch", { name: "Downloader" }).click();
     await expect.poll(async () => (await storeOf(page)).downloader_enabled).toBe(false);
-    await expect(toast(page, "Downloader off: the queue stops after this download")).toBeVisible();
 
     // The download in flight ends as usual; the next one never starts.
     await emit(page, "ytdlp:done", 0);
@@ -249,6 +248,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await page.waitForTimeout(1000);
     expect(await ipcCount(page, "downloads")).toBe(1);
     await expect(page.locator(".Toast").filter({ hasText: /^Downloading/ })).toHaveCount(0);
+    await expect(toast(page, "Downloader off: the queue stops after this download")).toBeVisible();
   });
 
   test("switched off after a download failed, its Retry starts nothing and says where to turn it on", async ({ app, page }) => {
@@ -265,9 +265,9 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect.poll(async () => (await storeOf(page)).downloader_enabled).toBe(false);
     await sheet(page).getByRole("button", { name: "Close", exact: true }).click();
     await failed.getByRole("button", { name: "Retry" }).click();
-    await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
     await page.waitForTimeout(500);
     expect(await ipcCount(page, "downloads")).toBe(1);
+    await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
   });
 
   test("Enter in the New folder field checks the name and never starts the download", async ({ app, page }) => {

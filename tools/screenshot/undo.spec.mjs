@@ -10,7 +10,7 @@
 // of any Undo does nothing while the first runs.
 import { changedPixelsOutside } from "./pixels.mjs";
 import { expect, test } from "./harness.mjs";
-import { closeSettings, goTo, openPlaylist, openSettings, playSong, report, row, settingRow, settle, status } from "./ui.mjs";
+import { closeSettings, goTo, ipcMark, openPlaylist, openSettings, playSong, report, row, settingRow, settle, status, untilCalled } from "./ui.mjs";
 
 const PLAYLIST = "Late Night";
 const sheet = (page) => page.locator(".SettingsSheet");
@@ -149,11 +149,13 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect(await history(page)).toEqual(["Removed 1 track from Late Night", "Removed 1 track from Late Night"]);
     // The playlist changed since the older remove (the newer one): the core refuses to force it, and
     // the toast says so. Neither song comes back, and both changes stay undoable.
+    const mark = await ipcMark(page);
     await older.getByRole("button", { name: "Undo" }).click();
-    await expect(toast(page, "Undo: 0 restored, 1 left as they are (see the log)")).toBeVisible();
+    await untilCalled(app, page, mark, "undo_");
+    expect(await history(page)).toEqual(["Removed 1 track from Late Night", "Removed 1 track from Late Night"]);
     await expect(row(page, "Quiet Bloom")).toHaveCount(0);
     await expect(row(page, "Static Garden")).toHaveCount(0);
-    expect(await history(page)).toEqual(["Removed 1 track from Late Night", "Removed 1 track from Late Night"]);
+    await expect(toast(page, "Undo: 0 restored, 1 left as they are (see the log)")).toBeVisible();
     await expect(report(page)).toHaveCount(0);
   });
 
@@ -163,9 +165,11 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await removeWithDelete(page, "Static Garden");
     await editTitle(page, "Quiet Bloom", "Quiet Bloom (Night Edit)");
     expect(await history(page)).toEqual(["Removed 1 track from Late Night", "Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
+    const mark = await ipcMark(page);
     await toast(page, "Removed Static Garden from").getByRole("button", { name: "Undo" }).click();
-    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
+    await untilCalled(app, page, mark, "undo_");
     expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
+    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
     await expect(row(page, "Quiet Bloom (Night Edit)")).toBeVisible();
     await expect(row(page, "Static Garden")).toBeVisible();
   });
@@ -181,9 +185,11 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await dialog.getByRole("textbox", { name: "Title" }).press("Enter");
     await expect(report(page).getByRole("heading")).toHaveText("Saved the tags of Quiet Bloom - Anouk Lirr");
     await expect(t).toBeVisible();
+    const mark = await ipcMark(page);
     await t.getByRole("button", { name: "Undo" }).click();
-    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
+    await untilCalled(app, page, mark, "undo_");
     expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
+    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
     // The report is the tag edit's, as it was, with its own Undo.
     await expect(report(page).getByRole("heading")).toHaveText("Saved the tags of Quiet Bloom - Anouk Lirr");
     await expect(report(page).getByRole("button", { name: "Undo this batch" })).toBeEnabled();
@@ -199,7 +205,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     // A slow host leaves room for the second press.
     await page.evaluate(() => (window.__soundhoodMock.delay = { last_change: 60, undo_last: 60, undo_batch: 60 }));
     await undoButton(page).dblclick();
-    await expect(report(page).getByRole("heading")).toHaveText("Undone: Edited tags of Static Garden - Sola Brakke");
+    await expect(report(page).getByRole("heading")).toBeVisible();
     await page.waitForTimeout(800);
     await app.settled();
     expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);

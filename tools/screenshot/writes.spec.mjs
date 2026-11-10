@@ -5,7 +5,7 @@
 // A playlist deleted is a toast with Undo; a playlist gesture that changed nothing says so, without
 // Undo. Undo reports name files without their extension, and the bin by this device's name.
 import { expect, test } from "./harness.mjs";
-import { goTo, openPlaylist, playSong, report, row } from "./ui.mjs";
+import { goTo, ipcMark, openPlaylist, playSong, report, row, untilCalled } from "./ui.mjs";
 
 const toast = (page, text) => page.locator(".Toast").filter({ hasText: text }).last();
 const history = (page) => page.evaluate(() => window.__soundhoodMock.history.map((h) => h.summary.label));
@@ -141,7 +141,8 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(report(page).getByRole("heading")).toHaveText("Undid 2 of 2 changes");
     await page.waitForTimeout(600);
     await expect(report(page).getByRole("heading")).toHaveText("Undid 2 of 2 changes");
-    expect(await page.evaluate(() => window.__soundhoodIpc.calls.filter((c) => c === "undo_batch").length)).toBe(2);
+    const undos = await page.evaluate(() => window.__soundhoodIpc.calls.filter((c) => c.startsWith("undo_")).length);
+    expect(undos, "one undo call per change").toBe(2);
     expect(await history(page)).toEqual([]);
   });
 
@@ -196,11 +197,16 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await page.keyboard.press("Control+s");
     const sheet = page.getByRole("dialog", { name: "New playlist" });
     await sheet.getByRole("textbox", { name: "Playlist name" }).fill("Late Night");
+    const mark = await ipcMark(page);
     await sheet.getByRole("button", { name: "Create and add" }).click();
+    await untilCalled(app, page, mark, "playlist_add");
+    expect(await history(page)).toEqual([]);
+    // Nothing changed: said so, and no Undo that could take back anything else (counted now: a
+    // toast that expires would make a waiting count pass).
+    expect(await page.locator(".Toast").getByRole("button", { name: "Undo" }).count()).toBe(0);
     const t = toast(page, "Already in Late Night");
     await expect(t).toBeVisible();
-    await expect(t.getByRole("button")).toHaveCount(0);
-    expect(await history(page)).toEqual([]);
+    expect(await t.getByRole("button").count()).toBe(0);
   });
 
   test("Create and add: the toast's Undo takes back the add and the new playlist, nothing else", async ({ app, page }) => {
@@ -214,9 +220,11 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     const t = toast(page, "Added Static Garden to Night Drive");
     await expect(t).toBeVisible();
     expect(await history(page)).toEqual(["Created playlist Night Drive", "Added 1 track to Night Drive"]);
+    const mark = await ipcMark(page);
     await t.getByRole("button", { name: "Undo" }).click();
-    await expect(toast(page, "Undone: Added 1 track to Night Drive; Created playlist Night Drive")).toBeVisible();
+    await untilCalled(app, page, mark, "undo_");
     expect(await history(page)).toEqual([]);
+    await expect(toast(page, "Undone: Added 1 track to Night Drive; Created playlist Night Drive")).toBeVisible();
   });
 });
 

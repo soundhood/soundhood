@@ -137,12 +137,11 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await coldShare(page, false);
     await app.open();
     expect(await page.evaluate(() => window.__shared)).toEqual([true]);
-    await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
-    await expect(where(page)).toHaveCount(0);
     await page.waitForTimeout(500);
     await expect(where(page)).toHaveCount(0);
     expect(await page.evaluate(() => window.__soundhoodMock.downloads.length)).toBe(0);
     expect((await storeOf(page)).downloader_enabled).toBe(false);
+    await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
   });
 
   test("a link shared before startup read the settings, with the downloader stored on: the sheet", async ({ app, page }) => {

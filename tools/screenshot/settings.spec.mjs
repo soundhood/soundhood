@@ -194,7 +194,7 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await make.click();
     const none = toast(page, "Every folder already has its playlist");
     await expect(none).toBeVisible();
-    await expect(none.getByRole("button")).toHaveCount(0);
+    expect(await none.getByRole("button").count()).toBe(0);
     expect(await history()).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg", "Made 5 playlists from folders"]);
 
     // The first toast's Undo takes back the five playlists, and only them.
