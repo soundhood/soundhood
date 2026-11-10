@@ -257,7 +257,7 @@ test.describe("touch (platform android)", { tag: "@phone" }, () => {
     await expect(card(page, "Focus")).toContainText("9 songs");
   });
 
-  test("Select mode below the desktop width: four buttons; Select all, Remove and Delete in More", async ({ app, page }) => {
+  test("Select mode below the desktop width: four buttons; Select all, Edit tags and Delete in More", async ({ app, page }) => {
     await app.open();
     await openPlaylist(page, "Late Night");
     await page.getByRole("button", { name: "Select", exact: true }).tap();
@@ -267,12 +267,12 @@ test.describe("touch (platform android)", { tag: "@phone" }, () => {
     expect(await buttons.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")))).toEqual([
       "Leave Select mode",
       "Add to playlist",
-      "Edit tags",
+      "Remove from Late Night",
       "More actions",
     ]);
-    const more = bar.getByRole("button", { name: "More actions" });
+    const more = bar.getByRole("button", { name: "More actions" }).filter({ visible: true });
     await more.tap();
-    await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Select all", "Remove from Late Night", "Delete song"]);
+    await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Select all", "Edit tags", "Delete song"]);
     await page.getByRole("menuitem", { name: "Select all" }).tap();
     await expect(bar).not.toContainText("1 chosen");
     await more.tap();
@@ -280,15 +280,11 @@ test.describe("touch (platform android)", { tag: "@phone" }, () => {
     await page.getByRole("menuitem", { name: "Select none" }).tap();
     await expect(bar).toContainText("0 chosen");
     await row(page, "Paper Bloom").tap();
-    await more.tap();
-    await page.getByRole("menuitem", { name: "Remove from Late Night" }).tap();
+    await bar.getByRole("button", { name: "Remove from Late Night" }).tap();
     await expect(toast(page)).toContainText("Removed Paper Bloom from Late Night");
   });
 
-  test("Select mode below the desktop width: the two action buttons are the first ones the selection can use", async ({ app, page }) => {
-    await app.open();
-    await openPlaylist(page, "Late Night");
-    await page.getByRole("button", { name: "Select", exact: true }).tap();
+  test("Select mode below the desktop width: the two action buttons are the screen's own and stay put while songs are chosen", async ({ app, page }) => {
     const bar = page.getByRole("toolbar", { name: "Selection" });
     /** The buttons on screen, each with whether it can be pressed. */
     const onScreen = () =>
@@ -296,23 +292,52 @@ test.describe("touch (platform android)", { tag: "@phone" }, () => {
         .getByRole("button")
         .filter({ visible: true })
         .evaluateAll((els) => els.map((el) => `${el.getAttribute("aria-label")}${el.disabled ? " (disabled)" : ""}`));
-    // Nothing chosen: no action can be used, so the first two keep their places.
-    expect(await onScreen()).toEqual(["Leave Select mode", "Add to playlist (disabled)", "Edit tags (disabled)", "More actions"]);
-    // Two songs of the open playlist: Edit tags (one song only) gives its place to Remove from, and
-    // the buttons keep their usual order.
-    await row(page, "Paper Bloom").tap();
-    await row(page, "Amber Comets").tap();
-    await expect(bar).toContainText("2 chosen");
-    expect(await onScreen()).toEqual(["Leave Select mode", "Add to playlist", "Remove from Late Night", "More actions"]);
-    await bar.getByRole("button", { name: "More actions" }).tap();
-    await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Select all", "Edit tags", "Delete 2 songs"]);
-    await expect(page.getByRole("menuitem", { name: "Edit tags" })).toBeDisabled();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("menu")).toHaveCount(0);
-    // One song again: every action can be used, and the first two are back.
-    await row(page, "Amber Comets").tap();
-    await expect(bar).toContainText("1 chosen");
-    expect(await onScreen()).toEqual(["Leave Select mode", "Add to playlist", "Edit tags", "More actions"]);
+    /** The More menu's items, each with whether it can be chosen; the menu is closed again after. */
+    const inMore = async () => {
+      await bar.getByRole("button", { name: "More actions" }).filter({ visible: true }).tap();
+      const items = await page
+        .getByRole("menu")
+        .getByRole("menuitem")
+        .evaluateAll((els) => els.map((el) => `${el.textContent}${el.getAttribute("aria-disabled") === "true" ? " (disabled)" : ""}`));
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menu")).toHaveCount(0);
+      return items;
+    };
+    /** Select mode on the open list; then `songs` ticked one by one, the bar read after each. */
+    async function walk(second, songs) {
+      await page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).tap();
+      const off = (label) => `${label} (disabled)`;
+      // Nothing chosen: the same two buttons, disabled; More offers no "Delete 0 songs".
+      expect(await onScreen(), "nothing chosen").toEqual(["Leave Select mode", off("Add to playlist"), off(second), "More actions"]);
+      expect(await inMore(), "More, nothing chosen").toEqual(["Select all", off("Edit tags"), off("Delete")]);
+      for (const [i, title] of songs.entries()) {
+        await row(page, title).tap();
+        await expect(bar).toContainText(`${i + 1} chosen`);
+        expect(await onScreen(), `${i + 1} chosen`).toEqual(["Leave Select mode", "Add to playlist", second, "More actions"]);
+      }
+      // Edit tags is for one song: in More, disabled once two are chosen, and never in a button's place.
+      expect(await inMore(), "More, two chosen").toEqual(["Select all", off("Edit tags"), "Delete 2 songs"]);
+      await row(page, songs[1]).tap();
+      await expect(bar).toContainText("1 chosen");
+      expect(await onScreen(), "back to one").toEqual(["Leave Select mode", "Add to playlist", second, "More actions"]);
+      expect(await inMore(), "More, one chosen").toEqual(["Select all", "Edit tags", "Delete song"]);
+      await bar.getByRole("button", { name: "Leave Select mode" }).tap();
+    }
+
+    await app.open();
+    // A playlist: Add to playlist and Remove from it.
+    await openPlaylist(page, "Late Night");
+    await walk("Remove from Late Night", ["Paper Bloom", "Amber Comets"]);
+    // A folder: Add to playlist and Move to folder.
+    await goTo(page, "Folders");
+    await page.locator(".ListRow").filter({ visible: true }).filter({ hasText: "Evenings" }).first().tap();
+    await expect(page.locator(".ScreenHeader h1")).toHaveText("Evenings");
+    await walk("Move to folder", ["Static Garden", "Static Tide"]);
+    // An artist: Add to playlist and Play next.
+    await goTo(page, "Artists");
+    await page.locator(".ListRow").filter({ visible: true }).filter({ hasText: "Velvet Ferry" }).first().tap();
+    await expect(page.locator(".ScreenHeader h1")).toHaveText("Velvet Ferry");
+    await walk("Play next", ["Static Tide", "Glass Orchard"]);
   });
 
   test("the mini player opens Playing; the tabs hide under it", async ({ app, page }) => {

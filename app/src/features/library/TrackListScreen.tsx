@@ -23,6 +23,7 @@ import type { SortMode } from "../../lib/tracks";
 import { artistLabel } from "../artists/ArtistsScreen";
 import { usePlayActions } from "../player/usePlayActions";
 import { usePlaylistEdits } from "../playlists/usePlaylistEdits";
+import { useQueueEdits } from "../queue/useQueueEdits";
 import { TrackList } from "./TrackList";
 import { SORT_OPTIONS, folderLabel, songCount, songsMeta } from "./trackInfo";
 
@@ -34,6 +35,7 @@ export function detailTitle(d: Detail): string {
 function SelectionBar({ detail }: { detail: Detail }) {
   const { lib, sel, phone, dialogs, edits, actions } = useApp();
   const playlistEdits = usePlaylistEdits();
+  const queue = useQueueEdits();
   const chosen = sel.selectedTracks;
   const pl = detail.kind === "playlist" ? lib.currentPlaylistFile : null;
   const exit = () => {
@@ -41,27 +43,42 @@ function SelectionBar({ detail }: { detail: Detail }) {
     phone.setMSelectMode(false);
   };
 
-  // Most used first: below the desktop width the bar keeps the first two and moves the rest to More.
+  // Most used first: a button each on the desktop.
   const main: SelectAction[] = [
     { id: "add", label: "Add to playlist", icon: "playlistAdd", onClick: () => actions.addToPlaylist(chosen) },
     { id: "tags", label: "Edit tags", icon: "edit", disabled: chosen.length !== 1, onClick: () => chosen[0] && edits.openTagEditor(chosen[0]) },
   ];
-  if (pl && chosen.some((t) => lib.inPlaylist(pl, t))) {
-    main.push({ id: "remove", label: `Remove from ${pl.name}`, icon: "playlistRemove", onClick: () => void playlistEdits.remove(pl.name, chosen) });
+  // A playlist's list always offers Remove from it (disabled until some chosen song is in it), so
+  // the button is there before the first song is chosen and stays while more are.
+  if (detail.kind === "playlist") {
+    const name = pl?.name ?? detail.name;
+    const inIt = pl ? chosen.filter((t) => lib.inPlaylist(pl, t)) : [];
+    main.push({
+      id: "remove",
+      label: `Remove from ${name}`,
+      icon: "playlistRemove",
+      disabled: inIt.length === 0,
+      onClick: () => void playlistEdits.remove(name, chosen),
+    });
   }
 
   const more: SelectAction[] = [];
   // Moving files belongs to the storage view, as before: a folder or every song.
-  if (detail.kind === "folder" || detail.kind === "all") {
-    more.push({ id: "move", label: "Move to folder", icon: "folders", onClick: () => actions.moveToFolder(chosen) });
-  }
+  const storage = detail.kind === "folder" || detail.kind === "all";
+  if (storage) more.push({ id: "move", label: "Move to folder", icon: "folders", onClick: () => actions.moveToFolder(chosen) });
+  if (detail.kind === "artist") more.push({ id: "next", label: "Play next", icon: "next", onClick: () => queue.playNext(chosen) });
   more.push({
     id: "delete",
-    label: chosen.length === 1 ? "Delete song" : `Delete ${songCount(chosen.length)}`,
+    label: chosen.length === 0 ? "Delete" : chosen.length === 1 ? "Delete song" : `Delete ${songCount(chosen.length)}`,
     icon: "trash",
     danger: true,
     onClick: () => dialogs.setConfirmDelete(chosen),
   });
+
+  // Below the desktop width two keep a button, picked by the kind of list, never by the selection:
+  // Add to playlist, and what this list is for (Remove from the playlist, Move to folder for the
+  // storage views, Play next for an artist). Edit tags (one song only) is in More there.
+  const narrow = ["add", detail.kind === "playlist" ? "remove" : storage ? "move" : "next"];
 
   return (
     <SelectModeBar
@@ -72,6 +89,7 @@ function SelectionBar({ detail }: { detail: Detail }) {
       onExit={exit}
       actions={main}
       more={more}
+      narrow={narrow}
     />
   );
 }

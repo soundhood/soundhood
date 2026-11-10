@@ -4,10 +4,11 @@
 // the phone it replaces the screen header; on the desktop it sits above the list (the owner places
 // it). Esc leaves Select mode.
 // Below the desktop width the bar keeps at most four buttons, so it never reads as a row of glyphs:
-// Leave, NARROW_ACTIONS actions and More; Select all and the other actions open from More there
-// (shell.css visibility helpers, by width, never by platform). The actions that stay out are the
-// first ones the selection can use, in their usual order (Remove from before a disabled Edit tags
-// when two songs are chosen); disabled ones only fill the places left. Every action stays reachable.
+// Leave, two actions and More; Select all and every other action open from More there (shell.css
+// visibility helpers, by width, never by platform). Which two keep a button is the owner's choice
+// for the screen (`narrow`), never the selection's: a button never turns into another under a
+// finger as songs are chosen; it is only disabled while the selection cannot use it. Every action
+// stays reachable.
 import { useEffect, useEffectEvent } from "react";
 import { cx } from "../lib/cx";
 import { Button } from "./Button";
@@ -30,27 +31,22 @@ export interface SelectModeBarProps {
   onSelectAll: () => void;
   onSelectNone: () => void;
   onExit: () => void;
-  /** The common actions, most used first: below the desktop width two stay out, enabled ones first. */
+  /** The common actions, most used first: a button each on the desktop. */
   actions: readonly SelectAction[];
-  /** The rarer actions, in the "more" menu. */
+  /** The rarer actions, in the "more" menu on the desktop. */
   more?: readonly SelectAction[];
+  /**
+   * The ids of the two actions (from `actions` or `more`) that keep a button below the desktop
+   * width, picked per screen; the first two `actions` when left out.
+   */
+  narrow?: readonly string[];
   className?: string;
 }
 
-/** How many of `actions` keep their own button below the desktop width. */
+/** How many actions keep their own button below the desktop width. */
 const NARROW_ACTIONS = 2;
 
-/**
- * Which of `actions` keep their own button below the desktop width: the first `room` that are
- * enabled, then disabled ones in order while room is left. Returned as a set; the buttons keep
- * the actions' order.
- */
-function narrowPicks(actions: readonly { id: string; enabled: boolean }[], room = NARROW_ACTIONS): Set<string> {
-  const ranked = [...actions.filter((a) => a.enabled), ...actions.filter((a) => !a.enabled)];
-  return new Set(ranked.slice(0, room).map((a) => a.id));
-}
-
-export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit, actions, more = [], className }: SelectModeBarProps) {
+export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit, actions, more = [], narrow, className }: SelectModeBarProps) {
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     if (e.key === "Escape" && !e.defaultPrevented) onExit();
   });
@@ -72,13 +68,17 @@ export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit,
     onSelect: a.onClick,
   });
   const enabled = (a: SelectAction) => !a.disabled && count > 0;
-  const outNarrow = narrowPicks(actions.map((a) => ({ id: a.id, enabled: enabled(a) })));
+  const keep = new Set((narrow ?? actions.map((a) => a.id)).slice(0, NARROW_ACTIONS));
   const wideMore = more.map(item);
+  // A rarer action the screen keeps out below the desktop width: its button shows there only.
+  const narrowExtra = more.filter((a) => keep.has(a.id));
   const narrowMore: MenuItem[] = [
     { id: "select-all", label: selectLabel, icon: "select", disabled: total === 0, onSelect },
-    ...actions.filter((a) => !outNarrow.has(a.id)).map(item),
-    ...wideMore,
+    ...[...actions, ...more].filter((a) => !keep.has(a.id)).map(item),
   ];
+  const button = (a: SelectAction, className?: string) => (
+    <IconButton key={a.id} icon={a.icon} label={a.label} className={className} disabled={!enabled(a)} onClick={a.onClick} />
+  );
 
   return (
     <div className={cx("SelectModeBar", className)} role="toolbar" aria-label="Selection">
@@ -90,16 +90,8 @@ export function SelectModeBar({ count, total, onSelectAll, onSelectNone, onExit,
         {selectLabel}
       </Button>
       <div className="SelectModeBar-actions">
-        {actions.map((a) => (
-          <IconButton
-            key={a.id}
-            icon={a.icon}
-            label={a.label}
-            className={outNarrow.has(a.id) ? undefined : "is-wide-only"}
-            disabled={!enabled(a)}
-            onClick={a.onClick}
-          />
-        ))}
+        {actions.map((a) => button(a, keep.has(a.id) ? undefined : "is-wide-only"))}
+        {narrowExtra.map((a) => button(a, "is-narrow-only"))}
         {wideMore.length > 0 && <MenuButton label="More actions" className="is-wide-only" items={wideMore} />}
         <MenuButton label="More actions" className="is-narrow-only" items={narrowMore} />
       </div>

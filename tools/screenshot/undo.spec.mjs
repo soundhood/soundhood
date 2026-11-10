@@ -290,7 +290,9 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await page.getByRole("button", { name: "Select", exact: true }).tap();
     await row(page, "Static Garden").tap();
     const bar = page.getByRole("toolbar", { name: "Selection" });
-    await bar.getByRole("button", { name: "Edit tags" }).tap();
+    // Below the desktop width Edit tags (one song only) is in More.
+    await bar.getByRole("button", { name: "More actions" }).filter({ visible: true }).tap();
+    await page.getByRole("menuitem", { name: "Edit tags" }).tap();
     const dialog = page.getByRole("dialog", { name: "Edit tags" });
     await dialog.getByRole("textbox", { name: "Title" }).fill("Static Garden (Live)");
     await dialog.getByRole("button", { name: "Save" }).tap();

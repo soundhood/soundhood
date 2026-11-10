@@ -95,13 +95,15 @@ choose songs (one more, or a range) without playing anything, and Enter plays th
 
 **Select mode** (Select, on any device): a tap or click ticks a row instead of playing it (Shift+click
 ticks a range). The selection bar shows the close button, the count, Select all (or Select none), and
-the actions: **Add to playlist**, **Edit tags** (one song), **Remove from** the open playlist (when it
-holds chosen songs; its own icon, a list with a minus), and under "More actions" **Move to folder**
-(while a folder or All songs is open, the storage views) and **Delete**. On the desktop the bar sits
-above the list with all of these. On narrower shells it takes the header's place and keeps four
-buttons: close, the first two actions the chosen songs can use (Add to playlist and Edit tags for
-one song; Add to playlist and Remove from for several songs of the open playlist) and More actions,
-which then also holds Select all and the other actions (the shell's width). The close button or Esc leaves Select mode. Ctrl+click and
+the actions: **Add to playlist**, **Edit tags** (one song), **Remove from** the open playlist (on a
+playlist's list, disabled until a chosen song is in it; its own icon, the list with a minus), and
+under "More actions" **Move to folder** (while a folder or All songs is open, the storage views),
+**Play next** (on an artist's list) and **Delete**. On the desktop the bar sits above the list with
+all of these. On narrower shells it takes the header's place and keeps four buttons: close, the two
+actions the open list is for, which stay in place whatever is chosen (a playlist: Add to playlist
+and Remove from; a folder or All songs: Add to playlist and Move to folder; an artist: Add to
+playlist and Play next), and More actions, which then also holds Select all, Edit tags and the other
+actions (the shell's width). The close button or Esc leaves Select mode. Ctrl+click and
 Shift+click show the same bar.
 
 **The row menu.** Opened by the "more" button, a right click, a long press on touch, or the menu key
