@@ -306,6 +306,11 @@ Behaviour behind the same shapes:
   host emits `core:batch` with the `BatchReport`; `undo_last` always emits its report. A single op that was
   already in effect (same tag values, already a member, not a member, playlist exists) returns Ok
   (`playlist_create`: the existing playlist) and emits nothing: nothing was journaled.
+- `core:batch` is emitted **before** the command that made the batch returns, and **only** for a batch a
+  command the UI invoked made. The UI runs its writes one at a time (`app/src/lib/journal.ts`) and takes a
+  `core:batch` that arrives while one runs for that write's own report, the id its Undo uses. A batch the
+  host starts on its own (a future ingest, a sync) must not emit `core:batch`: it uses another event, or
+  `core:batch` gains a field naming its origin and the UI learns to read it, in the same change.
 - the UI keeps the root returned by `dev_fixture_root` under the settings key `fixture_root` and treats the
   library as the test library while `library_dir` equals it; `real_library_dir` never holds it.
 - channel links are refused by `ytdlp::args::is_channel_link` (core), called by the desktop host before it creates
@@ -319,7 +324,8 @@ New:
 - `undo_last {libraryDir}` → `BatchReport {batch, applied:[{label, path_before, path_after}], skipped:[{path, reason}], failed:[{path, error}], aborted}`
 - `undo_batch {libraryDir, batch}` → `BatchReport` (Phase 1): undoes the change with that batch id (the `batch` of the
   `core:batch` report its own command sent), whether or not newer changes came after it; always emits its report.
-  A change already undone, or unknown, is the call's error ("this change was undone already").
+  A change already undone, or unknown, is the call's error, in plain words without the id ("this change was
+  undone already", "no record of this change").
 - `rebuild_index {libraryDir}` → `{total, read, removed, millis}`
 - `dev_fixture_root {enable}` → `{root}` (enable: generate under `<app data>/fixture-library` if absent and return its path; disable: `""`)
 - `self_test` → `{passed, failed, lines: string[]}`

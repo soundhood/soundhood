@@ -292,7 +292,7 @@ const undoLast = () => undoAt(mock.history.length - 1);
 function undoBatch({ batch }) {
   if (mock.undone.includes(batch)) throw "this change was undone already";
   const at = mock.history.findIndex((h) => h.summary.batch === batch);
-  if (at < 0) throw `no change ${batch} to undo`;
+  if (at < 0) throw "no record of this change"; // the host's words: never the raw id
   return undoAt(at);
 }
 

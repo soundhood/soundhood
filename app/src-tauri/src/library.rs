@@ -256,9 +256,16 @@ pub async fn undo_batch(app: AppHandle, library_dir: String, batch: String) -> R
   .await
 }
 
-/// `undo_batch`: like `undo_last`, its report is always sent, refusals and all.
+/// What an Undo says for a batch id the journal does not hold (the core's words carry the raw id).
+pub(crate) const NO_RECORD: &str = "no record of this change";
+
+/// `undo_batch`: like `undo_last`, its report is always sent, refusals and all. An unknown id is
+/// refused in plain words, never with the id itself.
 pub(crate) fn undo_change(core: &Core, batch: &str, emit: impl FnOnce(&BatchReport)) -> Result<BatchReport, String> {
-  let report = core.undo_batch(batch).map_err(reason)?;
+  let report = core.undo_batch(batch).map_err(|e| match e {
+    soundhood_core::Error::NotFound(_) => NO_RECORD.to_string(),
+    e => reason(e),
+  })?;
   emit(&report);
   Ok(report)
 }
@@ -472,7 +479,11 @@ mod tests {
     let err = undo_change(&core, &edit, recorder(&sent)).unwrap_err();
     assert_eq!(err, "this change was undone already");
     assert_eq!(sent.get(), None);
-    assert!(undo_change(&core, "no-such-batch", |_| panic!("nothing to send")).is_err());
+    // An id shaped like a real one (32 hex digits) that the journal does not hold: plain words only.
+    let unknown = "0123456789abcdef0123456789abcdef";
+    let err = undo_change(&core, unknown, |_| panic!("nothing to send")).unwrap_err();
+    assert_eq!(err, NO_RECORD);
+    assert!(!err.contains(unknown));
     assert_eq!(bytes(&m3u8), added);
   }
 
