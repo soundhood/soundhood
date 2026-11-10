@@ -8,6 +8,7 @@
 #[path = "writepath_support.rs"]
 mod support;
 
+use soundhood_core::api::Core;
 use soundhood_core::ingest::fault::CRASH_ENV;
 use soundhood_core::ingest::tagwrite::{apply, cleanup_orphans, land, ApplyOptions};
 use soundhood_core::ingest::{undo, JournalEntry, Kind, Op};
@@ -26,6 +27,9 @@ const ARG_ENV: &str = "SOUNDHOOD_KILL_ARG";
 /// What the child exits with when it ran its op without hitting the crash point.
 const NOT_CRASHED: i32 = 3;
 const NEW_TITLE: &str = "Written Before The Crash";
+/// Two titles of one length: an edit from one to the other keeps an m4a, opus or ogg file's size.
+const FIRST_OF_TWO: &str = "Same Second Title One";
+const SECOND_OF_TWO: &str = "Same Second Title Two";
 
 /// The child half. Ignored in a normal run; the parent runs it with `--ignored --exact` and
 /// `SOUNDHOOD_CHILD=1`, and it does nothing without that variable.
@@ -80,6 +84,20 @@ fn kill_child() {
     // `arg` is the batch to undo; `target` only names the track for the parent.
     "undo" => {
       let _ = undo::undo_batch(&lib, &arg);
+    }
+    // Through the API the hosts call (`arg` is its app data folder): two edits of one file inside
+    // one second, the same length, so the same size; the crash is armed for the second one only.
+    "core_tags_twice" => {
+      let point = std::env::var(CRASH_ENV).unwrap();
+      std::env::remove_var(CRASH_ENV);
+      let (core, _) = Core::open(&lib.root, Path::new(&arg), None).unwrap();
+      core.scan().unwrap();
+      let abs = lib.abs(&target);
+      let artist = tags::read(&abs).unwrap().artist;
+      next_second();
+      core.write_tags(&abs, FIRST_OF_TWO, &artist).unwrap();
+      std::env::set_var(CRASH_ENV, point);
+      let _ = core.write_tags(&abs, SECOND_OF_TWO, &artist);
     }
     other => panic!("unknown scenario {other}"),
   }
@@ -275,6 +293,66 @@ fn kill_tag_write_after_ready() {
 fn kill_tag_write_after_replace() {
   tag_write_at("after_replace", "ogg");
   tag_write_at("after_replace", "m4a");
+}
+
+/// Sleeps into the next whole second, so the next writes share one file-time second.
+fn next_second() {
+  let now = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap();
+  let rest = std::time::Duration::from_nanos(u64::from(1_000_000_000 - now.subsec_nanos()));
+  std::thread::sleep(rest + std::time::Duration::from_millis(5));
+}
+
+/// Two edits of one file in one second, the second killed after its rename. The next start
+/// finishes it on record (recovery, in `Core::open`), and the first scan shows what the file holds:
+/// the file's time and size match what the index noted after the first edit, so only re-reading
+/// the paths recovery decided on finds the second title.
+#[test]
+fn a_change_recovery_finishes_at_start_shows_in_the_first_scan() {
+  for ext in ["m4a", "opus", "ogg"] {
+    let (_d, lib, report) = fixture_lib(10, false);
+    let r = track_with_ext(&report, ext);
+    let data = tempfile::tempdir().unwrap();
+    crash(
+      &lib,
+      "core_tags_twice",
+      &r,
+      &data.path().to_string_lossy(),
+      "after_replace",
+    );
+    let abs = lib.abs(&r);
+    assert_eq!(
+      tags::read(&abs).unwrap().title,
+      SECOND_OF_TWO,
+      "{ext}: the second edit is on disk"
+    );
+
+    let (core, _) = Core::open(&lib.root, data.path(), None).unwrap();
+    let last = core
+      .last_change()
+      .unwrap()
+      .expect("recovery finished the second edit on record");
+    assert!(last.label.starts_with("Edited tags"), "{ext}: {}", last.label);
+    let shown = |core: &Core| {
+      core
+        .scan()
+        .unwrap()
+        .into_iter()
+        .find(|t| Path::new(&t.path) == abs)
+        .map(|t| t.title)
+    };
+    assert_eq!(
+      shown(&core).as_deref(),
+      Some(SECOND_OF_TWO),
+      "{ext}: the first scan shows the file's title"
+    );
+    assert_eq!(
+      shown(&core).as_deref(),
+      Some(SECOND_OF_TWO),
+      "{ext}: and so does the next"
+    );
+  }
 }
 
 /// The temp a crash left (its bytes are exactly what the edit would have put in place).
