@@ -1,6 +1,7 @@
 // Behaviour checks of the player on the mocked UI (no screenshots): the seek bar (moved here from
-// flows.spec.mjs onto the rebuilt full player), the full player sliding away, only the newest of two
-// quickly chosen songs playing, position ticks that re-render no song row, the artwork tint's fade.
+// flows.spec.mjs onto the rebuilt full player), the full player sliding away, the full player's more
+// menu, only the newest of two quickly chosen songs playing, position ticks that re-render no song
+// row, the artwork tint's fade.
 import { expect, test } from "./harness.mjs";
 import { closeSettings, openPlayer, openPlaylist, openSettings, playSong, row, status } from "./ui.mjs";
 
@@ -116,6 +117,55 @@ function interruptiblePlay() {
 
 /** The file the audio element holds, decoded ("" when none; "blob:" for the bytes route). */
 const audioSource = (page) => page.evaluate(() => decodeURIComponent(document.querySelector("audio").src));
+
+test.describe("every layout", { tag: ["@desktop", "@phone"] }, () => {
+  test("the full player's more menu holds the song menu's actions for the playing song", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await playSong(app, page, "Lunar Comets");
+    await openPlayer(page);
+    const player = page.locator(".FullPlayer");
+    const more = player.getByRole("button", { name: "More for Lunar Comets" });
+    const menu = page.getByRole("menu", { name: "More for Lunar Comets" });
+    await expect(more).toHaveAttribute("aria-haspopup", "menu");
+    await expect(more).toHaveAttribute("aria-expanded", "false");
+    await more.click();
+    await expect(menu).toBeFocused();
+    await expect(more).toHaveAttribute("aria-expanded", "true");
+    // No Play next or Add to queue for the song already playing, no Remove from a playlist.
+    await expect(menu.getByRole("menuitem")).toHaveText(["Add to playlist", "Go to artist", "Edit tags", "Delete song"]);
+    // Esc closes the menu, not the player, and the button has the focus again.
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(player).toBeVisible();
+    await expect(more).toBeFocused();
+    // The keys of the rows' menu: Down opens it, a typed letter moves to its item, Enter runs it.
+    await page.keyboard.press("ArrowDown");
+    await expect(menu).toBeFocused();
+    await page.keyboard.press("e");
+    await page.keyboard.press("Enter");
+    const tags = page.getByRole("dialog", { name: "Edit tags" });
+    await expect(tags).toBeVisible();
+    await expect(tags.getByRole("textbox", { name: "Title" })).toHaveValue("Lunar Comets");
+    await tags.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await more.click();
+    await menu.getByRole("menuitem", { name: "Add to playlist" }).click();
+    await expect(page.getByRole("dialog", { name: "Add to playlist" })).toBeVisible();
+    await page.getByRole("dialog", { name: "Add to playlist" }).getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await more.click();
+    await menu.getByRole("menuitem", { name: "Delete song" }).click();
+    await expect(page.getByRole("dialog", { name: "Delete this track?" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    // Go to artist leaves the player for the artist's songs.
+    await more.click();
+    await menu.getByRole("menuitem", { name: "Go to artist" }).click();
+    await expect(player).toHaveCount(0);
+    await expect(page.locator(".ScreenHeader h1")).toHaveText("Mira Velloux");
+  });
+});
 
 test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
   // A song chosen before the previous one started used to leave the previous one playing: its

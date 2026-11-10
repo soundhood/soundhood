@@ -2,6 +2,8 @@
 // the playlist being shown, Delete. It opens from the row's "more" button, the ContextMenu key or
 // Shift+F10 on the row, and a right click (or a long press on touch). It acts on the row's song,
 // or on the whole selection when the row is part of it. The existing actions and dialogs do the work.
+// The full player's "more" (PlayerSurfaces) offers the same items for the playing song, less the
+// ones that make no sense for it (useSongMenuItems with `player`).
 //
 // It is the MenuButton's popover (the same .Popover, .Option and .Menu styles and keys: Up, Down,
 // Home, End, Enter or Space, typed letters, Esc and Tab close), drawn in the shell's overlay layer
@@ -30,23 +32,29 @@ export interface RowMenuState {
 const GAP = 4;
 const EDGE = 8;
 
-/** The actions for a song (or the selection it is part of). */
-function useRowItems(track: Track): MenuItem[] {
+/**
+ * The actions for a song (or the selection it is part of). With `player` (the full player's menu)
+ * they act on the playing song alone and leave out Play next and Add to queue, which make no sense
+ * for the song already playing; Remove from a playlist never applies there (the Playing screen is
+ * not a playlist's list).
+ */
+export function useSongMenuItems(track: Track, player = false): MenuItem[] {
   const { lib, nav, sel, dialogs, edits, actions } = useApp();
   const queue = useQueueEdits();
   const playlistEdits = usePlaylistEdits();
-  const chosen = sel.selectedPaths.has(track.path) && sel.selectedTracks.length > 1 ? sel.selectedTracks : [track];
+  const chosen = !player && sel.selectedPaths.has(track.path) && sel.selectedTracks.length > 1 ? sel.selectedTracks : [track];
   const many = chosen.length > 1;
   const pl = nav.screen === "detail" && nav.detail?.kind === "playlist" ? lib.currentPlaylistFile : null;
   const inPl = pl ? chosen.filter((t) => lib.inPlaylist(pl, t)) : [];
   const artist = splitArtists(track.artist)[0];
   const atArtist = nav.screen === "detail" && nav.detail?.kind === "artist" && nav.detail.name === artist;
 
-  const items: MenuItem[] = [
-    { id: "next", label: many ? `Play ${songCount(chosen.length)} next` : "Play next", icon: "next", onSelect: () => queue.playNext(chosen) },
-    { id: "queue", label: many ? `Add ${songCount(chosen.length)} to queue` : "Add to queue", icon: "queue", onSelect: () => queue.add(chosen) },
-    { id: "playlist", label: "Add to playlist", icon: "playlistAdd", onSelect: () => actions.addToPlaylist(chosen) },
-  ];
+  const items: MenuItem[] = [];
+  if (!player) {
+    items.push({ id: "next", label: many ? `Play ${songCount(chosen.length)} next` : "Play next", icon: "next", onSelect: () => queue.playNext(chosen) });
+    items.push({ id: "queue", label: many ? `Add ${songCount(chosen.length)} to queue` : "Add to queue", icon: "queue", onSelect: () => queue.add(chosen) });
+  }
+  items.push({ id: "playlist", label: "Add to playlist", icon: "playlistAdd", onSelect: () => actions.addToPlaylist(chosen) });
   if (!many) {
     items.push({ id: "artist", label: "Go to artist", icon: "artists", disabled: atArtist, onSelect: () => nav.openDetail({ kind: "artist", name: artist }) });
     items.push({ id: "tags", label: "Edit tags", icon: "edit", onSelect: () => edits.openTagEditor(track) });
@@ -65,7 +73,7 @@ function useRowItems(track: Track): MenuItem[] {
 }
 
 export function RowMenu({ state, onClose }: { state: RowMenuState; onClose: () => void }) {
-  const items = useRowItems(state.track);
+  const items = useSongMenuItems(state.track);
   const host = state.from?.closest(".Shell")?.querySelector<HTMLElement>(".Shell-overlays") ?? null;
   if (!host) return null;
   return createPortal(<RowMenuPopover state={state} items={items} onClose={onClose} />, host);
