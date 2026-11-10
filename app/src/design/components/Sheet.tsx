@@ -37,7 +37,7 @@ import { IconButton } from "./IconButton";
  * An open sheet, as the stack holds it: its panel, where the focus goes when the one above closes,
  * and what last had the focus inside it, where the focus goes back when something took it away.
  */
-type OpenSheet = { panel: RefObject<HTMLElement | null>; last: HTMLElement | null };
+type OpenSheet = { panel: RefObject<HTMLElement | null>; last: RefObject<HTMLElement | null> };
 
 /** Every open sheet in the app, oldest first. */
 const openSheets = createSheetStack<OpenSheet>();
@@ -62,7 +62,8 @@ function setupDialog(): HTMLElement | null {
 /** Puts the focus back in `sheet`: on what last had it inside, while that can take it, else the panel. */
 function refocus(sheet: OpenSheet) {
   const box = sheet.panel.current;
-  if (sheet.last && sheet.last !== box && box?.contains(sheet.last) && focusIfAble(sheet.last)) return;
+  const last = sheet.last.current;
+  if (last && last !== box && box?.contains(last) && focusIfAble(last)) return;
   box?.focus({ preventScroll: true });
 }
 
@@ -147,7 +148,8 @@ function SheetPanel({
   const titleId = useId();
   const panel = useRef<HTMLElement>(null);
   const swipe = useSwipe({ axis: "down", onSwipe: onClose });
-  const [self] = useState<OpenSheet>(() => ({ panel, last: null }));
+  const last = useRef<HTMLElement>(null);
+  const [self] = useState<OpenSheet>(() => ({ panel, last }));
   const layer = Math.min(
     useSyncExternalStore(openSheets.subscribe, () => openSheets.layer(self)),
     MAX_LAYER,
@@ -165,10 +167,10 @@ function SheetPanel({
     const opener = held ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const box = panel.current;
     openSheets.open(self);
-    self.last = null;
+    last.current = null;
     // What has the focus inside (from the field it opens in on), so a focus taken away comes back to it.
     const onInside = (e: FocusEvent) => {
-      if (e.target instanceof HTMLElement) self.last = e.target;
+      if (e.target instanceof HTMLElement) last.current = e.target;
     };
     box?.addEventListener("focusin", onInside);
     (openFocus?.current ?? box)?.focus({ preventScroll: true });
@@ -212,7 +214,7 @@ function SheetPanel({
       if (below) below.focus({ preventScroll: true });
       else focusMainArea();
     };
-  }, [openFocus, self]);
+  }, [openFocus, self, last]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key === "Escape") {
