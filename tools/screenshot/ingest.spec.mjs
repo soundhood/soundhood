@@ -332,6 +332,26 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect(await journalLabels(page), "nothing filed for it").toEqual(["Added 1 track to Focus"]);
   });
 
+  test("a second end that comes while a download's songs are still being filed files nothing", async ({ app, page }) => {
+    await app.open();
+    await downloadItem(page).click();
+    await where(page).getByRole("textbox", { name: "Link" }).fill(B_LINK);
+    await togglePlaylist(page, "Focus");
+    await where(page).getByRole("button", { name: "Download", exact: true }).click();
+    await expect.poll(() => ipcCount(page, "downloads")).toBe(1);
+    // Its end, with its file; the filing waits on a slow rescan.
+    await page.evaluate(() => (window.__soundhoodMock.delay.scan_music_folder = 1200));
+    await emit(page, "ytdlp:files", [app.data.tracks[2].path]);
+    await emit(page, "ytdlp:done", 0);
+    // While it is filed (the slot still held), a second end with another file: no download's.
+    await page.waitForTimeout(200);
+    await emit(page, "ytdlp:files", [app.data.tracks[3].path]);
+    await emit(page, "ytdlp:done", 0);
+    await expect.poll(() => journalLabels(page), { timeout: 6000 }).toEqual(["Added 1 track to Focus"]);
+    await page.waitForTimeout(2000);
+    expect(await journalLabels(page), "the second end files nothing").toEqual(["Added 1 track to Focus"]);
+  });
+
   test("the downloader switched off hides the download UI; a pasted link says where to turn it on", async ({ app, page }) => {
     await app.open();
     await openSettings(app, page);

@@ -407,9 +407,9 @@ export function useDownloads({
   // drop a finished queued link. The slot stays taken until that is done (Undo last change waits
   // for it); then the next queued link starts.
   async function finishDownload(exitCode: number, filePaths: string[]) {
-    // An end while no download holds the slot (none started, or its end came already) is no
-    // download's: nothing is filed for it, into the last one's playlists or anywhere.
-    if (!slot.taken()) {
+    // An end while no helper runs (none started, or its end came already, its files maybe still
+    // being filed) is no download's: nothing is filed for it, into the last one's playlists or anywhere.
+    if (!slot.helperRunning()) {
       appendLog([`[soundhood] an end with no download running (code ${exitCode}) was ignored`]);
       return;
     }
