@@ -12,8 +12,10 @@ link may open a sheet on top of another sheet, never under the first-launch setu
 menu closes first, and the focus comes back to it when the sheet closes. A held key is one press:
 holding Enter or Space on any control (a button, a switch, a checkbox, a song row, a menu item, a
 list option) acts once, and holding Enter in a field (Edit tags) submits once, never again in the
-sheet the first press opened; the arrows, Page Up and Down, Home and End keep repeating. On the
-phone there is no keyboard layer: a tap plays, and there is no double-tap.
+sheet the first press opened; the arrows, Page Up and Down, Home and End keep repeating. A key that
+changes the screen (Enter on a card or a row, Back, 1 to 4) leaves the focus on the new screen's
+list (its current or first row, or the first card), else on its first control. On the phone there
+is no keyboard layer: a tap plays, and there is no double-tap.
 
 "The selection" means the songs you have chosen (Ctrl+click, Shift+click, or Select mode), or else
 the row that has the keyboard focus.

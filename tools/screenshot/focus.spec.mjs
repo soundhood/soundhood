@@ -4,7 +4,9 @@
 // ::after). Checked by computed style at every stop, and by the pixels around the search field,
 // which Tab, Ctrl+K and "/" reach. And the focus never falls to the page when what had it goes
 // (useFocusReturn): Esc leaving Select mode from the bar's More menu, Esc closing the full player,
-// the setup's Done, and a song's row menu closed by a scroll of the list or a resize of the window.
+// the setup's Done; a song's row menu closed by a scroll of the list or a resize of the window; and
+// keyboard navigation (Enter on a card, an artist or a folder, Back, the tab digits, "4" for
+// Playing), after which the focus is on the new screen's first meaningful control.
 import { PNG } from "pngjs";
 import { expect, test } from "./harness.mjs";
 import { openPlayer, openPlaylist, openSettings, playSong, row, searchField, settle } from "./ui.mjs";
@@ -200,6 +202,78 @@ for (const tag of ["@desktop", "@phone"]) {
       await setup.getByRole("button", { name: "Done" }).click();
       await expect(setup).toHaveCount(0);
       await expect.poll(() => focusPlace(page)).toMatch(/^main: /);
+    });
+  });
+}
+
+/** What has the focus: where (the main area, the full player, elsewhere, the page) and what kind. */
+const focusFacts = (page) =>
+  page.evaluate(() => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLElement) || el === document.body) return { at: "the page" };
+    const at = el.closest(".FullPlayer") ? "player" : el.closest(".Shell-main") ? "main" : "elsewhere";
+    const kind = el.matches('[role="listbox"] [role="option"]') ? "row" : el.matches(".PlaylistCard-open") ? "card" : el.tagName.toLowerCase();
+    return { at, kind, name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 40) };
+  });
+
+const heading = (page) => page.locator(".ScreenHeader h1").filter({ visible: true }).first();
+const firstOption = (page) => page.locator('.Shell-main [role="listbox"] [role="option"]').filter({ visible: true }).first();
+const firstCard = (page) => page.locator(".PlaylistCard-open").filter({ visible: true }).first();
+
+for (const tag of ["@desktop", "@phone"]) {
+  test.describe(`keyboard navigation never drops the focus ${tag}`, { tag }, () => {
+    test("Enter on a playlist card: the open list's row; Back (where it shows): the first card", async ({ app, page }) => {
+      await app.open();
+      await page.locator(".PlaylistCard-open").filter({ visible: true }).filter({ hasText: "Late Night" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(heading(page)).toHaveText("Late Night");
+      await expect.poll(() => focusFacts(page)).toMatchObject({ at: "main", kind: "row" });
+      const back = page.getByRole("button", { name: "Back" }).filter({ visible: true });
+      if (await back.count()) {
+        await back.focus();
+        await page.keyboard.press("Enter");
+        await expect(heading(page)).toHaveText("Playlists");
+        await expect.poll(() => focusFacts(page)).toMatchObject({ at: "main", kind: "card" });
+      }
+    });
+
+    test("Enter on an artist row and on a folder row: the open list's row", async ({ app, page }) => {
+      await app.open();
+      for (const [digit, screen] of [
+        ["2", "Artists"],
+        ["3", "Folders"],
+      ]) {
+        await firstCard(page).focus();
+        await page.keyboard.press(digit);
+        await expect(heading(page)).toHaveText(screen);
+        await expect.poll(() => focusFacts(page), `${screen}: on its list`).toMatchObject({ at: "main", kind: "row" });
+        await firstOption(page).focus();
+        await page.keyboard.press("Enter");
+        await expect(heading(page)).not.toHaveText(screen);
+        await expect.poll(() => focusFacts(page), `the list opened from ${screen}`).toMatchObject({ at: "main", kind: "row" });
+        await page.keyboard.press("1");
+        await expect(heading(page)).toHaveText("Playlists");
+        await expect.poll(() => focusFacts(page), "Playlists: on its first card").toMatchObject({ at: "main", kind: "card" });
+      }
+    });
+
+    test("the tab digits 1 to 3 from a song row, and 4 for Playing", async ({ app, page }) => {
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await playSong(app, page, "Lunar Comets");
+      await row(page, "Paper Bloom").focus();
+      for (const [digit, screen, kind] of [
+        ["2", "Artists", "row"],
+        ["3", "Folders", "row"],
+        ["1", "Playlists", "card"],
+      ]) {
+        await page.keyboard.press(digit);
+        await expect(heading(page)).toHaveText(screen);
+        await expect.poll(() => focusFacts(page), `"${digit}": ${screen}`).toMatchObject({ at: "main", kind });
+      }
+      await page.keyboard.press("4");
+      await expect(page.locator(".FullPlayer")).toBeVisible();
+      await expect.poll(() => focusFacts(page), "4: Playing").toMatchObject({ at: "player" });
     });
   });
 }

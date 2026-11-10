@@ -2,8 +2,9 @@
 // bar, the first-launch setup. It goes back to what had it when the surface came (the button that
 // opened the player, the row that started Select mode) or, when that is gone, hidden or disabled, to
 // the main area (focusMainArea). A sheet does the same itself (Sheet.tsx), with the sheet below as a
-// step between.
-import { useLayoutEffect, type RefObject } from "react";
+// step between. Nor when the screen in the main area changes under it (useScreenFocus): Enter on a
+// card or a row, Back, a tab digit, Playing.
+import { useLayoutEffect, useRef, type RefObject } from "react";
 import { focusIfAble, focusMainArea } from "./dom";
 
 /**
@@ -30,4 +31,25 @@ export function useFocusReturn(box: RefObject<HTMLElement | null>, active = true
       });
     };
   }, [active, box]);
+}
+
+/**
+ * `screen` names what the main area shows (a tab, an opened list, Playing). When it changes and the
+ * focus went with the old screen (the card, row or Back that had it is gone, so it is on the page),
+ * the focus goes to the new screen's first meaningful control (focusMainArea): its list's current or
+ * first row, a card grid's first card, else its header's first control. It runs once the commit has
+ * finished, after any surface that gives the focus back itself (the full player) has done so; a
+ * focus that is somewhere (a sidebar item clicked, the search field typed in) stays there.
+ */
+export function useScreenFocus(screen: string) {
+  const seen = useRef(screen);
+  useLayoutEffect(() => {
+    if (seen.current === screen) return;
+    seen.current = screen;
+    queueMicrotask(() => {
+      const now = document.activeElement;
+      if (now && now !== document.body) return;
+      focusMainArea();
+    });
+  }, [screen]);
 }

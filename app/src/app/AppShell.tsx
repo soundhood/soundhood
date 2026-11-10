@@ -10,6 +10,7 @@ import { QueueOverlays, QueuePane } from "../features/queue/QueueView";
 import { useCover } from "../hooks/useCovers";
 import type { TopTab } from "../hooks/useNavigation";
 import { useShellPrefs } from "../hooks/useShellPrefs";
+import { useScreenFocus } from "../design/lib/useFocusReturn";
 import { AppSidebar } from "./AppSidebar";
 import { useApp, type Picker } from "./context";
 import { KeyboardShortcuts } from "./KeyboardShortcuts";
@@ -27,6 +28,9 @@ function MainSlot() {
   const key = nav.screen === "detail" && nav.detail ? `detail:${nav.detail.kind}:${nav.detail.name}` : nav.screen;
   const positions = useRef(new Map<string, number>());
   const shownKey = useRef(key);
+  // Enter on a card or a row, Back, a tab digit, Playing: the focus never falls to the page with the
+  // screen that had it.
+  useScreenFocus(key);
   const probe = useCallback((el: HTMLDivElement | null) => {
     if (!el) return;
     scroller.current = el.closest<HTMLElement>(".Shell-main");

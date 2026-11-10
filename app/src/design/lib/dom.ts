@@ -30,19 +30,21 @@ export function focusIfAble(el: HTMLElement | null | undefined): boolean {
 }
 
 /**
- * Puts the focus somewhere stable in the shell's main area, for when what had it is gone and no
- * sheet is left to take it: the list on screen (the row Tab would reach), else the screen header's
- * first control, else the main area's first one. Never a text field (on a phone that would open the
- * keyboard). True when the focus landed.
+ * Puts the focus on the first meaningful control of the screen in the shell's main area, for when
+ * what had it is gone (a sheet's opener, the screen it was on) and no sheet is left to take it: the
+ * list on screen (the row Tab would reach: the current or the first), or a card grid's first card,
+ * else the screen header's first control, else the main area's first one (the full player's). Never
+ * a text field (on a phone that would open the keyboard). True when the focus landed.
  */
 export function focusMainArea(doc: Document = document): boolean {
   const main = doc.querySelector<HTMLElement>(".Shell-main");
   if (!main) return false;
   const shown = (el: HTMLElement) => el.getClientRects().length > 0;
   const row = [...main.querySelectorAll<HTMLElement>('[role="listbox"] [tabindex="0"]')].find(shown);
+  const card = [...main.querySelectorAll<HTMLElement>('[role="list"] > [role="listitem"]')].find(shown);
   const header = main.querySelector<HTMLElement>(".ScreenHeader");
-  const controls = [...(header ? focusables(header) : []), ...focusables(main)].filter((el) => !isTypingTarget(el));
-  return [row, ...controls].some((el) => focusIfAble(el));
+  const controls = [...(card ? focusables(card).slice(0, 1) : []), ...(header ? focusables(header) : []), ...focusables(main)];
+  return [row, ...controls.filter((el) => !isTypingTarget(el))].some((el) => focusIfAble(el));
 }
 
 export interface Box {
