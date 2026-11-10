@@ -7,8 +7,9 @@
 //
 // The downloader switch (Settings, YouTube) decides on every path: startDownload, which every
 // download goes through (the sheet's Download, a queued link, the queue runner, Retry), refuses while
-// it is off; switching it off ends a running queue after the download in flight and drops the Retry
-// of a failed one; and a link shared before startup has read the stored switch waits until it has.
+// it is off or before startup has read the stored switch (a settings store that cannot be read counts
+// as off); switching it off ends a running queue after the download in flight and drops the Retry of
+// a failed one; and a link shared before startup has read the stored switch waits until it has.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
@@ -111,8 +112,18 @@ export function useDownloads({
   // next link, a Retry pressed after the switch went off).
   const downloaderRef = useRef(downloader);
   downloaderRef.current = downloader;
-  /** False (and a toast saying where to turn it on) while the downloader is off. */
+  // Startup has read the stored switch: until then `downloader` is only a default.
+  const prefsLoadedRef = useRef(prefsLoaded);
+  prefsLoadedRef.current = prefsLoaded;
+  /**
+   * False while the downloader is off, with a toast saying where to turn it on, and false before
+   * startup has read the stored switch (nothing opens or starts on a default nobody chose).
+   */
   function downloaderReady(): boolean {
+    if (!prefsLoadedRef.current) {
+      notify({ text: "The settings are still loading. Try again in a moment." });
+      return false;
+    }
     if (downloaderRef.current) return true;
     notify({ text: "The downloader is off. Turn it on in Settings, under YouTube.", action: { label: "Settings", onClick: openSettings } });
     return false;
@@ -189,9 +200,7 @@ export function useDownloads({
   const queueLinkRef = useRef(queueLink);
   queueLinkRef.current = queueLink;
   // A link shared before startup has read the stored switch waits here, then goes the way the stored
-  // switch says (off: the toast saying where to turn it on).
-  const prefsLoadedRef = useRef(prefsLoaded);
-  prefsLoadedRef.current = prefsLoaded;
+  // switch says (off, or a store that could not be read: the toast saying where to turn it on).
   const heldShareRef = useRef<string | null>(null);
   useEffect(() => {
     // Called by MainActivity.kt when another app shares text/a link into Soundhood.

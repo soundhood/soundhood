@@ -27,6 +27,7 @@ import {
   KEY_LOOKUPS,
   KEY_ONBOARDED,
   KEY_TEXT_SCALE,
+  SETTINGS_UNREADABLE,
   decideOnboarding,
   type Prefs,
 } from "./usePrefs";
@@ -76,6 +77,8 @@ export function useStartup({
   // Auto-load last imported library on startup
   useEffect(() => {
     (async () => {
+      // Until the settings are read, a failure is the store's: the downloader then stays off.
+      let prefsRead = false;
       try {
         const store = await storePromise;
 
@@ -125,8 +128,12 @@ export function useStartup({
         // existing install's "on" later.
         if (typeof savedDownloader !== "boolean") {
           savedDownloader = existing;
-          await store.set(KEY_DOWNLOADER, existing);
-          await store.save();
+          try {
+            await store.set(KEY_DOWNLOADER, existing);
+            await store.save();
+          } catch {
+            /* non-fatal: the value was read, it applies for this session */
+          }
         }
         prefs.load({
           textScale: typeof savedScale === "number" ? savedScale : undefined,
@@ -134,6 +141,7 @@ export function useStartup({
           lookups: typeof savedLookups === "boolean" ? savedLookups : undefined,
           helperUpdates: typeof savedHelper === "boolean" ? savedHelper : undefined,
         });
+        prefsRead = true;
 
         const saved = await store.get<string>(KEY_LIBRARY_DIR);
         const hasFolder = !!saved && typeof saved === "string";
@@ -158,8 +166,13 @@ export function useStartup({
         await loadPlaylists(saved);
         await refreshLastChange(saved);
       } catch (err) {
-        // Whatever was not read keeps its default; a link shared meanwhile is let through on it.
-        prefs.load({});
+        if (!prefsRead) {
+          // The store could not be read: the defaults stand, but the downloader counts as off, so
+          // nothing downloads on a default nobody chose. The toast says so; the log keeps the reason.
+          prefs.loadUnreadable();
+          setStatus(`${SETTINGS_UNREADABLE}\n${String(err)}`);
+          return;
+        }
         setStatus(`Auto-load failed: ${String(err)}`);
       }
     })();

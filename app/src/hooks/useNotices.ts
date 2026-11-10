@@ -11,6 +11,7 @@ import { useCallback, useMemo, useRef } from "react";
 import type { Change } from "../coreIpc";
 import { useToast } from "../design";
 import type { Setter } from "../lib/types";
+import { SETTINGS_UNREADABLE } from "./usePrefs";
 
 export interface Notice {
   text: string;
@@ -28,12 +29,14 @@ export type StatusRoute = "drop" | "quiet" | "log" | "toast";
  * - "drop": progress words ending in an ellipsis; each now has its own indicator;
  * - "quiet": the result of a playlist edit whose caller already showed a toast (its change line is
  *   in the lines Copy log carries);
- * - "toast": a failure: a toast, and the line goes to the log as "[error] ...";
+ * - "toast": a failure: a toast, and the line goes to the log as "[error] ..."; the toast shows
+ *   the first line only, the log keeps the rest (the reason behind a plain sentence);
  * - "log": everything else (the scan count, the phone's byte route).
  */
 export function routeStatus(text: string): StatusRoute {
   const t = text.trim();
   if (!t || t.endsWith("…")) return "drop";
+  if (t.startsWith(SETTINGS_UNREADABLE)) return "toast";
   if (/^(Added to|Removed from) /.test(t)) return "quiet";
   if (/\b(failed|error)\b/i.test(t) || /^Can't /.test(t) || /^Playlists: /.test(t)) return "toast";
   return "log";
@@ -77,10 +80,12 @@ export function useNotices() {
         case "drop":
         case "quiet":
           return;
-        case "toast":
-          toast.show({ text });
-          logRef.current([`[error] ${text}`]);
+        case "toast": {
+          const [shown, ...why] = text.split("\n");
+          toast.show({ text: shown });
+          logRef.current([`[error] ${[shown, ...why].join(": ")}`]);
           return;
+        }
         case "log":
           logRef.current([text]);
       }

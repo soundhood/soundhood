@@ -228,6 +228,22 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(where(page)).toHaveCount(0);
   });
 
+  test("before startup has read the stored switch, the Download item opens nothing; after, it does", async ({ app, page }) => {
+    // Stored on (the fixture is an existing install), read slowly: the default "on" is not a choice.
+    await beforeLoad(page, () => (window.__soundhoodMock.delay["plugin:store|get"] = 300));
+    await page.goto("/");
+    await downloadItem(page).click();
+    await expect(toast(page, "The settings are still loading. Try again in a moment.")).toBeVisible();
+    await expect(where(page)).toHaveCount(0);
+    // Pasting a link is the same path: nothing opens either.
+    await paste(page, VIDEO);
+    await expect(where(page)).toHaveCount(0);
+    await app.settled("list_playlists");
+    expect(await ipcCount(page, "downloads")).toBe(0);
+    await downloadItem(page).click();
+    await expect(where(page)).toBeVisible();
+  });
+
   test("the downloader switched off mid-run: the queue stops after the download in flight", async ({ app, page }) => {
     const [a, b, c] = ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"].map((id) => `https://www.youtube.com/watch?v=${id}`);
     await beforeLoad(
@@ -351,6 +367,33 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await field.fill("https://www.youtube.com/watch?v=aaaaaaaaaaa");
     await sheet(page).getByRole("button", { name: "Add", exact: true }).tap();
     await expect(where(page)).toBeVisible();
+  });
+
+  test("a settings store that cannot be read: the downloader is off, the toast says so, a shared link opens nothing", async ({ app, page }) => {
+    await beforeLoad(page, () => {
+      const m = window.__soundhoodMock;
+      m.store.set("downloader_enabled", true);
+      // One read fails (an unreadable store file): startup's catch runs before the switch is read.
+      const get = m.store.get.bind(m.store);
+      const has = m.store.has.bind(m.store);
+      m.store.get = (k) => {
+        if (k === "text_scale") throw new Error("store unreadable");
+        return get(k);
+      };
+      m.store.has = (k) => k === "text_scale" || has(k);
+    });
+    await page.goto("/");
+    await expect(toast(page, "Settings could not be read: the downloader stays off (see the log)")).toBeVisible();
+    expect(await page.evaluate(() => window.__soundhoodShare("https://youtu.be/AbCdEfGhIjK"))).toBe(false);
+    await expect(toast(page, "The downloader is off. Turn it on in Settings, under YouTube.")).toBeVisible();
+    await expect(where(page)).toHaveCount(0);
+    await openSettings(app, page);
+    const youtube = settingRow(page, "Downloader");
+    await expect(youtube).toContainText("the settings could not be read (see the log)");
+    await expect(sheet(page).getByRole("switch", { name: "Downloader" })).toHaveAttribute("aria-checked", "false");
+    // The log keeps the reason behind the plain sentence.
+    await expect(status(page)).toContainText("store unreadable");
+    expect(await ipcCount(page, "downloads")).toBe(0);
   });
 
   test("a refused phone download stops the queue", async ({ app, page }) => {

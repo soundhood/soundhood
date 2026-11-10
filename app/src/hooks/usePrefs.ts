@@ -20,6 +20,9 @@ export const KEY_ONBOARDED = "onboarding_done";
 
 export const TEXT_SCALES = [1, 1.15, 1.3] as const;
 
+/** What startup says (a toast; the reason goes to the log) when the settings store cannot be read. */
+export const SETTINGS_UNREADABLE = "Settings could not be read: the downloader stays off (see the log)";
+
 /** The setup's steps, in order. */
 export type OnboardStep = "library" | "lookups" | "helper";
 
@@ -71,9 +74,12 @@ export function usePrefs() {
   // On until startup has read the store: an existing install (the common case) never sees the
   // download UI blink out and back.
   const [downloader, setDownloaderState] = useState<boolean>(true);
-  // Startup has read the store: until then `downloader` is that default, and a link shared into the
-  // app waits (useDownloads) rather than being taken on it.
+  // Startup has read the store: until then `downloader` is that default, and nothing downloads on it
+  // (useDownloads: the Download item and the sheet do not open, a shared link waits).
   const [loaded, setLoaded] = useState<boolean>(false);
+  // The store could not be read at startup: every setting is its default, but the downloader is off
+  // (never on by default), and Settings says why.
+  const [unreadable, setUnreadable] = useState<boolean>(false);
   const [lookups, setLookupsState] = useState<boolean>(false);
   const [helperUpdates, setHelperUpdatesState] = useState<boolean>(false);
   // The setup's remaining steps; null or empty: not shown.
@@ -90,15 +96,22 @@ export function usePrefs() {
     textScale,
     downloader,
     loaded,
+    unreadable,
     lookups,
     helperUpdates,
     onboarding,
-    /** Startup: the stored values, without writing them back (none when the store could not be read). */
+    /** Startup: the stored values, without writing them back. */
     load(v: { textScale?: number; downloader?: boolean; lookups?: boolean; helperUpdates?: boolean }) {
       if (v.textScale !== undefined && (TEXT_SCALES as readonly number[]).includes(v.textScale)) setTextScaleState(v.textScale);
       if (v.downloader !== undefined) setDownloaderState(v.downloader);
       if (v.lookups !== undefined) setLookupsState(v.lookups);
       if (v.helperUpdates !== undefined) setHelperUpdatesState(v.helperUpdates);
+      setLoaded(true);
+    },
+    /** Startup could not read the store: the defaults stand, with the downloader off. */
+    loadUnreadable() {
+      setDownloaderState(false);
+      setUnreadable(true);
       setLoaded(true);
     },
     setOnboarding,

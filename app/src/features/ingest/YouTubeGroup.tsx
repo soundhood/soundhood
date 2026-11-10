@@ -14,7 +14,13 @@ export function YouTubeGroup({ onShowLinks }: { onShowLinks: () => void }) {
     <SettingGroup title="YouTube">
       <SwitchRow
         label="Downloader"
-        help={prefs.downloader ? "Downloads the audio of a link you give it, nothing else" : "Off: links are not taken and the download controls are hidden"}
+        help={
+          prefs.downloader
+            ? "Downloads the audio of a link you give it, nothing else"
+            : prefs.unreadable
+              ? "Off: the settings could not be read (see the log), so it stays off until you turn it on"
+              : "Off: links are not taken and the download controls are hidden"
+        }
         checked={prefs.downloader}
         onChange={prefs.setDownloader}
       />
