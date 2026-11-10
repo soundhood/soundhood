@@ -461,9 +461,10 @@ inside); a sheet built around one field starts in that field instead (Edit tags,
 should this go?" opened with an empty link). Where the focus starts is decided once, when the sheet
 opens: typing into its field never moves the focus again. Focus is trapped in the sheet; when the
 control that has it goes away (a link removed from Links waiting) it moves to the control that takes
-its place, else the one before it, else the sheet itself; Esc closes; focus returns to what opened
-it, or, when that is gone or disabled (Settings' Add once its link is taken), to the sheet below,
-else to the main area (the screen's heading): never to the page. A sheet opened from another one (Settings, then "Where should this go?", the log or the
+its place, else the one before it, else the sheet itself, and a focus given to anything behind the
+sheet (a focus given back in the full player) comes back to the sheet; Esc closes; focus returns to
+what opened it, or, when that is gone or disabled (Settings' Add once its link is taken), to the
+sheet below, else to the main area (the screen's heading): never to the page. A sheet opened from another one (Settings, then "Where should this go?", the log or the
 links waiting; the queue sheet, then New playlist or "Clear the queue?") goes on top of it with its
 own backdrop, whatever order the app mounts them in: the newest open sheet is the one drawn on top, the
 one the focus, Tab and Esc work in, and the one the keyboard shortcuts ask about. `role="dialog"`,

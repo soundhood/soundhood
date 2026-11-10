@@ -47,6 +47,41 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await expect(page.locator(".FullPlayer")).toHaveCount(0);
     await expect(page.locator(".MiniPlayer")).toBeVisible();
   });
+
+  test("Add to playlist over the full player keeps the focus in its sheet, whatever takes it behind", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await playSong(app, page, "Lunar Comets");
+    await openPlayer(page);
+    const sheet = page.getByRole("dialog", { name: "Add to playlist" });
+    const more = page.locator(".FullPlayer").getByRole("button", { name: /^More for/ }).filter({ visible: true });
+    /** The sheet the focus is in, else what has it. */
+    const focusIn = () =>
+      page.evaluate(() => {
+        const el = document.activeElement;
+        return el?.closest('[role="dialog"]')?.querySelector("h2")?.textContent ?? `${el?.tagName}.${el?.getAttribute("aria-label") ?? ""}`;
+      });
+    // By the keyboard: the full player's More, its first item.
+    await more.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("menuitem").first()).toHaveText("Add to playlist");
+    await page.keyboard.press("Enter");
+    await expect(sheet).toBeVisible();
+    for (let ms = 0; ms <= 700; ms += 100) {
+      expect(await focusIn(), `${ms} ms after it opened`).toBe("Add to playlist");
+      await page.waitForTimeout(100);
+    }
+    // A focus given to a control behind it (Repeat: the full player's on the phone, the player bar's
+    // on the tablet), by the page or by a late focus() from outside: the sheet on top takes it back.
+    const repeat = page.locator(".Shell-frame button[aria-label^=\"Repeat\"]").filter({ visible: true }).first();
+    await repeat.evaluate((el) => el.focus());
+    await expect.poll(focusIn, "after the page focused Repeat behind the sheet").toBe("Add to playlist");
+    await repeat.focus();
+    await expect.poll(focusIn, "after a focus() of Repeat from outside").toBe("Add to playlist");
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(more, "closed, the focus is back on the More that opened it").toBeFocused();
+  });
 });
 
 /**
