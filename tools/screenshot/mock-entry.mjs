@@ -105,17 +105,22 @@ const refused = (path) => ({ skipped: [{ path, reason: CHANGED_SINCE }] });
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const playlistFile = (name) => `_Playlists/${name}.m3u8`;
 
-function writeTags({ path, title, artist }) {
+function writeTags({ path, title: rawTitle, artist: rawArtist }) {
   const rel = relOf(path);
   const t = tracks.find((x) => x.rel === rel);
   if (!t) throw new Error(`not in the library: ${rel}`);
   const before = { title: t.title, artist: t.artist };
-  Object.assign(t, { title, artist });
-  journal(`Edited tags of ${fileName(rel)}`, { path_before: rel, path_after: rel }, () => {
-    if (t.rel !== rel || t.title !== title || t.artist !== artist) return refused(rel);
-    Object.assign(t, before);
-    return { label: `Restored tags of ${fileName(rel)}`, path_before: rel, path_after: rel };
-  });
+  // Like the core: the values are trimmed, and the ones the file already holds are no change (Ok,
+  // the track as it is, nothing journaled, no report).
+  const [title, artist] = [rawTitle.trim(), rawArtist.trim()];
+  if (title !== before.title || artist !== before.artist) {
+    Object.assign(t, { title, artist });
+    journal(`Edited tags of ${fileName(rel)}`, { path_before: rel, path_after: rel }, () => {
+      if (t.rel !== rel || t.title !== title || t.artist !== artist) return refused(rel);
+      Object.assign(t, before);
+      return { label: `Restored tags of ${fileName(rel)}`, path_before: rel, path_after: rel };
+    });
+  }
   const { rel: _rel, ...shown } = t;
   return { ...shown, path };
 }

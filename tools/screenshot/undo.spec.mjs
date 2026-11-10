@@ -223,6 +223,29 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
   });
 
+  test("saving the tags a song already has: Nothing to change, no Undo, nothing journaled", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, PLAYLIST);
+    await row(page, "Quiet Bloom").click({ modifiers: ["Control"] });
+    await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Edit tags" }).click();
+    const dialog = page.getByRole("dialog", { name: "Edit tags" });
+    // The same title, typed again with spaces around it: the host trims, so nothing changes.
+    await dialog.getByRole("textbox", { name: "Title" }).fill(" Quiet Bloom ");
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(dialog).toHaveCount(0);
+    const r = report(page);
+    await expect(r.getByRole("heading")).toHaveText("Nothing to change");
+    await expect(r.locator(".BatchRow.is-skipped")).toContainText("the file already has these tags");
+    await expect(r.getByRole("button", { name: "Undo this batch" })).toHaveCount(0);
+    expect(await history(page)).toEqual([]);
+    await r.getByRole("button", { name: "Done" }).last().click();
+    await page.keyboard.press("Escape");
+    await goTo(page, "Folders");
+    await openSettings(app, page);
+    await expect(undoButton(page)).toBeDisabled();
+    await expect(undoHelp(page)).toHaveText("Nothing to undo");
+  });
+
   test("a refused tag write keeps the dialog open with the reason", async ({ app, page }) => {
     await app.open();
     await openPlaylist(page, PLAYLIST);
