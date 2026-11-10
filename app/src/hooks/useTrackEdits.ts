@@ -1,23 +1,26 @@
 // Changes to tracks on disk and their undo: moving files between folders, sending them to the bin,
-// writing tags, and "Undo last change". Each is a tier-1 write: it ends in a BatchReport (`report`,
-// drawn by features/dialogs/WriteReport.tsx), which never closes by itself and offers "Undo this
-// batch". The player lets go of a file it holds while it changes.
+// writing tags, and every Undo (Settings "Undo last change", a toast's Undo, "Undo this batch").
+// Each tier-1 write ends in a BatchReport (`report`, drawn by features/dialogs/WriteReport.tsx),
+// which never closes by itself and offers "Undo this batch". The player lets go of a file it holds
+// while it changes.
 //
-// A selection of N songs is still N journaled changes (one per song; OPEN), so a report remembers
-// the id of each change it made (last_change read right after the op, kept only when it is new)
-// and "Undo this batch" undoes them newest first through undo_last, checking before each one that
-// the newest change on this device is the one expected, and stopping with a plain line at the
-// first that is not.
+// Every write runs through the journal (lib/journal.ts), which hands back the report its own command
+// sent, so each change is kept by its own batch id. A selection of N songs is still N journaled
+// changes (one per song; OPEN): the report keeps the id of each, and "Undo this batch" undoes
+// exactly those, newest first (undo_batch), whatever came after them, stopping with a plain line at
+// the first one that is refused. Nothing here guesses a change from the newest one in the journal.
 import { useLayoutEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { batchLogLines, libraryKey, undoStatus } from "../coreIpc";
-import type { BatchReport, ChangeSummary } from "../coreIpc";
+import { batchLogLines, changeOf, libraryKey } from "../coreIpc";
+import type { BatchReport, Change } from "../coreIpc";
 import type { BatchRow } from "../design";
 import { folderLabel, songCount } from "../features/library/trackInfo";
 import { checkFolderName, folderNameRefusal } from "../folderName";
+import { journaled } from "../lib/journal";
 import { displayName } from "../lib/tracks";
 import type { HeldPlayback, PlaylistFile, Setter, TagDraft, Track } from "../lib/types";
+import { reasonLines, undoOutcome, type UndoStep } from "../lib/undoOutcome";
 import type { Notices } from "./useNotices";
 
 export type TrackEdits = ReturnType<typeof useTrackEdits>;
@@ -28,9 +31,12 @@ export type WriteReport = {
   rows: BatchRow[];
   /** Lines under the counts: why rows were skipped or failed, why an undo stopped. */
   reasons: string[];
-  /** The journaled changes the batch made, oldest first. Empty: nothing to undo (or it was an undo). */
-  changes: ChangeSummary[];
+  /** The journaled changes the batch made, oldest first, each by its own id. Empty: nothing to undo (or it was an undo). */
+  changes: Change[];
 };
+
+/** Where an undo was asked for: its result is a toast for a toast, else a report. */
+export type UndoFrom = "settings" | "report" | "toast";
 
 type TrackEditsArgs = {
   isMobile: boolean;
@@ -57,22 +63,6 @@ type TrackEditsArgs = {
 /** "Title - Artist" as the tags read, for a report row. */
 function tagLine(title: string, artist: string): string {
   return `${title || "(no title)"} - ${artist || "(no artist)"}`;
-}
-
-/** The last part of a library path. */
-function fileName(p: string): string {
-  return p.slice(p.replace(/\\/g, "/").lastIndexOf("/") + 1);
-}
-
-/** One line per distinct reason: "2 skipped: already in Evenings". */
-function reasonLines(rows: readonly BatchRow[]): string[] {
-  const counts = new Map<string, number>();
-  for (const r of rows) {
-    if (r.status === "done" || !r.reason) continue;
-    const key = `${r.status === "skipped" ? "skipped" : "failed"}: ${r.reason}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return [...counts].map(([k, n]) => `${n} ${k}`);
 }
 
 /** An error as one plain line. */
@@ -102,33 +92,39 @@ export function useTrackEdits({
   setConfirmDelete,
 }: TrackEditsArgs) {
   const [undoBusy, setUndoBusy] = useState<boolean>(false);
+  // Set before the first await of an undo, so a second press (a double click, a toast and the
+  // Settings button together) does nothing while one runs.
+  const undoingRef = useRef(false);
   const [report, setReport] = useState<WriteReport | null>(null);
   // The edit dialog's own error row: a refused tag write keeps the dialog open.
   const [tagError, setTagError] = useState<string>("");
-  // A write in flight (tags, a delete, a move): its dialog's button waits, so a second press cannot
-  // run it twice.
+  // A write in flight (tags, a delete, a move): its dialog's button waits, and the ref turns a second
+  // press away at once, before the button has redrawn.
   const [writing, setWriting] = useState<boolean>(false);
-
-  /** The newest change on this device that can be undone, read now. */
-  async function newestChange(lib: string): Promise<ChangeSummary | null> {
-    try {
-      return (await invoke<ChangeSummary | null>("last_change", { libraryDir: lib })) ?? null;
-    } catch {
-      return null;
-    }
+  const writingRef = useRef(false);
+  function startWriting(): boolean {
+    if (writingRef.current) return false;
+    writingRef.current = true;
+    setWriting(true);
+    return true;
   }
-  /** The change an op just made: the newest one, when it is not the one there was before the op. */
-  const madeBy = (before: ChangeSummary | null, after: ChangeSummary | null) => (after && after.batch !== before?.batch ? after : null);
+  function endWriting() {
+    writingRef.current = false;
+    setWriting(false);
+  }
 
   // Move any track into another playlist folder. If it is the one playing, the player lets go of
   // the file during the move and picks it up at its new path at the same position.
-  async function moveTrackTo(fromPath: string, target: string): Promise<{ moved: Track } | { error: string }> {
+  async function moveTrackTo(
+    fromPath: string,
+    target: string,
+  ): Promise<{ moved: Track; change: Change | null } | { error: string }> {
     const lib = folderRef.current;
     if (!fromPath || !lib || !target) return { error: "no library" };
 
     const held = releasePlayingTrack(fromPath);
     try {
-      const moved = await invoke<Track>("move_track", {
+      const { value: moved, report: sent } = await journaled<Track>("move_track", {
         args: { path: fromPath, libraryDir: lib, targetFolder: target },
       });
 
@@ -149,34 +145,30 @@ export function useTrackEdits({
         await reloadHeldTrack(held, moved.path);
       }
       await loadPlaylists(lib); // playlist files were updated on the Rust side
-      return { moved };
+      return { moved, change: changeOf(sent) };
     } catch (err) {
       if (held) await reloadHeldTrack(held, fromPath);
       return { error: plain(err) };
     }
   }
 
-  // Send tracks to the bin (after the confirmation box): the system Recycle Bin on the desktop,
-  // the app's own bin inside the library on the phone; "Undo this batch" or "Undo last change"
-  // brings them back. Stops the player if the song it plays went to the bin.
+  // Send tracks to the bin (after the confirmation box): the Recycle Bin on the desktop, the bin
+  // inside the library on the phone; "Undo this batch" brings them back. Stops the player if the
+  // song it plays went to the bin.
   async function deleteTracks(tracks: Track[]) {
     const lib = folderRef.current;
-    if (!lib || tracks.length === 0 || writing) return;
-    setWriting(true);
+    if (!lib || tracks.length === 0 || !startWriting()) return;
     const rows: BatchRow[] = [];
-    const changes: ChangeSummary[] = [];
+    const changes: Change[] = [];
     const gone = new Set<string>();
-    let before = await newestChange(lib);
     for (const t of tracks) {
       const name = displayName(t.name);
       try {
-        await invoke("delete_track", { args: { path: t.path, libraryDir: lib } });
+        const { report: sent } = await journaled<null>("delete_track", { args: { path: t.path, libraryDir: lib } });
         gone.add(t.path);
         rows.push({ key: t.path, before: `in ${folderLabel(t.playlist || "(root)")}`, after: name, status: "done" });
-        const after = await newestChange(lib);
-        const c = madeBy(before, after);
+        const c = changeOf(sent);
         if (c) changes.push(c);
-        before = after;
       } catch (err) {
         rows.push({ key: t.path, before: name, after: name, status: "failed", reason: plain(err) });
       }
@@ -187,7 +179,7 @@ export function useTrackEdits({
     setAllTracks((prev) => prev.filter((x) => !gone.has(x.path)));
     await loadPlaylists(lib);
     setConfirmDelete(null);
-    setWriting(false);
+    endWriting();
     await refreshLastChange(lib);
     const bin = isMobile ? "the bin" : "the Recycle Bin";
     setReport({
@@ -206,11 +198,10 @@ export function useTrackEdits({
       return;
     }
     const lib = folderRef.current;
-    if (!lib) return;
+    if (!lib || !startWriting()) return;
     const rows: BatchRow[] = [];
-    const changes: ChangeSummary[] = [];
+    const changes: Change[] = [];
     const to = folderLabel(check.name);
-    let before = await newestChange(lib);
     for (const t of tracks) {
       const from = t.playlist || "(root)";
       const name = displayName(t.name);
@@ -221,106 +212,89 @@ export function useTrackEdits({
       const r = await moveTrackTo(t.path, check.name);
       if ("moved" in r) {
         rows.push({ key: t.path, before: `in ${folderLabel(from)}`, after: name, status: "done" });
-        const after = await newestChange(lib);
-        const c = madeBy(before, after);
-        if (c) changes.push(c);
-        before = after;
+        if (r.change) changes.push(r.change);
       } else {
         rows.push({ key: t.path, before: name, after: name, status: "failed", reason: r.error });
       }
     }
+    endWriting();
     await refreshLastChange(lib);
     const done = rows.filter((r) => r.status === "done").length;
     setReport({ title: done ? `Moved ${songCount(done)} to ${to}` : "Nothing was moved", rows, reasons: reasonLines(rows), changes });
   }
 
-  // "Undo last change" (Settings, a toast's Undo): the newest change this device made, read when
-  // the undo starts, so it is always the one undo_last reverses.
-  async function undoLast() {
+  /**
+   * Starts undoing `changes` (oldest first), each by its own id, unless an undo is running: then it
+   * returns false and does nothing. Settings passes the change it names, a toast the changes of its
+   * own gesture, the report the changes of its batch.
+   */
+  function undoChanges(changes: readonly Change[], from: UndoFrom): boolean {
     const lib = folderRef.current;
-    if (!lib || undoBusy) return;
-    const change = await newestChange(lib);
-    if (!change) {
-      notices.notify({ text: "Nothing to undo" });
-      await refreshLastChange(lib);
-      return;
-    }
-    await runUndo(lib, [change], true);
+    if (!lib || changes.length === 0 || undoingRef.current) return false;
+    undoingRef.current = true;
+    setUndoBusy(true);
+    void runUndo(lib, [...changes], from).finally(() => {
+      undoingRef.current = false;
+      setUndoBusy(false);
+    });
+    return true;
   }
 
   /** "Undo this batch" in the open report. */
-  async function undoReport() {
-    const lib = folderRef.current;
-    const r = report;
-    if (!lib || !r || !r.changes.length || undoBusy) return;
-    await runUndo(lib, r.changes, false);
+  function undoReport(): boolean {
+    return report ? undoChanges(report.changes, "report") : false;
   }
 
   /**
-   * Undoes `changes` (oldest first) newest first, then re-reads the library so the lists, the
-   * playlists, the selection and the player follow whatever moved back, and says what happened: a
-   * toast for a clean undo of a playlist change, else a report (it never closes by itself).
+   * Undoes `changes` newest first through undo_batch, stopping at the first that is refused, then
+   * re-reads the library so the lists, the playlists, the selection and the player follow whatever
+   * moved back, and says what happened: a toast for an undo from a toast, or for a clean undo of a
+   * playlist change from Settings; else a report (it never closes by itself).
    */
-  async function runUndo(lib: string, changes: ChangeSummary[], single: boolean) {
-    setUndoBusy(true);
-    const reports: BatchReport[] = [];
-    let stopped = "";
-    try {
-      for (const c of [...changes].reverse()) {
-        const now = await newestChange(lib);
-        if (!now || now.batch !== c.batch) {
-          stopped = now
-            ? `Stopped: the newest change is now "${now.label}", which this batch did not make`
-            : "Stopped: this batch was undone already";
-          break;
-        }
-        reports.push(await invoke<BatchReport>("undo_last", { libraryDir: lib }));
+  async function runUndo(lib: string, changes: Change[], from: UndoFrom) {
+    const steps: UndoStep[] = [];
+    for (const change of [...changes].reverse()) {
+      let step: UndoStep;
+      try {
+        const { value } = await journaled<BatchReport>("undo_batch", { libraryDir: lib, batch: change.batch });
+        step = { change, report: value };
+      } catch (err) {
+        step = { change, report: null, error: plain(err) };
       }
-    } catch (err) {
-      stopped = `Undo failed: ${plain(err)}`;
+      steps.push(step);
+      const r = step.report;
+      if (!r || r.skipped?.length || r.failed?.length || r.aborted) break;
     }
-    const merged: BatchReport = {
-      batch: reports.map((r) => r.batch).join(","),
-      applied: reports.flatMap((r) => r.applied ?? []),
-      skipped: reports.flatMap((r) => r.skipped ?? []),
-      failed: reports.flatMap((r) => r.failed ?? []),
-      aborted: reports.some((r) => r.aborted),
-    };
+    const out = undoOutcome(changes, steps, isMobile);
+    let refreshError = "";
     try {
       const found = await invoke<Track[]>("scan_music_folder", { dir: lib });
       setAllTracks(found);
       const pls = await loadPlaylists(lib);
       if (pls && plView && !pls.some((p) => p.name === plView)) setPlView("");
-      await followUndo(merged, found, lib);
+      await followUndo(out.merged, found, lib);
     } catch (err) {
-      stopped ||= `Refresh error: ${plain(err)}`;
+      refreshError = `Refresh error: ${plain(err)}`;
     }
     // What was left as it was, and why, goes to the visible log too; applied lines stay with the
     // other change lines that only "Copy log" carries.
-    appendLog(batchLogLines({ ...merged, applied: [] }));
-    if (stopped) appendLog([`[undo] ${stopped}`]);
-    setUndoBusy(false);
+    appendLog(batchLogLines({ ...out.merged, applied: [] }));
+    if (out.stopped) appendLog([`[undo] ${out.stopped}`]);
+    if (refreshError) appendLog([`[undo] ${refreshError}`]);
     await refreshLastChange(lib);
 
-    const clean = !stopped && reports.length === changes.length && !merged.skipped.length && !merged.failed.length && !merged.aborted;
-    const playlistsOnly = merged.applied.every((a) => !a.path_before && !a.path_after);
-    if (single && clean && playlistsOnly) {
-      setReport(null);
-      notices.notify({ text: undoStatus(merged, changes[0].label) });
+    if (from === "toast") {
+      // A toast's undo leaves an open report as it is: it was about another change.
+      notices.notify({ text: refreshError || out.toast });
       return;
     }
-    const rows: BatchRow[] = [
-      ...merged.applied.map((a, i) => ({ key: `done-${i}`, before: "", after: a.label, status: "done" as const })),
-      ...merged.skipped.map((s, i) => ({ key: `skipped-${i}`, before: fileName(s.path), after: fileName(s.path), status: "skipped" as const, reason: s.reason })),
-      ...merged.failed.map((f, i) => ({ key: `failed-${i}`, before: fileName(f.path), after: fileName(f.path), status: "failed" as const, reason: f.error })),
-    ];
-    const title =
-      changes.length === 1
-        ? stopped && !reports.length
-          ? "Nothing was undone"
-          : undoStatus(merged, changes[0].label)
-        : `Undid ${reports.length} of ${changes.length} changes`;
-    setReport({ title, rows, reasons: [...(stopped ? [stopped] : []), ...reasonLines(rows)], changes: [] });
+    const playlistsOnly = out.merged.applied.every((a) => !a.path_before && !a.path_after);
+    if (from === "settings" && changes.length === 1 && out.clean && playlistsOnly && !refreshError) {
+      setReport(null);
+      notices.notify({ text: out.toast });
+      return;
+    }
+    setReport({ title: out.title, rows: out.rows, reasons: refreshError ? [refreshError, ...out.reasons] : out.reasons, changes: [] });
   }
 
   /** After an undo: remaps the selection and re-points or stops the player for files it moved back or removed. */
@@ -363,26 +337,25 @@ export function useTrackEdits({
 
   async function saveTags() {
     const lib = folderRef.current;
-    if (!editTags || !lib || writing) return;
-    setWriting(true);
+    if (!editTags || !lib || !startWriting()) return;
     const track = editTags.track;
     const path = track.path;
     setTagError("");
-    const before = await newestChange(lib);
     const held = releasePlayingTrack(path);
     try {
-      const updated = await invoke<Track>("write_tags", {
+      const { value: updated, report: sent, sure } = await journaled<Track>("write_tags", {
         args: { path, libraryDir: lib, title: editTags.title, artist: editTags.artist },
       });
       setAllTracks((prev) => prev.map((t) => (t.path === updated.path ? updated : t)));
       setEditTags(null);
       if (held) await reloadHeldTrack(held, updated.path);
-      const c = madeBy(before, await newestChange(lib));
-      const row: BatchRow = c
+      const c = changeOf(sent);
+      // Not sure what it sent (the host's events did not come back in time): written, no Undo here.
+      const row: BatchRow = c || !sure
         ? { key: path, before: tagLine(track.title, track.artist), after: tagLine(updated.title, updated.artist), status: "done" }
         : { key: path, before: displayName(updated.name), after: displayName(updated.name), status: "skipped", reason: "the file already has these tags" };
       setReport({
-        title: c ? `Saved the tags of ${displayName(updated.name)}` : "Nothing to change",
+        title: c || !sure ? `Saved the tags of ${displayName(updated.name)}` : "Nothing to change",
         rows: [row],
         reasons: reasonLines([row]),
         changes: c ? [c] : [],
@@ -391,16 +364,16 @@ export function useTrackEdits({
       setTagError(plain(err));
       if (held) await reloadHeldTrack(held, path);
     }
-    setWriting(false);
+    endWriting();
     await refreshLastChange(lib);
   }
 
-  // A toast's Undo (a playlist deleted, playlists made from folders: useNotices) runs the newest undo.
-  const undoRef = useRef(undoLast);
+  // A toast's Undo (useNotices) runs exactly the changes it was made with, through the newest render.
+  const undoRef = useRef(undoChanges);
   useLayoutEffect(() => {
-    undoRef.current = undoLast;
+    undoRef.current = undoChanges;
   });
-  useLayoutEffect(() => notices.bindUndo(() => void undoRef.current()), [notices]);
+  useLayoutEffect(() => notices.bindUndo((changes) => undoRef.current(changes, "toast")), [notices]);
 
   return {
     undoBusy,
@@ -408,10 +381,10 @@ export function useTrackEdits({
     report,
     closeReport: () => setReport(null),
     undoReport,
+    undoChanges,
     tagError,
     moveTracksTo,
     deleteTracks,
-    undoLast,
     openTagEditor,
     saveTags,
   };

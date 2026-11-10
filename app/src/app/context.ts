@@ -33,12 +33,10 @@ export interface AppActions {
   moveToFolder: (tracks: Track[]) => void;
   /** Opens the settings sheet. */
   openSettings: () => void;
-  /** Undoes the newest change in the journal (the Undo of a toast). */
-  undoLast: () => void;
 }
 
 export interface AppContextValue {
-  /** The host is a phone (Proton sync, the app's own bin). Never used to pick a layout. */
+  /** The host is a phone (Proton sync, the bin inside the library). Never used to pick a layout. */
   isMobile: boolean;
   lib: Library;
   player: Player;

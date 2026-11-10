@@ -28,7 +28,7 @@ test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
     // Nothing plays yet: Playing cannot be opened.
     await expect(page.locator(".BottomTabs-tab, .Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Playing" })).toBeDisabled();
     await openSettings(app, page);
-    await expect(status(page)).toHaveText("Found 50 tracks");
+    await expect(status(page)).toHaveText("Found 50 songs");
   });
 
   test("the sort order reorders the open list and is remembered", async ({ app, page }) => {

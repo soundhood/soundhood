@@ -7,7 +7,7 @@ export type ChangeSummary = { batch: string; ts: number; label: string; count: n
 /** One applied entry of a batch, in plain words; paths are the file's place before and after. */
 export type BatchApplied = { label: string; path_before?: string | null; path_after?: string | null };
 
-/** The `core:batch` event payload and the result of `undo_last`. */
+/** The `core:batch` event payload and the result of `undo_last` and `undo_batch`. */
 export type BatchReport = {
   batch: string;
   applied: BatchApplied[];
@@ -15,6 +15,49 @@ export type BatchReport = {
   failed: { path: string; error: string }[];
   aborted: boolean;
 };
+
+/**
+ * One journaled change as the UI keeps it to undo it: the batch id from the report its own command
+ * sent (never the newest change read afterwards) and its words.
+ */
+export type Change = {
+  batch: string;
+  label: string;
+  /** The library paths its entries named (before and after), to show the label without extensions. */
+  paths?: string[];
+};
+
+/**
+ * The change a write's own report made, in the words `last_change` would use ("Made 5 playlists from
+ * folders", "<first> and 2 more"); null when it applied nothing.
+ */
+export function changeOf(r: BatchReport | null | undefined): Change | null {
+  const applied = r?.applied ?? [];
+  if (!r || applied.length === 0) return null;
+  const n = applied.length;
+  const first = applied[0].label;
+  let label = first;
+  if (n > 1 && applied.every((a) => a.label.startsWith("Created playlist "))) label = `Made ${n} playlists from folders`;
+  else if (n > 1) label = `${first} and ${n - 1} more`;
+  const paths = applied.flatMap((a) => [a.path_before, a.path_after]).filter((p): p is string => !!p);
+  return { batch: r.batch, label, paths };
+}
+
+/**
+ * A change's words as a report or a toast shows them: file names without their extension, and the
+ * bin by the name it has on this device ("the Recycle Bin" on a PC). `paths` are the library paths
+ * the entry names (before and after).
+ */
+export function shownLabel(label: string, paths: readonly (string | null | undefined)[], isMobile: boolean): string {
+  let s = label;
+  for (const p of paths) {
+    if (!p) continue;
+    const name = p.slice(p.replace(/\\/g, "/").lastIndexOf("/") + 1);
+    const bare = name.replace(/\.[^./\\]+$/, "");
+    if (bare && bare !== name) s = s.split(name).join(bare);
+  }
+  return isMobile ? s : s.replace(/\bthe bin\b/g, "the Recycle Bin");
+}
 
 /** `rebuild_index`. */
 export type RefreshReport = { total: number; read: number; removed: number; millis: number };

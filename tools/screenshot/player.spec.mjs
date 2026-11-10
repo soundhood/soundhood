@@ -156,7 +156,7 @@ test.describe("every layout", { tag: ["@desktop", "@phone"] }, () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await more.click();
     await menu.getByRole("menuitem", { name: "Delete song" }).click();
-    await expect(page.getByRole("dialog", { name: "Delete this track?" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Delete this song?" })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     // Go to artist leaves the player for the artist's songs.

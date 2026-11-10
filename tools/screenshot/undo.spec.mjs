@@ -2,7 +2,12 @@
 // undoes it, a report says what a tag edit and an undo did (and never closes by itself), the
 // developer section opens with its gesture, and a playlist add changes nothing on screen but its
 // toast. The labels are the real core's words (core/src/ingest), which the mock repeats: "Edited
-// tags of <file name>", "Added 1 track to <playlist>", "Restored tags of <file name>".
+// tags of <file name>", "Added 1 track to <playlist>", "Restored tags of <file name>"; an undo's
+// report shows them without the file's extension.
+//
+// Every Undo names its own change: a toast's Undo undoes the change its gesture made, by id, and
+// nothing else (not a newer change, not the change of a report that is open), and a second press
+// of any Undo does nothing while the first runs.
 import { changedPixelsOutside } from "./pixels.mjs";
 import { expect, test } from "./harness.mjs";
 import { closeSettings, goTo, openPlaylist, openSettings, playSong, report, row, settingRow, settle, status } from "./ui.mjs";
@@ -13,6 +18,28 @@ const undoButton = (page) => settingRow(page, "Undo last change").getByRole("but
 const undoHelp = (page) => settingRow(page, "Undo last change").locator(".SettingRow-help");
 const developer = (page) => sheet(page).locator("section", { has: page.locator("h3", { hasText: "Developer" }) });
 const toast = (page, text) => page.locator(".Toast").filter({ hasText: text }).last();
+const history = (page) => page.evaluate(() => window.__soundhoodMock.history.map((h) => h.summary.label));
+
+/** Edits one song's title in the open list through the selection's Edit tags, and closes the report. */
+async function editTitle(page, from, to) {
+  await row(page, from).click({ modifiers: ["Control"] });
+  await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "Edit tags" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit tags" });
+  await dialog.getByRole("textbox", { name: "Title" }).fill(to);
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(report(page).getByRole("heading")).toContainText("Saved the tags of");
+  await report(page).getByRole("button", { name: "Done" }).last().click();
+  await page.keyboard.press("Escape");
+}
+
+/** Removes a song from the playlist on screen with the Delete key; returns its toast. */
+async function removeWithDelete(page, title) {
+  await row(page, title).focus();
+  await page.keyboard.press("Delete");
+  const t = toast(page, `Removed ${title} from`);
+  await expect(t).toBeVisible();
+  return t;
+}
 
 /** Opens View log and returns its text, then closes it again. */
 async function logText(page) {
@@ -95,8 +122,8 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
 
     await undoButton(page).click();
     const u = report(page);
-    await expect(u.getByRole("heading")).toHaveText("Undone: Edited tags of Quiet Bloom - Anouk Lirr.ogg");
-    await expect(u.locator(".BatchRow.is-done")).toHaveText("Restored tags of Quiet Bloom - Anouk Lirr.ogg");
+    await expect(u.getByRole("heading")).toHaveText("Undone: Edited tags of Quiet Bloom - Anouk Lirr");
+    await expect(u.locator(".BatchRow.is-done")).toHaveText("Restored tags of Quiet Bloom - Anouk Lirr");
     // An undo cannot be undone from its own report.
     await expect(u.getByRole("button", { name: "Undo this batch" })).toHaveCount(0);
     await u.getByRole("button", { name: "Done" }).last().click();
@@ -112,6 +139,81 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     await expect(page.getByRole("dialog", { name: "Edit tags" }).getByRole("textbox", { name: "Title" })).toHaveValue("Quiet Bloom");
     await page.getByRole("dialog", { name: "Edit tags" }).getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("dialog", { name: "Edit tags" })).toHaveCount(0);
+  });
+
+  test("two remove toasts: Undo on the older one never takes back the newer one", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, PLAYLIST);
+    const older = await removeWithDelete(page, "Quiet Bloom");
+    await removeWithDelete(page, "Static Garden");
+    expect(await history(page)).toEqual(["Removed 1 track from Late Night", "Removed 1 track from Late Night"]);
+    // The playlist changed since the older remove (the newer one): the core refuses to force it, and
+    // the toast says so. Neither song comes back, and both changes stay undoable.
+    await older.getByRole("button", { name: "Undo" }).click();
+    await expect(toast(page, "Undo: 0 restored, 1 left as they are (see the log)")).toBeVisible();
+    await expect(row(page, "Quiet Bloom")).toHaveCount(0);
+    await expect(row(page, "Static Garden")).toHaveCount(0);
+    expect(await history(page)).toEqual(["Removed 1 track from Late Night", "Removed 1 track from Late Night"]);
+    await expect(report(page)).toHaveCount(0);
+  });
+
+  test("a toast's Undo leaves a newer tag edit as it is", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, PLAYLIST);
+    await removeWithDelete(page, "Static Garden");
+    await editTitle(page, "Quiet Bloom", "Quiet Bloom (Night Edit)");
+    expect(await history(page)).toEqual(["Removed 1 track from Late Night", "Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
+    await toast(page, "Removed Static Garden from").getByRole("button", { name: "Undo" }).click();
+    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
+    expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
+    await expect(row(page, "Quiet Bloom (Night Edit)")).toBeVisible();
+    await expect(row(page, "Static Garden")).toBeVisible();
+  });
+
+  test("a toast's Undo while a tag edit's report is open undoes the toast's change; the report stays", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, PLAYLIST);
+    const t = await removeWithDelete(page, "Static Garden");
+    await row(page, "Quiet Bloom").click({ modifiers: ["Control"] });
+    await page.keyboard.press("Control+e");
+    const dialog = page.getByRole("dialog", { name: "Edit tags" });
+    await dialog.getByRole("textbox", { name: "Title" }).fill("Quiet Bloom (Night Edit)");
+    await dialog.getByRole("textbox", { name: "Title" }).press("Enter");
+    await expect(report(page).getByRole("heading")).toHaveText("Saved the tags of Quiet Bloom - Anouk Lirr");
+    await expect(t).toBeVisible();
+    await t.getByRole("button", { name: "Undo" }).click();
+    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
+    expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
+    // The report is the tag edit's, as it was, with its own Undo.
+    await expect(report(page).getByRole("heading")).toHaveText("Saved the tags of Quiet Bloom - Anouk Lirr");
+    await expect(report(page).getByRole("button", { name: "Undo this batch" })).toBeEnabled();
+  });
+
+  test("a double press on Undo last change undoes one change; a toast's Undo pressed twice undoes one", async ({ app, page }) => {
+    await app.open();
+    await openPlaylist(page, PLAYLIST);
+    await editTitle(page, "Quiet Bloom", "Quiet Bloom (A)");
+    await editTitle(page, "Static Garden", "Static Garden (B)");
+    await goTo(page, "Folders");
+    await openSettings(app, page);
+    // A slow host leaves room for the second press.
+    await page.evaluate(() => (window.__soundhoodMock.delay = { last_change: 60, undo_last: 60, undo_batch: 60 }));
+    await undoButton(page).dblclick();
+    await expect(report(page).getByRole("heading")).toHaveText("Undone: Edited tags of Static Garden - Sola Brakke");
+    await page.waitForTimeout(800);
+    await app.settled();
+    expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
+    await expect(report(page).getByRole("heading")).toHaveText("Undone: Edited tags of Static Garden - Sola Brakke");
+    await report(page).getByRole("button", { name: "Done" }).last().click();
+    await closeSettings(page);
+
+    await goTo(page, "Playlists");
+    await openPlaylist(page, PLAYLIST);
+    const t = await removeWithDelete(page, "Neon Bloom");
+    await t.getByRole("button", { name: "Undo" }).dblclick();
+    await expect(toast(page, "Undone: Removed 1 track from Late Night")).toBeVisible();
+    await page.waitForTimeout(500);
+    expect(await history(page)).toEqual(["Edited tags of Quiet Bloom - Anouk Lirr.ogg"]);
   });
 
   test("a refused tag write keeps the dialog open with the reason", async ({ app, page }) => {
@@ -178,7 +280,7 @@ test.describe("phone layout (platform android)", { tag: "@phone" }, () => {
     await expect(page).toHaveScreenshot(app.shot("settings-undo"));
 
     await undoButton(page).tap();
-    await expect(report(page).getByRole("heading")).toHaveText("Undone: Edited tags of Static Garden - Sola Brakke.opus");
+    await expect(report(page).getByRole("heading")).toHaveText("Undone: Edited tags of Static Garden - Sola Brakke");
     await report(page).getByRole("button", { name: "Done" }).last().tap();
     await expect(undoButton(page)).toBeDisabled();
     await expect(undoHelp(page)).toHaveText("Nothing to undo");

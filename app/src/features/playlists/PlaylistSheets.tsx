@@ -76,21 +76,29 @@ export function AddToPlaylistSheet({ tracks, onClose }: { tracks: Track[]; onClo
 }
 
 export function NewPlaylistSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }) {
-  const { playlists, nav } = useApp();
+  const { playlists, nav, notices } = useApp();
   const edits = usePlaylistEdits();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  // Taken at the first press, before anything is awaited: a second press (or Enter) does nothing.
+  const busyRef = useRef(false);
   const field = useRef<HTMLInputElement>(null);
 
   const create = async () => {
-    if (!name.trim() || busy) return;
+    if (!name.trim() || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     const created = await playlists.createPlaylist(name, false);
+    busyRef.current = false;
     setBusy(false);
     if (!created) return;
     onClose();
-    if (tracks.length) await edits.add(created, tracks);
-    else nav.openDetail({ kind: "playlist", name: created });
+    // Create and add is one gesture: its toast's Undo takes back the add and the new playlist.
+    if (tracks.length) await edits.add(created.name, tracks, created.change ? [created.change] : []);
+    else {
+      if (!created.change && created.sure) notices.notify({ text: `${created.name} already exists` });
+      nav.openDetail({ kind: "playlist", name: created.name });
+    }
   };
 
   return (
