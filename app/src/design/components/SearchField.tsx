@@ -1,12 +1,14 @@
 // SearchField: a 40 px field with a search icon and, while it holds text, a clear button. Esc
-// clears it; a second Esc leaves it. With `shortcut`, Ctrl+K and "/" focus it from anywhere on the screen it is on,
+// clears it; in an empty field Esc does what it does anywhere else at that moment (it closes the
+// full player, leaves Select mode) and the focus goes to where the screen starts (focusMainArea),
+// never to the page. With `shortcut`, Ctrl+K and "/" focus it from anywhere on the screen it is on,
 // except that "/" typed in another text field is a character there, and neither key does anything
 // while a sheet, the first-launch setup or a menu is open over the field (topLayer) or another part
 // of the app already took the key. Held, either is one press (heldShortcut, heldKeys.ts): "/" held
 // focuses the field and types nothing into it.
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
 import { cx } from "../lib/cx";
-import { isTypingTarget } from "../lib/dom";
+import { focusMainArea, isTypingTarget } from "../lib/dom";
 import { heldShortcut } from "../lib/heldKeys";
 import { IconButton } from "./IconButton";
 import { Icon } from "./Icon";
@@ -59,9 +61,14 @@ export function SearchField({
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
-      e.stopPropagation();
-      if (value) onChange("");
-      else e.currentTarget.blur();
+      if (value) {
+        e.stopPropagation();
+        onChange("");
+      } else {
+        // Nothing to clear: the key goes on to whatever Esc closes now, and the focus goes to where
+        // the screen starts (the full player's title while it is open; it then gives it back itself).
+        focusMainArea();
+      }
     } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
       // Its own: never a press of what the focus moves to next (TextField).
       e.preventDefault();

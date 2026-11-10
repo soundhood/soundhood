@@ -6,7 +6,7 @@
 // never put there, and Back to a scrolled grid keeps its scroll. At 1280x800 and 760x520 (from the
 // 1280x800 project), 834x1194 and 390x844.
 import { expect, test } from "./harness.mjs";
-import { goTo, openPlaylist, playSong, row } from "./ui.mjs";
+import { goTo, openPlaylist, playSong, row, searchField } from "./ui.mjs";
 
 /** What has the focus: where (the main area, the full player, elsewhere, the page) and what kind. */
 const focusFacts = (page) =>
@@ -505,4 +505,29 @@ test.describe("closing what a pointer opened @desktop @phone", { tag: ["@desktop
       await expect(fullPlayer(page), "Space leaves Playing closed").toHaveCount(0);
     });
   }
+});
+
+// Esc in an empty search field does what Esc does anywhere else at that moment: it closes the full
+// player when that is open, and the focus goes to where the screen starts, never to the page.
+test.describe("Esc in an empty search field @desktop @phone", { tag: ["@desktop", "@phone"] }, () => {
+  test("the focus goes to the heading; with Playing open, one Esc closes it", async ({ app, page }, testInfo) => {
+    const name = testInfo.project.name;
+    test.skip(name === "desktop-1920x1080", "1280x800 stands for the desktop");
+    await app.open();
+    await openPlaylist(page, "Late Night");
+    await playSong(app, page, "Lunar Comets");
+    await searchField(page).focus();
+    await expect(searchField(page)).toHaveValue("");
+    await page.keyboard.press("Escape");
+    await expect.poll(() => focusFacts(page), "Esc in the empty field").toEqual(onHeading("Late Night"));
+    await spaceToggles(page, "after Esc in the empty field");
+    if (!name.startsWith("desktop")) return;
+    // The sidebar's field beside Playing.
+    await page.getByRole("button", { name: /^Open the player/ }).filter({ visible: true }).first().click();
+    await expect(fullPlayer(page)).toBeVisible();
+    await searchField(page).click();
+    await page.keyboard.press("Escape");
+    await expect(fullPlayer(page), "one Esc closes Playing").toHaveCount(0);
+    await expect.poll(() => focusFacts(page), "never the page").not.toEqual({ at: "the page" });
+  });
 });
