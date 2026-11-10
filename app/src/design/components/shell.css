@@ -366,9 +366,15 @@
     color var(--dur-s) var(--ease-standard);
 }
 
-.NavItem:hover {
+.NavItem:hover:not(:disabled) {
   color: var(--fg-0);
   background: var(--hover);
+}
+
+/* Playing while nothing plays: greyed and inert, as the phone's tab. */
+.NavItem:disabled {
+  color: var(--fg-disabled);
+  cursor: default;
 }
 
 .NavItem[aria-current="page"] {

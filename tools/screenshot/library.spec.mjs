@@ -91,6 +91,38 @@ test.describe("both layouts", { tag: ["@desktop", "@phone"] }, () => {
     await expect(page.locator(".ScreenHeader h1")).toHaveText("Late Night");
   });
 
+  test("Playing while nothing plays: the tab, the rail icon and the sidebar item are greyed and inert alike", async ({ app, page }) => {
+    await app.open();
+    // Read the hover colours at once, not a frame into their transition.
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
+    const playing = page.locator(".BottomTabs-tab, .Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Playing" });
+    const look = () => playing.evaluate((el) => ({ color: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor, cursor: getComputedStyle(el).cursor }));
+    const disabledColour = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--fg-disabled)";
+      document.body.append(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      return c;
+    });
+    await expect(playing).toBeDisabled();
+    await expect(playing).toHaveAttribute("aria-disabled", "true");
+    const idle = await look();
+    expect(idle.color).toBe(disabledColour);
+    // No hover: a pointer over it changes nothing, and a click opens nothing.
+    await playing.hover({ force: true });
+    expect(await look()).toEqual(idle);
+    await playing.click({ force: true });
+    await expect(page.locator(".FullPlayer")).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    // Once a song plays it is a normal item again.
+    await openPlaylist(page, "Late Night");
+    await playSong(app, page, "Lunar Comets");
+    await expect(playing).toBeEnabled();
+    await expect(playing).not.toHaveAttribute("aria-disabled");
+    expect((await look()).color).not.toBe(disabledColour);
+  });
+
   test("the test library is named on every list screen", async ({ app, page }) => {
     await beforeLoad(page, () => {
       const m = window.__soundhoodMock;

@@ -1,6 +1,7 @@
 // Sidebar (desktop; the 72 px rail on a tablet): 240 px on --bg-0 with a line on its right. The
 // wordmark (aqua mark and "Soundhood"), the search field, four nav items (icon, label, count; the
-// current one on --bg-1 with an aqua icon), "Playlists" with a new-playlist button and the list of
+// current one on --bg-1 with an aqua icon; a disabled one, Playing while nothing plays, greyed and
+// inert like the phone's tab), "Playlists" with a new-playlist button and the list of
 // playlists (mosaic, name, the equaliser on the playing one), and a footer with Settings and the
 // collapse button. Songs dragged onto a playlist here are handed to onDropOnPlaylist.
 //
@@ -119,6 +120,7 @@ export function Sidebar<Id extends string>({
             aria-label={n.count != null ? `${n.label}, ${n.count}` : n.label}
             title={n.label}
             disabled={n.disabled}
+            aria-disabled={n.disabled || undefined}
             onClick={() => onNavigate(n.id)}
           >
             <Icon name={n.icon} size={24} />
