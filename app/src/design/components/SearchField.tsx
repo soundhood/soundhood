@@ -1,11 +1,14 @@
 // SearchField: a 40 px field with a search icon and, while it holds text, a clear button. Esc
-// clears it; a second Esc leaves it. With `shortcut`, Ctrl+K and "/" focus it from anywhere,
-// except while another text field has the keyboard (typing elsewhere is never hijacked).
+// clears it; a second Esc leaves it. With `shortcut`, Ctrl+K and "/" focus it from anywhere on the
+// screen it is on, except that "/" typed in another text field is a character there, and neither key
+// does anything while a sheet, the first-launch setup or a menu is open over the field (topLayer) or
+// another part of the app already took the key.
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
 import { cx } from "../lib/cx";
 import { isTypingTarget } from "../lib/dom";
 import { IconButton } from "./IconButton";
 import { Icon } from "./Icon";
+import { behindLayer } from "./Sheet";
 
 export interface SearchFieldProps {
   value: string;
@@ -35,7 +38,7 @@ export function SearchField({
 
   const onGlobalKey = useEffectEvent((e: globalThis.KeyboardEvent) => {
     const el = own.current;
-    if (!el || el.getClientRects().length === 0) return;
+    if (!el || el.getClientRects().length === 0 || e.defaultPrevented || behindLayer(el)) return;
     const ctrlK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
     const slash = e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget(e.target);
     if (ctrlK || slash) {

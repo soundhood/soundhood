@@ -29,6 +29,22 @@ export function focusIfAble(el: HTMLElement | null | undefined): boolean {
   return el.ownerDocument.activeElement === el;
 }
 
+/**
+ * Puts the focus somewhere stable in the shell's main area, for when what had it is gone and no
+ * sheet is left to take it: the list on screen (the row Tab would reach), else the screen header's
+ * first control, else the main area's first one. Never a text field (on a phone that would open the
+ * keyboard). True when the focus landed.
+ */
+export function focusMainArea(doc: Document = document): boolean {
+  const main = doc.querySelector<HTMLElement>(".Shell-main");
+  if (!main) return false;
+  const shown = (el: HTMLElement) => el.getClientRects().length > 0;
+  const row = [...main.querySelectorAll<HTMLElement>('[role="listbox"] [tabindex="0"]')].find(shown);
+  const header = main.querySelector<HTMLElement>(".ScreenHeader");
+  const controls = [...(header ? focusables(header) : []), ...focusables(main)].filter((el) => !isTypingTarget(el));
+  return [row, ...controls].some((el) => focusIfAble(el));
+}
+
 export interface Box {
   top: number;
   left: number;

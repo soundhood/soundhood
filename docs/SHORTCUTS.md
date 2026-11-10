@@ -2,8 +2,12 @@
 
 The decided list, all working from Phase 1 (0.3.0) unless marked. Shortcuts are discoverable here
 only: the app shows no on-screen legend. There are no J/K shortcuts. Single keys do nothing while you
-type in a text field (Esc still works there), and while a sheet or dialog is open only the playback
-keys answer. On the phone there is no keyboard layer: a tap plays, and there is no double-tap.
+type in a text field (Esc still works there): "/" typed in a field is a "/". While a sheet, the
+first-launch setup or a menu is open, a key acts only on what is on top: only the playback keys
+answer (and, in the queue sheet, Q and Ctrl+L); Ctrl+K and "/" never move the focus to the search
+field behind it, and 1 to 4, Ctrl+A and the list keys never act on the screen behind it. Ctrl+, and
+a pasted link may open a sheet on top of another sheet, never under the first-launch setup or a
+menu. On the phone there is no keyboard layer: a tap plays, and there is no double-tap.
 
 "The selection" means the songs you have chosen (Ctrl+click, Shift+click, or Select mode), or else
 the row that has the keyboard focus.

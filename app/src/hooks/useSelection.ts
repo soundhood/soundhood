@@ -3,6 +3,7 @@
 // Shift+click = range, Ctrl+A = all listed; on the phone, "Select" mode ticks rows instead.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
+import { topLayer } from "../design";
 import type { Track } from "../lib/types";
 
 export type Selection = ReturnType<typeof useSelection>;
@@ -59,6 +60,8 @@ export function useSelection({ filteredTracks }: { filteredTracks: Track[] }) {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+        // Not behind an open sheet, setup or menu: the list is not what the key is pressed in.
+        if (topLayer()) return;
         e.preventDefault();
         setSelectedPaths(new Set(filteredTracks.map((t) => t.path)));
       } else if (e.key === "Escape") {

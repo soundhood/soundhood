@@ -1,6 +1,9 @@
 // The keyboard map: every app-wide shortcut in one table (docs/SHORTCUTS.md is its text), and the
 // one listener that runs them (KeyboardShortcuts, mounted once by AppShell). There is no on-screen
-// legend and there are no J/K shortcuts. Single keys never fire while typing in a text field.
+// legend and there are no J/K shortcuts. Single keys never fire while typing in a text field. The
+// shortcut rule: a key heard on the window acts only on what is on top (topLayer, Sheet.tsx); while
+// a sheet, the first-launch setup or a menu is open nothing behind it answers, and a key opens a sheet
+// only over the screens or another sheet (sheetMayOpen), never under the setup or a menu.
 //
 // Handled elsewhere, by the component that owns the key:
 //   Enter              plays the row, or the selection (TrackList); plays a queue row (Queue)

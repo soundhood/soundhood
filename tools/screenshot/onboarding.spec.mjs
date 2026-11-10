@@ -120,6 +120,34 @@ test.describe("desktop layout (platform windows)", { tag: "@desktop" }, () => {
     expect((await storeOf(page)).library_dir).toBeUndefined();
     await expect(downloadItem(page)).toHaveCount(1);
   });
+
+  test("while the setup is up no shortcut reaches behind it: Ctrl+comma, Ctrl+K, / and a pasted link do nothing", async ({ app, page }) => {
+    // An earlier install with no folder: the Library step alone, with the downloader on, so a pasted
+    // link would otherwise open "Where should this go?".
+    await beforeLoad(page, () => {
+      window.__soundhoodMock.store.delete("library_dir");
+      window.__soundhoodMock.store.set("volume", 0.8);
+    });
+    await app.open({ until: "platform" });
+    await expect(setup(page)).toContainText("Step 1 of 1");
+    const choose = setup(page).getByRole("button", { name: "Choose folder" });
+    await choose.focus();
+    const inSetup = () => page.evaluate(() => !!document.activeElement?.closest(".Onboarding"));
+    for (const key of ["Control+Comma", "Control+k", "/"]) {
+      await page.keyboard.press(key);
+      await expect(page.locator(".SettingsSheet"), `${key} opens no Settings under the setup`).toHaveCount(0);
+      expect(await inSetup(), `${key} leaves the focus in the setup`).toBe(true);
+    }
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "https://www.youtube.com/watch?v=AbCdEfGhIjK");
+      document.activeElement.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(300);
+    await expect(where(page), "a pasted link opens no sheet under the setup").toHaveCount(0);
+    expect(await inSetup()).toBe(true);
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+  });
 });
 
 test.describe("phone layout (platform android)", { tag: "@phone" }, () => {

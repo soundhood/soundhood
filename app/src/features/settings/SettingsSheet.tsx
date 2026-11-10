@@ -9,7 +9,7 @@
 // does, on a window wide and tall enough for the right pane); elsewhere the row is left out.
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Button, Dropdown, Icon, SettingGroup, SettingRow, Sheet, SwitchRow } from "../../design";
+import { Button, Dropdown, Icon, SettingGroup, SettingRow, Sheet, SwitchRow, sheetMayOpen } from "../../design";
 import { useApp } from "../../app/context";
 import type { Diagnostics } from "../../coreIpc";
 import { TEXT_SCALES } from "../../hooks/usePrefs";
@@ -27,11 +27,15 @@ export interface QueuePaneSetting {
 
 const SCALE_OPTIONS = TEXT_SCALES.map((s) => ({ value: String(s), label: `${Math.round(s * 100)}%` }));
 
-/** Ctrl+comma opens the settings (a PC shortcut; harmless elsewhere). */
+/**
+ * Ctrl+comma opens the settings (a PC shortcut; harmless elsewhere): over the screens or on top of
+ * another sheet, but never under the first-launch setup or a menu, which are drawn above sheets.
+ */
 function useSettingsShortcut(setOpen: (open: boolean) => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === ",") {
+        if (!sheetMayOpen()) return;
         e.preventDefault();
         setOpen(true);
       }

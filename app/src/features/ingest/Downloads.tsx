@@ -3,7 +3,7 @@
 // item with an empty link), and the running download's own toast (progress line, Cancel on the
 // phone). Mounted once in the shell's overlays.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Button, Dropdown, ErrorRow, MultiSelect, SettingRow, Sheet, TextField, useToast } from "../../design";
+import { Button, Dropdown, ErrorRow, MultiSelect, SettingRow, Sheet, TextField, sheetMayOpen, useToast } from "../../design";
 import { useApp } from "../../app/context";
 import { firstUrl } from "../../lib/links";
 import { NEW_FOLDER_SENTINEL } from "../../lib/store";
@@ -17,7 +17,10 @@ function isEditable(el: EventTarget | null): boolean {
   return el instanceof HTMLInputElement && !["button", "checkbox", "radio", "range", "submit"].includes(el.type);
 }
 
-/** Ctrl+V outside a text field: a pasted link opens "Where should this go?" (ingest's own key). */
+/**
+ * Ctrl+V outside a text field: a pasted link opens "Where should this go?" (ingest's own key), on
+ * top of any sheet, but never under the first-launch setup or a menu.
+ */
 function useLinkPaste(onLink: (text: string) => void) {
   const handler = useRef(onLink);
   useLayoutEffect(() => {
@@ -25,7 +28,7 @@ function useLinkPaste(onLink: (text: string) => void) {
   });
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      if (isEditable(e.target) || isEditable(document.activeElement)) return;
+      if (isEditable(e.target) || isEditable(document.activeElement) || !sheetMayOpen()) return;
       const text = e.clipboardData?.getData("text/plain") ?? "";
       if (!firstUrl(text)) return;
       e.preventDefault();

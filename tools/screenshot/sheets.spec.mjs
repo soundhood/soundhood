@@ -5,9 +5,10 @@
 // the app has: Settings with "Where should this go?", the log and the links waiting; the queue sheet
 // with New playlist (Save as playlist) and "Clear the queue?" (Ctrl+L). The pairs are drawn at the
 // phone (390x844), the tablet (834x1194) and the smallest PC window (760x520), where the queue is a
-// sheet too; "Where should this go?" over Settings also at the desktop sizes.
+// sheet too; "Where should this go?" over Settings also at the desktop sizes. Then, at every size,
+// that the focus stays where the user put it (the second part of this file).
 import { expect, test } from "./harness.mjs";
-import { goTo, openPlaylist, openSettings, playSong } from "./ui.mjs";
+import { goTo, openPlaylist, openSettings, playSong, row } from "./ui.mjs";
 
 const VIDEO = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
@@ -171,3 +172,196 @@ test.describe("phone, tablet and the smallest PC window", { tag: ["@desktop", "@
     await expectOnTop(page, "Queue");
   });
 });
+
+// The focus stays where the user put it. Typing into a sheet's field keeps it there, key after key
+// (the sheet's opening runs once, whatever the field's text does to it); the search shortcuts never
+// reach the search field behind an open sheet or menu; and when what had the focus goes away (a
+// removed link, a report whose opener is gone) the focus lands on something near, never on the page.
+// Checked at every size: 1280x800 and 1920x1080, the tablet, the phone, and the 1280x800 project
+// again at 760x520, the smallest PC window.
+
+const LINK = "https://youtu.be/abc";
+
+/** The 1280x800 project at 760x520; every other project skips this variant. */
+async function atPcMin(page, testInfo) {
+  test.skip(testInfo.project.name !== "desktop-1280x800", "760x520 once, from the 1280x800 project");
+  await page.setViewportSize({ width: 760, height: 520 });
+}
+const SIZES = [
+  ["", async () => {}],
+  [" (760x520)", atPcMin],
+];
+
+/** The search field behind the sheets: what it holds, and whether it has the focus. */
+const searchBehind = (page) =>
+  page.evaluate(() => {
+    const fields = [...document.querySelectorAll(".SearchField input")];
+    return { text: fields.map((f) => f.value).join(""), focused: fields.includes(document.activeElement) };
+  });
+
+/** Types `text` a key at a time, as a hand does; after every key the focus must still be on `field`. */
+async function typeByHand(page, field, text) {
+  for (const key of text) {
+    await page.keyboard.type(key);
+    expect(await field.evaluate((el) => el === document.activeElement), `the focus is still in the field after "${key}"`).toBe(true);
+  }
+}
+
+/** Where the focus is: "page" (nothing has it), "main" (the main area), or the dialog it is in. */
+const focusPlace = (page) =>
+  page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return "page";
+    if (el.closest(".Shell-main")) return "main";
+    return el.closest('[role="dialog"]')?.querySelector("h2")?.textContent ?? el.tagName;
+  });
+
+for (const [size, resize] of SIZES) {
+  test.describe(`focus stays put${size}`, { tag: ["@desktop", "@phone"] }, () => {
+    test.beforeEach(async ({ page }, testInfo) => resize(page, testInfo));
+
+    test("a link typed by hand into the empty Link field (the Download item): every key lands in the field", async ({ app, page }) => {
+      await app.open();
+      const item = page.locator(".Sidebar-nav .NavItem").filter({ visible: true }).filter({ hasText: "Download" });
+      test.skip((await item.count()) === 0, "the phone has no Download item: a link comes by a share or from Settings");
+      await item.click();
+      const link = dialog(page, "Where should this go?").getByRole("textbox", { name: "Link" });
+      await expect(link).toBeFocused();
+      await typeByHand(page, link, LINK);
+      await expect(link).toHaveValue(LINK);
+      expect(await searchBehind(page), "the search field behind is untouched").toEqual({ text: "", focused: false });
+      await expectOnTop(page, "Where should this go?");
+    });
+
+    test('"Where should this go?" over Settings: the link cleared, then a new one typed by hand', async ({ app, page }) => {
+      await app.open();
+      await openSettings(app, page);
+      await dialog(page, "Settings").getByRole("textbox", { name: "Link" }).fill(VIDEO);
+      await dialog(page, "Settings").getByRole("button", { name: "Add", exact: true }).click();
+      await expectOnTop(page, "Where should this go?", "Settings");
+      const link = dialog(page, "Where should this go?").getByRole("textbox", { name: "Link" });
+      await link.click();
+      await page.keyboard.press("ControlOrMeta+a");
+      await page.keyboard.press("Backspace");
+      await expect(link).toHaveValue("");
+      expect(await link.evaluate((el) => el === document.activeElement), "the cleared field keeps the focus").toBe(true);
+      await typeByHand(page, link, LINK);
+      await expect(link).toHaveValue(LINK);
+      expect(await searchBehind(page), "the search field behind is untouched").toEqual({ text: "", focused: false });
+      await expectOnTop(page, "Where should this go?", "Settings");
+    });
+
+    test('Ctrl+K and "/" never leave an open sheet; "/" in a text field is a character', async ({ app, page }) => {
+      await app.open();
+      await openSettings(app, page);
+      const settings = dialog(page, "Settings");
+      const close = settings.getByRole("button", { name: "Close", exact: true });
+      await close.focus();
+      for (const key of ["/", "Control+k"]) {
+        await page.keyboard.press(key);
+        await expect(close, `${key} leaves the focus on Settings' Close`).toBeFocused();
+      }
+      const field = settings.getByRole("textbox", { name: "Link" });
+      await field.focus();
+      await page.keyboard.type("a/b");
+      await expect(field).toHaveValue("a/b");
+      await page.keyboard.press("Control+k");
+      await expect(field, "Ctrl+K in Settings' field").toBeFocused();
+      expect(await searchBehind(page)).toEqual({ text: "", focused: false });
+
+      // "Where should this go?" over Settings: on the sheet, in its field.
+      await field.fill(VIDEO);
+      await settings.getByRole("button", { name: "Add", exact: true }).click();
+      await expectOnTop(page, "Where should this go?", "Settings");
+      for (const key of ["/", "Control+k"]) {
+        await page.keyboard.press(key);
+        expect(await focusPlace(page), `${key} on the sheet`).toBe("Where should this go?");
+      }
+      const link = dialog(page, "Where should this go?").getByRole("textbox", { name: "Link" });
+      await link.focus();
+      await page.keyboard.press("End");
+      await page.keyboard.type("/x");
+      await expect(link).toHaveValue(`${VIDEO}/x`);
+      await page.keyboard.press("Control+k");
+      await expect(link, "Ctrl+K in the sheet's field").toBeFocused();
+      expect(await searchBehind(page)).toEqual({ text: "", focused: false });
+
+      // The focus never left: Esc closes the sheet on top, then Settings.
+      await page.keyboard.press("Escape");
+      await expect(dialog(page, "Where should this go?")).toHaveCount(0);
+      await expectOnTop(page, "Settings");
+      await page.keyboard.press("Escape");
+      await expect(settings).toHaveCount(0);
+    });
+
+    test('Ctrl+K and "/" leave an open menu alone', async ({ app, page }) => {
+      await app.open();
+      await openPlaylist(page, "Late Night");
+      await page.getByRole("button", { name: "More for Late Night" }).filter({ visible: true }).click();
+      const menu = page.getByRole("menu");
+      await expect(menu).toBeVisible();
+      for (const key of ["/", "Control+k"]) {
+        await page.keyboard.press(key);
+        await expect(menu, `${key}: the menu stays open`).toBeVisible();
+        expect(await page.evaluate(() => !!document.activeElement?.closest('[role="menu"]')), `${key}: the focus stays in the menu`).toBe(true);
+      }
+      expect(await searchBehind(page)).toEqual({ text: "", focused: false });
+    });
+
+    test("Links waiting: a removed link hands the focus to the next one, else the one before, else the sheet", async ({ app, page }) => {
+      const urls = ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"].map((id) => `https://www.youtube.com/watch?v=${id}`);
+      await page.addInitScript((list) => window.__soundhoodMock.store.set("share_queue", list.map((url, i) => ({ url, added: 3 - i }))), urls);
+      await app.open();
+      await openSettings(app, page);
+      await dialog(page, "Settings").locator(".SettingRow", { hasText: "Links waiting" }).click();
+      await expectOnTop(page, "Links waiting", "Settings");
+      const rows = dialog(page, "Links waiting").getByRole("listitem");
+      const remove = (i) => rows.nth(i).getByRole("button", { name: "Remove from the list" });
+      /** The link of the row whose Remove has the focus; else where the focus is. */
+      const focused = () =>
+        page.evaluate(() => {
+          const el = document.activeElement;
+          const row = el?.closest('[role="listitem"]');
+          if (row && el.getAttribute("aria-label") === "Remove from the list") return row.querySelector(".LinkRow-url")?.textContent;
+          return el === document.body ? "page" : (el?.getAttribute("aria-label") ?? el?.tagName);
+        });
+
+      // The first of three: the next link, now the first, has the focus.
+      await remove(0).focus();
+      await page.keyboard.press("Enter");
+      await expect(rows).toHaveCount(2);
+      expect(await focused()).toBe(urls[1]);
+      // The last of two: the one before it.
+      await remove(1).focus();
+      await page.keyboard.press("Enter");
+      await expect(rows).toHaveCount(1);
+      expect(await focused()).toBe(urls[1]);
+      // The only one: the sheet itself, so Tab and Esc still work in it.
+      await page.keyboard.press("Enter");
+      await expect(rows).toHaveCount(0);
+      expect(await focusPlace(page)).toBe("Links waiting");
+      await page.keyboard.press("Escape");
+      await expect(dialog(page, "Links waiting")).toHaveCount(0);
+      await expectOnTop(page, "Settings");
+    });
+
+    test("the delete report closed after its opener went: the focus goes to the list, not the page", async ({ app, page }, testInfo) => {
+      await app.open();
+      await goTo(page, "Folders");
+      await page.locator(".ListRow").filter({ visible: true }).filter({ hasText: "Evenings" }).first().click();
+      if (testInfo.project.use.hasTouch) {
+        await page.getByRole("button", { name: "Select", exact: true }).filter({ visible: true }).click();
+        await row(page, "Static Tide").click();
+      } else await row(page, "Static Tide").click({ modifiers: ["Control"] });
+      await page.getByRole("toolbar", { name: "Selection" }).getByRole("button", { name: "More actions" }).filter({ visible: true }).click();
+      await page.getByRole("menuitem", { name: "Delete song" }).click();
+      await dialog(page, "Delete this song?").getByRole("button", { name: "Delete", exact: true }).click();
+      const report = page.locator(".Sheet").filter({ has: page.locator(".BatchReport") });
+      await expect(report).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(report).toHaveCount(0);
+      expect(await focusPlace(page), "the focus is in the main area").toBe("main");
+      await expect(row(page, "Static Tide")).toHaveCount(0);
+    });
+  });
+}

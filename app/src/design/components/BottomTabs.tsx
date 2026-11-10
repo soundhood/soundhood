@@ -8,6 +8,7 @@ import { useEffect, useEffectEvent, useRef, type KeyboardEvent } from "react";
 import { cssVars, cx } from "../lib/cx";
 import { isTypingTarget } from "../lib/dom";
 import { Icon, type IconName } from "./Icon";
+import { behindLayer } from "./Sheet";
 
 export interface Tab<Id extends string = string> {
   id: Id;
@@ -40,7 +41,8 @@ export function BottomTabs<Id extends string>({ tabs, current, onChange, numberK
   const onGlobalKey = useEffectEvent((e: globalThis.KeyboardEvent) => {
     if (!numberKeys || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
     const el = root.current;
-    if (!el || el.getClientRects().length === 0) return;
+    // Nothing behind an open sheet, setup or menu answers a key.
+    if (!el || el.getClientRects().length === 0 || behindLayer(el)) return;
     const n = Number(e.key);
     if (Number.isInteger(n) && n >= 1 && n <= tabs.length) {
       e.preventDefault();
