@@ -71,7 +71,8 @@ export function useOutsidePress(open: boolean, inside: readonly RefObject<HTMLEl
  * Its left, top and max-height are set on the element directly (React never renders them; it is
  * absolutely positioned, in the shell's overlay layer or in place), and data-up / data-end say how
  * it was placed. The area it can be seen in is the window cut by whatever clips the popover (in the
- * overlay layer, only the shell). When the anchor itself has scrolled out of sight, `onLost` runs.
+ * overlay layer, only the shell). While the anchor is out of sight it is left where it was, and when
+ * the anchor comes to rest out of sight (scrolled away, not a sheet still sliding in), `onLost` runs.
  */
 export function usePopoverPlacement(
   open: boolean,
@@ -83,19 +84,22 @@ export function usePopoverPlacement(
   useLayoutEffect(() => {
     if (!open) return;
     let seen = "";
+    let away = false;
     const place = () => {
       const a = anchor.current;
       const p = popover.current;
       if (!a || !p) return;
       const r = a.getBoundingClientRect();
       const now = `${r.left} ${r.top} ${r.right} ${r.bottom} ${innerWidth} ${innerHeight} ${p.childElementCount}`;
-      if (now === seen) return;
-      seen = now;
-      const view = clipBox(a);
-      if (r.bottom <= view.top || r.top >= view.bottom || r.right <= view.left || r.left >= view.right) {
-        lost();
+      if (now === seen) {
+        // At rest since the last frame: out of sight, it is lost; in sight, nothing to do.
+        if (away) lost();
         return;
       }
+      seen = now;
+      const view = clipBox(a);
+      away = r.bottom <= view.top || r.top >= view.bottom || r.right <= view.left || r.left >= view.right;
+      if (away) return;
       // Measured at the corner of the box it is placed in: its own size, and where that corner is.
       const scrolled = p.scrollTop;
       p.style.left = "0px";

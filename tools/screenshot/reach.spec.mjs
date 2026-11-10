@@ -4,8 +4,10 @@
 // scrolls inside, and it opens upward only when there is more room above. Checked with 29
 // playlists (the owner's count) in "Where should this go?" at 390x844, 834x1194, 760x520 and
 // 1280x800: every option scrolls into view, is the element under its own centre, and a click or a
-// tap picks it; Home, End and type-ahead keep the active option in view.
+// tap picks it; Home, End and type-ahead keep the active option in view. A list whose button is
+// scrolled out of sight closes, rather than float over what is behind.
 import { expect, test } from "./harness.mjs";
+import { openSettings } from "./ui.mjs";
 
 const VIDEO = "https://www.youtube.com/watch?v=AbCdEfGhIjK";
 
@@ -122,3 +124,39 @@ for (const tag of ["@desktop", "@phone"]) {
     });
   });
 }
+
+test.describe("a list whose button scrolls away", { tag: "@desktop" }, () => {
+  test("follows its button, and closes once the button has scrolled out of the sheet's view", async ({ app, page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-1280x800", "one size: the sheet scrolls the same everywhere");
+    await page.setViewportSize({ width: 760, height: 520 });
+    await app.open();
+    await openSettings(app, page);
+    const button = page.getByRole("combobox", { name: "Text size" });
+    await button.click();
+    const list = page.getByRole("listbox", { name: "Text size" });
+    await expect(list).toBeVisible();
+    // A small scroll: the list moves with its button, still clear of it.
+    const gap = () =>
+      page.evaluate(() => {
+        const b = document.querySelector('[role="combobox"][aria-label="Text size"]').getBoundingClientRect();
+        const l = document.querySelector('[role="listbox"][aria-label="Text size"]').getBoundingClientRect();
+        return l.top >= b.bottom ? l.top - b.bottom : b.top - l.bottom;
+      });
+    const before = await gap();
+    const top = () => button.evaluate((b) => Math.round(b.getBoundingClientRect().top));
+    const at = await top();
+    await page.locator(".SettingsSheet .Sheet-body").evaluate((body) => (body.scrollTop += body.scrollTop > 0 ? -20 : 20));
+    await expect.poll(top, { message: "the sheet scrolled its button" }).not.toBe(at);
+    await expect.poll(gap, { message: "the list follows its button" }).toBe(before);
+    await expect(list).toBeVisible();
+    // Scrolled until the button is out of the sheet's view: the list closes.
+    await page.locator(".SettingsSheet .Sheet-body").evaluate((body) => {
+      const b = document.querySelector('[role="combobox"][aria-label="Text size"]');
+      const view = body.getBoundingClientRect();
+      const r = b.getBoundingClientRect();
+      body.scrollTop += r.top - view.top > view.height / 2 ? -body.scrollHeight : body.scrollHeight;
+    });
+    await expect(list).toHaveCount(0);
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+  });
+});
