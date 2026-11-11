@@ -3,8 +3,8 @@
 
 use crate::error::{Error, Result};
 use crate::index::{self, Index, RefreshReport};
-use crate::ingest::tagwrite::{self, ApplyOptions, OpResult};
-use crate::ingest::{undo, BatchReport, ChangeSummary, Op};
+use crate::ingest::tagwrite::{self, ApplyOptions, OpResult, NOT_APPLIED};
+use crate::ingest::{journal, undo, BatchReport, ChangeSummary, Kind, Op};
 use crate::model::{Library, Platform, PlaylistFile, RelPath, TagSet, Track};
 use crate::{fs, playlist};
 use std::path::{Path, PathBuf};
@@ -19,6 +19,9 @@ pub struct Core {
   app_data_dir: PathBuf,
   /// Where the pre-rebuild JSON tag cache lives, until the first successful refresh removes it.
   legacy_cache_dir: Mutex<Option<PathBuf>>,
+  /// The files of the change startup recovery decided on in `open`: the first refresh reads them
+  /// again whatever their time and size say, then this is empty.
+  recovered: Mutex<Vec<RelPath>>,
 }
 
 /// What a host learns at startup.
@@ -45,6 +48,7 @@ impl Core {
     };
     // The legacy cache seeds the first refresh, so upgrading does not re-read every file.
     let index = Index::open(app_data_dir, root)?.with_legacy_cache_dir(legacy_cache_dir);
+    let recovered = in_flight_paths(&lib);
     let orphans = tagwrite::cleanup_orphans(&lib)?;
     let core = Core {
       lib,
@@ -52,6 +56,7 @@ impl Core {
       write_lock: Mutex::new(()),
       app_data_dir: app_data_dir.to_path_buf(),
       legacy_cache_dir: Mutex::new(legacy_cache_dir.map(Path::to_path_buf)),
+      recovered: Mutex::new(recovered),
     };
     let report = OpenReport {
       device: device.0,
@@ -67,9 +72,15 @@ impl Core {
     Index::db_path(&self.app_data_dir, &self.lib.root)
   }
 
-  /// Refresh the index from disk (incremental) and return the UI's track list.
+  /// Refresh the index from disk (incremental) and return the UI's track list. The first refresh
+  /// after `open` also reads again the files of the change startup recovery decided on: finished
+  /// on record after a crash right after its rename, that change can leave a file with the time
+  /// and size the index noted for an earlier edit of the same second.
   pub fn scan(&self) -> Result<Vec<Track>> {
-    self.index.refresh(&self.lib)?;
+    let mut recovered = self.recovered.lock().unwrap_or_else(PoisonError::into_inner);
+    self.index.refresh_touched(&self.lib, &recovered)?;
+    recovered.clear();
+    drop(recovered);
     self.drop_legacy_cache();
     self.index.tracks(&self.lib)
   }
@@ -77,6 +88,8 @@ impl Core {
   /// "Rebuild index": drop and rebuild from the files alone.
   pub fn rebuild_index(&self) -> Result<RefreshReport> {
     let report = self.index.rebuild(&self.lib)?;
+    // Every file was read: nothing recovered is left to read again.
+    self.recovered.lock().unwrap_or_else(PoisonError::into_inner).clear();
     self.drop_legacy_cache();
     Ok(report)
   }
@@ -217,12 +230,21 @@ impl Core {
     }
   }
 
-  /// Phase 0 keeps it simple: any applied change refreshes the whole index (incremental, so only
-  /// the touched files are re-read).
+  /// Any applied change refreshes the index (incremental), and every file the batch's report names
+  /// (before and after) is read again even when its mtime and size match the index: a tag rewrite can
+  /// keep the size, and an edit and its undo can land in the same second.
   fn refresh_after(&self, report: &BatchReport) -> Result<()> {
-    if !report.applied.is_empty() {
-      self.index.refresh(&self.lib)?;
+    if report.applied.is_empty() {
+      return Ok(());
     }
+    let touched: Vec<RelPath> = report
+      .applied
+      .iter()
+      .flat_map(|a| [a.path_before.as_deref(), a.path_after.as_deref()])
+      .flatten()
+      .filter_map(|p| RelPath::new(p).ok())
+      .collect();
+    self.index.refresh_touched(&self.lib, &touched)?;
     Ok(())
   }
 
@@ -257,6 +279,23 @@ impl Core {
         *pending = None;
       }
     }
+  }
+}
+
+/// The files of the change startup recovery is about to decide on: this device's last entry, when
+/// a crash left it open (not committed, not closed as not applied), the same entry recovery looks
+/// at. Whether recovery finishes it or closes it, its files are read again by the first refresh,
+/// which only costs a re-read. Read before recovery runs and never written; a journal that cannot
+/// be read gives none (recovery then leaves the entry for the next start too).
+fn in_flight_paths(lib: &Library) -> Vec<RelPath> {
+  let Ok(entries) = journal::read_device(&lib.root, &lib.device) else {
+    return Vec::new();
+  };
+  match entries.into_iter().rev().find(|e| e.kind != Kind::Cleanup) {
+    Some(e) if !e.committed && !e.note.as_deref().is_some_and(|n| n.starts_with(NOT_APPLIED)) => {
+      [e.path_before, e.path_after].into_iter().flatten().collect()
+    }
+    _ => Vec::new(),
   }
 }
 

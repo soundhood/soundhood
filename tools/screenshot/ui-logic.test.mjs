@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { batchLogLines, copyLogText, undoStatus } from "../../app/src/coreIpc.ts";
-import { CHANNEL_REFUSAL, isChannelLink, lastErrorLine, queueStopStatus } from "../../app/src/downloads.ts";
+import { CHANNEL_REFUSAL, filedStatus, isChannelLink, lastErrorLine, queueEndStatus, queueStopStatus } from "../../app/src/downloads.ts";
 import { checkFolderName, folderNameRefusal } from "../../app/src/folderName.ts";
 import { SYNC_OFF_LINE, TEST_LIBRARY_LABEL, isTestLibrary, sameFolder, shownFolder } from "../../app/src/testLibrary.ts";
 
@@ -51,6 +51,32 @@ describe("queue stop reason", () => {
 
   test("the app's own [error] lines count too, and CRLF output is read", () => {
     expect(lastErrorLine("line\r\n[error] the relay could not start\r\n")).toBe("the relay could not start");
+  });
+
+  test("the queue's end: Queue done after a run, else how many links still wait", () => {
+    expect(queueEndStatus(true, 0)).toBe("Queue done");
+    expect(queueEndStatus(true, 1)).toBe("1 link still waiting in the queue");
+    expect(queueEndStatus(false, 2)).toBe("2 links still waiting in the queue");
+    expect(queueEndStatus(false, 0)).toBeNull();
+  });
+
+  test("a download filed: how many songs and playlists, and each playlist that refused them, in plain words", () => {
+    expect(filedStatus(1, 2, [])).toBe("Downloaded 1 and added to 2 playlists");
+    expect(filedStatus(1, 1, [{ name: "Late Night", reason: "file in use" }])).toBe("Downloaded 1 and added to 1 playlist. Not added to Late Night: file in use");
+    expect(filedStatus(2, 0, [{ name: "Late Night", reason: "file in use" }])).toBe("Downloaded 2. Not added to Late Night: file in use");
+    expect(
+      filedStatus(1, 0, [
+        { name: "Late Night", reason: "file in use" },
+        { name: "Focus", reason: "file in use" },
+      ]),
+    ).toBe("Downloaded 1. Not added to Late Night, Focus: file in use");
+    expect(
+      filedStatus(1, 1, [
+        { name: "Late Night", reason: "file in use" },
+        { name: "Focus", reason: "access denied" },
+      ]),
+    ).toBe("Downloaded 1 and added to 1 playlist. Not added to Late Night: file in use; Focus: access denied");
+    expect(filedStatus(1, 1, [{ name: "Late Night", reason: "file in use" }])).not.toMatch(DASHES);
   });
 
   test("no error line: the exit code, in plain words", () => {

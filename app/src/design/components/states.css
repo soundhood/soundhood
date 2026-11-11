@@ -1,0 +1,132 @@
+/* List states: Skeleton (placeholder rows), ErrorRow (a failure and what to do), EmptyState. */
+
+/* Skeleton rows while the index builds: a soft pulse, no shimmer sweep. */
+.Skeleton {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: var(--sp-3);
+  height: var(--row-h);
+  padding: 0 var(--gutter);
+}
+
+.Skeleton-thumb,
+.Skeleton-line {
+  background: var(--bg-2);
+  border-radius: var(--r-xs);
+  animation: skeleton-pulse 1400ms var(--ease-standard) infinite alternate;
+}
+
+.Skeleton-thumb {
+  width: var(--thumb-sm);
+  height: var(--thumb-sm);
+}
+
+.Skeleton-lines {
+  display: grid;
+  gap: 6px;
+}
+
+.Skeleton-line {
+  height: 10px;
+  width: 60%;
+}
+
+.Skeleton-line + .Skeleton-line {
+  width: 36%;
+}
+
+@keyframes skeleton-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .Skeleton-thumb,
+  .Skeleton-line {
+    animation: none;
+  }
+}
+
+/* ErrorRow: a danger bar on the left, the reason, Copy log and Retry. */
+.ErrorRow {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+  min-height: var(--row-h);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--gutter);
+  background: var(--danger-dim);
+}
+
+.ErrorRow::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--danger);
+}
+
+.ErrorRow > .Icon {
+  color: var(--danger);
+}
+
+.ErrorRow-text {
+  display: grid;
+  min-width: 0;
+}
+
+.ErrorRow-title {
+  font: var(--t-body);
+}
+
+.ErrorRow-detail {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+.ErrorRow-actions {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+/* EmptyState: a 48 px line icon, a heading, one line, one aqua text action. No illustrations. */
+.EmptyState {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-2);
+  max-width: 320px;
+  margin: 0 auto;
+  padding: var(--sp-9) var(--gutter);
+  text-align: center;
+}
+
+.EmptyState > .Icon {
+  color: var(--fg-1);
+  margin-bottom: var(--sp-2);
+}
+
+.EmptyState h2 {
+  margin: 0;
+  font: var(--t-h2);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.EmptyState p {
+  margin: 0;
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  text-wrap: pretty;
+}
+
+.EmptyState .Button {
+  margin-top: var(--sp-2);
+}

@@ -1,0 +1,20 @@
+/* The queue where the app puts it: in the 92 % sheet the Queue fills the body and scrolls its own
+   list (its sections are virtual lists that scroll with it), so the body itself does not scroll. */
+.QueueSheet .Sheet-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: var(--inset-bottom, 0px);
+}
+
+.QueueSheet .Queue {
+  flex: 1;
+  height: auto;
+}
+
+.ClearQueueSheet-text {
+  margin: 0;
+  padding: var(--sp-2) var(--gutter) var(--sp-4);
+  font: var(--t-body);
+  color: var(--fg-1);
+}

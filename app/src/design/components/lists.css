@@ -1,0 +1,497 @@
+/* Lists: Thumb, Mosaic, Equaliser, TrackRow, ListRow, PlaylistCard, SectionHeader, VirtualList.
+   Rows are 56 px on the phone and 48 px on the desktop (--row-h). Skeleton, ErrorRow and
+   EmptyState are in states.css. */
+
+.Thumb {
+  flex: none;
+  width: var(--thumb-sm);
+  height: var(--thumb-sm);
+  border-radius: var(--r-xs);
+  background: var(--bg-2);
+  object-fit: cover;
+  overflow: hidden;
+}
+
+.Thumb.is-round {
+  border-radius: var(--r-pill);
+}
+
+/* No artwork (a folder, an artist without a picture, a song without a cover): an icon on --bg-2. */
+.Thumb.is-icon {
+  display: grid;
+  place-items: center;
+  color: var(--fg-1);
+}
+
+/* Mosaic: four artworks in a square, or one when a playlist has fewer than four covers. */
+.Mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--bg-2);
+}
+
+.Mosaic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.Mosaic.is-single {
+  grid-template-columns: 1fr;
+}
+
+.Mosaic.is-empty {
+  grid-template-columns: 1fr;
+  place-items: center;
+  color: var(--fg-1);
+}
+
+.Mosaic.is-small {
+  border-radius: var(--r-xs);
+  width: var(--thumb-sm);
+  height: var(--thumb-sm);
+  flex: none;
+}
+
+/* Equaliser: the brand's three bars, animated while playing (static with reduced motion). */
+.Equaliser {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--aqua);
+}
+
+.Equaliser i {
+  display: block;
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+  animation: eq-bounce 900ms var(--ease-standard) infinite alternate;
+}
+
+.Equaliser i:nth-child(1) {
+  transform: scaleY(0.5);
+  animation-delay: -300ms;
+}
+
+.Equaliser i:nth-child(2) {
+  transform: scaleY(1);
+  animation-delay: -600ms;
+}
+
+.Equaliser i:nth-child(3) {
+  transform: scaleY(0.7);
+  animation-delay: -150ms;
+}
+
+.Equaliser.is-paused i {
+  animation-play-state: paused;
+}
+
+@keyframes eq-bounce {
+  0% {
+    transform: scaleY(0.3);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .Equaliser i {
+    animation: none;
+  }
+}
+
+/* TrackRow. */
+.TrackRow {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+  height: var(--row-h);
+  padding: 0 var(--sp-1) 0 var(--gutter);
+  color: var(--fg-0);
+  cursor: default;
+  user-select: none;
+  transition: background-color var(--dur-xs) var(--ease-standard);
+}
+
+.TrackRow:hover {
+  background: var(--hover);
+}
+
+.TrackRow:active {
+  background: var(--press);
+}
+
+/* Rows sit inside scrolling lists: draw the focus ring inside the row so it is never clipped. */
+.TrackRow:focus-visible,
+.ListRow:focus-visible {
+  outline-offset: -2px;
+}
+
+.TrackRow-text {
+  display: grid;
+  min-width: 0;
+}
+
+.TrackRow-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  font: var(--t-body);
+}
+
+.TrackRow-title span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.TrackRow-artist {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.TrackRow-folder {
+  display: none;
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.TrackRow-time {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The playing row's 3 px bar sits in the row's left padding, 13 px before the cover at every size:
+   on the row's edge where the gutter is 16 px (the phone, the queue), inside it on wider gutters. */
+.TrackRow.is-playing::before {
+  content: "";
+  position: absolute;
+  left: max(0px, var(--gutter) - var(--sp-4));
+  top: var(--sp-2);
+  bottom: var(--sp-2);
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--aqua);
+}
+
+/* Away from the edge (the wider gutters of the tablet and the desktop) the bar is rounded at both
+   sides; the queue keeps a 16 px gutter, so its bar stays on the edge. */
+@container shell (min-width: 720px) {
+  .TrackRow.is-playing::before {
+    border-radius: 2px;
+  }
+
+  .Queue .TrackRow.is-playing::before {
+    border-radius: 0 2px 2px 0;
+  }
+}
+
+.TrackRow.is-playing .TrackRow-title {
+  color: var(--aqua);
+}
+
+.TrackRow.is-selected {
+  background: var(--aqua-dim);
+}
+
+.TrackRow.is-missing .TrackRow-title,
+.TrackRow.is-missing .TrackRow-artist {
+  color: var(--fg-disabled);
+}
+
+.TrackRow .Checkbox {
+  margin-right: calc(var(--sp-1) * -1);
+}
+
+.TrackRow.has-check,
+.TrackRow.has-handle {
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+}
+
+/* The drag handle: the whole row height, no scrolling from it on touch (it drags). */
+.TrackRow-handle {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 100%;
+  margin: 0 calc(var(--sp-1) * -1) 0 calc(var(--sp-2) * -1);
+  color: var(--fg-2);
+  cursor: grab;
+  touch-action: none;
+}
+
+.TrackRow-handle:active {
+  cursor: grabbing;
+}
+
+/* On a desktop shell the row adds the folder the file sits in (storage only, shown as a hint). */
+@container shell (min-width: 1080px) {
+  .TrackRow {
+    grid-template-columns: auto minmax(0, 1.6fr) minmax(0, 1fr) auto auto;
+  }
+
+  .TrackRow.has-check,
+  .TrackRow.has-handle {
+    grid-template-columns: auto auto minmax(0, 1.6fr) minmax(0, 1fr) auto auto;
+  }
+
+  .TrackRow-folder {
+    display: block;
+  }
+
+  .TrackRow .IconButton {
+    opacity: 0;
+    transition: opacity var(--dur-opacity) var(--ease-standard);
+  }
+
+  .TrackRow:hover .IconButton,
+  .TrackRow:focus-within .IconButton {
+    opacity: 1;
+  }
+
+  .Queue .TrackRow {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .Queue .TrackRow.has-handle {
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  }
+
+  .Queue .TrackRow-folder {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .TrackRow .IconButton {
+    opacity: 1;
+  }
+}
+
+/* ListRow: artists, folders and playlists as rows (and search results). */
+.ListRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+  height: var(--row-h);
+  padding: 0 var(--sp-1) 0 var(--gutter);
+  transition: background-color var(--dur-xs) var(--ease-standard);
+}
+
+.ListRow:hover {
+  background: var(--hover);
+}
+
+.ListRow:active {
+  background: var(--press);
+}
+
+.ListRow-text {
+  display: grid;
+  min-width: 0;
+}
+
+.ListRow-chevron {
+  display: grid;
+  padding-right: var(--sp-2);
+  color: var(--fg-1);
+}
+
+.ListRow-name {
+  font: var(--t-body);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ListRow-meta {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ListRow-count {
+  padding-right: var(--sp-3);
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* PlaylistCard: the mosaic with the name and count under it. */
+.CardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--sp-5) var(--sp-4);
+  padding: 0 var(--gutter);
+}
+
+/* The name is the card's button; its ::after covers the whole card, so a tap anywhere opens the
+   playlist while the "more" button stays a separate target above it. */
+.PlaylistCard {
+  position: relative;
+  display: grid;
+  gap: var(--sp-2);
+  align-content: start;
+  min-width: 0;
+  border-radius: var(--r-lg);
+  transition: transform var(--dur-xs) var(--ease-standard);
+}
+
+.PlaylistCard:active {
+  transform: scale(0.98);
+}
+
+.PlaylistCard-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--sp-1);
+}
+
+.PlaylistCard-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.PlaylistCard-open {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  font: var(--t-body-strong);
+  text-align: left;
+}
+
+.PlaylistCard-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-lg);
+}
+
+/* The focus ring moves from the name to the whole card (the ::after), it is not removed. */
+.PlaylistCard-open:focus-visible {
+  outline: none;
+}
+
+.PlaylistCard-open:focus-visible::after {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
+}
+
+.PlaylistCard-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The counts wrap (balanced, so "13 songs," over "39 sec") rather than lose the duration when the
+   text is large; the name keeps one line. */
+.PlaylistCard-meta {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  font-variant-numeric: tabular-nums;
+  text-wrap: balance;
+}
+
+.PlaylistCard.is-playing .PlaylistCard-open {
+  color: var(--aqua);
+}
+
+.PlaylistCard-more {
+  position: relative;
+  z-index: 1;
+  margin: calc(var(--sp-1) * -1) calc(var(--sp-2) * -1) 0 0;
+}
+
+@container shell (min-width: 1080px) {
+  .PlaylistCard-more {
+    opacity: 0;
+    transition: opacity var(--dur-opacity) var(--ease-standard);
+  }
+
+  .PlaylistCard:hover .PlaylistCard-more,
+  .PlaylistCard:focus-within .PlaylistCard-more {
+    opacity: 1;
+  }
+}
+
+@media (pointer: coarse) {
+  .PlaylistCard-more {
+    opacity: 1;
+  }
+}
+
+/* SectionHeader. */
+.SectionHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-6) var(--gutter) var(--sp-2);
+}
+
+.SectionHeader h2,
+.SectionHeader h3 {
+  margin: 0;
+  font: var(--t-h3);
+}
+
+.SectionHeader .t-overline {
+  color: var(--fg-1);
+}
+
+/* VirtualList: rows placed by index (--vl-i) at the row height (--row-h), so only the rows in view
+   exist and none of them animates in. The body is as tall as every row together. */
+.VirtualList {
+  position: relative;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+}
+
+.VirtualList.is-inline {
+  overflow: visible;
+}
+
+.VirtualList-body {
+  position: relative;
+  height: calc(var(--vl-count, 0) * var(--row-h));
+  overflow-anchor: none;
+}
+
+.VirtualList-body > [data-index] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--vl-i, 0) * var(--row-h));
+  height: var(--row-h);
+}

@@ -1,0 +1,465 @@
+/* Player surfaces: MiniPlayer (phone), FullPlayer (phone sheet, desktop main pane), PlayerBar
+   (tablet and desktop). The artwork tint (--tint, set from the cover by the tint worker) appears
+   only here: the full player's background, the right pane's top and the mini player's glow. */
+
+/* The progress hairline: 2 px of aqua scaled by --progress (0..1), moved by rAF, no transition. */
+.Hairline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--hairline);
+  background: var(--line);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.Hairline::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--aqua);
+  transform-origin: left;
+  transform: scaleX(var(--progress, 0));
+}
+
+/* MiniPlayer: 56 px, hairline on its top edge, tap or swipe up opens the full player. */
+.MiniPlayer {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
+  align-items: center;
+  column-gap: var(--sp-1);
+  height: var(--mini-h);
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  background: var(--bg-1);
+  cursor: pointer;
+  touch-action: none;
+}
+
+/* Cover and text are one button (open the full player). */
+.MiniPlayer-open {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--sp-3);
+  min-width: 0;
+  height: 100%;
+  text-align: left;
+}
+
+.MiniPlayer-open:focus-visible {
+  outline-offset: -2px;
+}
+
+.MiniPlayer .Thumb {
+  box-shadow: 0 0 18px 2px var(--tint);
+}
+
+.MiniPlayer-text {
+  display: grid;
+  min-width: 0;
+}
+
+.MiniPlayer-title {
+  font: var(--t-body-strong);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.MiniPlayer-artist {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.MiniPlayer .IconButton {
+  color: var(--fg-0);
+}
+
+/* Play and pause share one cell; the one not in use fades out (as in the PlayButton). */
+.MiniPlayer-play .Icon {
+  grid-area: 1 / 1;
+  transition: opacity var(--dur-opacity) var(--ease-standard);
+}
+
+.MiniPlayer-play[data-state="playing"] .MiniPlayer-playIcon,
+.MiniPlayer-play[data-state="paused"] .MiniPlayer-pauseIcon {
+  opacity: 0;
+}
+
+/* FullPlayer. */
+.FullPlayer {
+  container: fullplayer / inline-size;
+  position: relative;
+  min-height: 100%;
+  background: linear-gradient(180deg, var(--tint) 0%, var(--bg-0) 72%);
+}
+
+/* The phone's full player rises from the bottom; a touch swipe down drags it (useSwipe). */
+@container shell (max-width: 719px) {
+  .FullPlayer {
+    animation: sheet-up var(--dur-l) var(--ease-emph);
+    translate: 0 var(--drag-y, 0px);
+    transition: translate var(--dur-m) var(--ease-decel);
+  }
+
+  .FullPlayer[data-dragging] {
+    transition: none;
+  }
+}
+
+/* Wider shells: the gradient ends higher (the player is a pane, not a screen). */
+@container shell (min-width: 720px) {
+  .FullPlayer {
+    background: linear-gradient(180deg, var(--tint) 0%, var(--bg-0) 60%);
+  }
+}
+
+.FullPlayer-top,
+.FullPlayer-art {
+  touch-action: none;
+}
+
+.FullPlayer-inner {
+  display: grid;
+  grid-template-rows: auto auto auto auto auto auto;
+  align-content: start;
+  gap: var(--sp-5);
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--sp-2) var(--gutter) calc(var(--sp-5) + var(--inset-bottom, 0px));
+}
+
+.FullPlayer-top {
+  display: grid;
+  grid-template-columns: var(--hit) minmax(0, 1fr) var(--hit);
+  align-items: center;
+  margin: 0 calc(var(--sp-2) * -1);
+}
+
+.FullPlayer-source {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+  text-align: center;
+}
+
+.FullPlayer-source .t-overline {
+  color: var(--fg-1);
+}
+
+.FullPlayer-source strong {
+  max-width: 100%;
+  font: var(--t-body-sm);
+  font-weight: 550;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.FullPlayer-art {
+  width: min(80cqi, 100%, 440px);
+  max-width: 100%;
+  aspect-ratio: 1;
+  justify-self: center;
+  border-radius: var(--r-xl);
+  object-fit: cover;
+  box-shadow: var(--shadow-art);
+}
+
+.FullPlayer-art.is-empty {
+  display: grid;
+  place-items: center;
+  background: var(--bg-2);
+  color: var(--fg-1);
+}
+
+.FullPlayer-meta {
+  display: grid;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.FullPlayer-title {
+  margin: 0;
+  font: var(--t-h2);
+  letter-spacing: -0.01em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: balance;
+}
+
+.FullPlayer-artist {
+  font: var(--t-body);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.Transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.Transport .IconButton {
+  color: var(--fg-0);
+}
+
+/* Where repeat sits when there is none yet: keeps the play button centred. */
+.Transport-slot {
+  width: var(--hit);
+  height: var(--hit);
+  flex: none;
+}
+
+.Transport .IconButton.is-quiet {
+  color: var(--fg-1);
+}
+
+.Transport .IconButton.is-on {
+  color: var(--aqua);
+}
+
+.FullPlayer .Transport .IconButton.is-big {
+  width: 56px;
+  height: 56px;
+}
+
+.FullPlayer-actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 var(--sp-2);
+}
+
+.FullPlayer-actions .IconButton {
+  color: var(--fg-1);
+}
+
+.FullPlayer-desk {
+  display: none;
+}
+
+/* On a wide surface (the desktop's main pane) the player lays out in two columns and leaves the
+   transport to the player bar. */
+@container fullplayer (min-width: 600px) {
+  .FullPlayer-inner {
+    max-width: 1080px;
+    grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+    grid-template-rows: auto;
+    align-items: end;
+    column-gap: var(--sp-8);
+    padding: var(--sp-9) var(--gutter) var(--sp-8);
+  }
+
+  .FullPlayer-top,
+  .FullPlayer .SliderRow,
+  .FullPlayer .Transport {
+    display: none;
+  }
+
+  .FullPlayer-art {
+    width: 100%;
+    grid-row: span 2;
+  }
+
+  .FullPlayer-desk {
+    display: grid;
+    gap: var(--sp-6);
+    align-content: end;
+    min-width: 0;
+  }
+
+  .FullPlayer-desk .FullPlayer-source {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .FullPlayer-desk h1 {
+    margin: var(--sp-2) 0 0;
+    font: var(--t-display);
+    letter-spacing: var(--tracking-tight);
+    text-wrap: balance;
+  }
+
+  .FullPlayer-desk .FullPlayer-artist {
+    font: var(--t-h3);
+    color: var(--fg-1);
+  }
+
+  .FullPlayer-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-4);
+    font: var(--t-body-sm);
+    color: var(--fg-1);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .FullPlayer-meta {
+    display: none;
+  }
+
+  .FullPlayer-actions {
+    justify-content: flex-start;
+    gap: var(--sp-2);
+    padding: 0;
+    margin-left: calc(var(--sp-2) * -1);
+  }
+}
+
+/* PlayerBar: left (now playing), centre (transport over the time line), right (queue, lyrics,
+   volume, open the player). 80 px on the desktop, 72 on a tablet. */
+.PlayerBar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-4);
+  height: var(--playerbar-h);
+  padding: 0 var(--sp-4);
+  background: var(--bg-1);
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.PlayerBar-now {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.PlayerBar-now .Thumb {
+  width: var(--thumb-lg);
+  height: var(--thumb-lg);
+  box-shadow: 0 0 18px 2px var(--tint);
+}
+
+.PlayerBar-text {
+  display: grid;
+  min-width: 0;
+}
+
+.PlayerBar-title {
+  font: var(--t-body-strong);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.PlayerBar-artist {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.PlayerBar-centre {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+}
+
+.PlayerBar-centre .Transport {
+  gap: var(--sp-3);
+  justify-content: center;
+}
+
+.PlayerBar-centre .SliderRow {
+  width: 100%;
+  max-width: 560px;
+}
+
+.PlayerBar-centre .Slider {
+  height: 16px;
+}
+
+.PlayerBar-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+}
+
+.PlayerBar-volume {
+  width: 96px;
+}
+
+.PlayerBar-volume .Slider {
+  height: 24px;
+}
+
+@container shell (max-width: 1079px) {
+  .PlayerBar-tools .is-wide-only,
+  .PlayerBar-centre .SliderRow > span {
+    display: none;
+  }
+
+  .PlayerBar-centre .SliderRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* LyricsPane: every line at h3; timed lines are buttons, the current one --fg-0 and the rest
+   --fg-1. Room under the last line so it can still sit a third from the top. */
+.LyricsPane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.LyricsPane.is-empty {
+  justify-content: center;
+}
+
+/* The badge stays put; only the lines scroll. */
+.LyricsPane-head {
+  flex: none;
+  padding: var(--sp-4) var(--gutter) 0;
+}
+
+.LyricsPane-lines {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--gutter) var(--sp-12);
+}
+
+.LyricsLine {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: var(--sp-1) 0;
+  border-radius: var(--r-sm);
+  font: var(--t-h3);
+  text-align: left;
+  color: var(--fg-0);
+  transition: color var(--dur-s) var(--ease-standard);
+}
+
+.LyricsPane.is-timed .LyricsLine {
+  color: var(--fg-1);
+}
+
+.LyricsPane.is-timed .LyricsLine:hover,
+.LyricsPane.is-timed .LyricsLine.is-current {
+  color: var(--fg-0);
+}
+
+.LyricsLine.is-break {
+  min-height: var(--sp-6);
+}

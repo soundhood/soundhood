@@ -135,3 +135,28 @@ export function lastErrorLine(output: string): string {
 export function queueStopStatus(output: string, exitCode: number): string {
   return `Queue stopped: ${lastErrorLine(output) || `the download did not finish (code ${exitCode})`}`;
 }
+
+/**
+ * What the toast says once a download's songs are filed: how many arrived and into how many
+ * playlists, and, when a playlist refused them (a file in use), which one and why, in plain words:
+ * "Downloaded 1 and added to 1 playlist. Not added to Late Night: file in use".
+ */
+export function filedStatus(songs: number, added: number, missed: readonly { name: string; reason: string }[]): string {
+  const into = added > 0 ? ` and added to ${added} playlist${added === 1 ? "" : "s"}` : "";
+  if (missed.length === 0) return `Downloaded ${songs}${into}`;
+  const same = missed.every((m) => m.reason === missed[0].reason);
+  const not = same
+    ? `${missed.map((m) => m.name).join(", ")}: ${missed[0].reason}`
+    : missed.map((m) => `${m.name}: ${m.reason}`).join("; ");
+  return `Downloaded ${songs}${into}. Not added to ${not}`;
+}
+
+/**
+ * What the toast says when the queue has nothing more to start: "Queue done" when a run went
+ * through its links and none is left waiting; else how many links still wait (after a stopped run's
+ * Retry, which downloads that one link and starts no other); null when there is nothing to say.
+ */
+export function queueEndStatus(ranRun: boolean, waiting: number): string | null {
+  if (waiting > 0) return `${waiting} ${waiting === 1 ? "link" : "links"} still waiting in the queue`;
+  return ranRun ? "Queue done" : null;
+}

@@ -1,4 +1,4 @@
-//! The fixture library generator (tests, soundhood-tools, the "Use fixture root" switch).
+//! The fixture library generator (tests, soundhood-tools, the developer "Test library" switch).
 //! Zone: tools. Contract: core/CONTRACT.md.
 //!
 //! Builds a small, made-up library from the template audio in `core/fixtures/audio`: tagged tracks
@@ -143,7 +143,7 @@ const PLAYLISTS: [&str; 5] = ["Favourites", "Focus", "Late Night", "Mixed Format
 const FAKE_VIDEO_ID: &str = "Xk3vQ9pLm2A";
 
 /// What to generate. `Default` is the library `soundhood-tools fixture-lib` writes and the app's
-/// "Use fixture root" switch installs: 50 tracks, 5 folders, 5 playlists, messy names on.
+/// "Test library" switch installs: 50 tracks, 5 folders, 5 playlists, messy names on.
 /// `soundhood-tools harness-json` exports the same library for the Playwright harness
 /// ([`export_harness_json`]), so device evidence and harness baselines can show one library.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -617,9 +617,9 @@ pub fn export_harness_json(report: &FixtureReport) -> String {
     })
     .collect();
   let mut out = serde_json::to_string_pretty(&Harness {
-    about: "Made-up library for the screenshot harness: core's fixture library (the one 'Use fixture root' \
-            installs), exported by `soundhood-tools harness-json`. Paths are relative to the library root; the \
-            mock re-roots them per platform.",
+    about: "Made-up library for the screenshot harness: core's fixture library (the one the Test library \
+            switch installs), exported by `soundhood-tools harness-json`; regenerate it, never edit it by hand. \
+            Paths are relative to the library root; the mock re-roots them per platform.",
     root: JSON_ROOT,
     android_root: HARNESS_ANDROID_ROOT,
     tracks,
@@ -1220,6 +1220,35 @@ mod tests {
       for e in p["entries"].as_array().unwrap() {
         assert!(rels.contains(e.as_str().unwrap()), "{e}");
       }
+    }
+  }
+
+  /// The screenshot suite serves `tools/screenshot/fixture-library.json`; it must be exactly what
+  /// `soundhood-tools harness-json` writes today, so the harness and the Test library switch show
+  /// one library. A checkout with CRLF line endings compares equal.
+  #[test]
+  fn committed_harness_json_is_current() {
+    let committed_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("..")
+      .join("tools")
+      .join("screenshot")
+      .join("fixture-library.json");
+    let committed = std::fs::read_to_string(&committed_path)
+      .unwrap_or_else(|e| panic!("{}: {e}", committed_path.display()))
+      .replace("\r\n", "\n");
+    let parent = tempfile::tempdir().unwrap();
+    let generated = harness_json_in(parent.path()).unwrap();
+    if committed != generated {
+      let line = committed
+        .lines()
+        .zip(generated.lines())
+        .position(|(a, b)| a != b)
+        .map_or_else(|| "the line count".to_string(), |i| format!("line {}", i + 1));
+      panic!(
+        "tools/screenshot/fixture-library.json differs from the generated library at {line}; regenerate it from \
+         the repository root with: cargo run -p soundhood-core --features tools --bin soundhood-tools -- \
+         harness-json tools/screenshot/fixture-library.json"
+      );
     }
   }
 

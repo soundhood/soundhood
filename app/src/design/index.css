@@ -1,0 +1,12 @@
+/* The design system's styles, in cascade order: tokens, base element styles, then the components
+   (the order the approved design preview was built in; states.css was split out of lists.css and
+   follows it, tasks.css is new). Imported once at the app's root; the fixture pages import it. */
+@import "./tokens.css";
+@import "./base.css";
+@import "./components/controls.css";
+@import "./components/lists.css";
+@import "./components/states.css";
+@import "./components/overlays.css";
+@import "./components/player.css";
+@import "./components/shell.css";
+@import "./components/tasks.css";

@@ -1,0 +1,294 @@
+/* Task surfaces: BatchReport (the end of every tier-1 batch), TidyRow (a proposed change),
+   SelectModeBar (Select mode) and OnboardingStep (first launch). */
+
+/* BatchReport: counts, reasons, then the rows with before and after. */
+.BatchReport {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.BatchReport.is-long {
+  height: 100%;
+}
+
+.BatchReport-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-7);
+  margin: 0;
+  padding: var(--sp-2) var(--gutter) var(--sp-4);
+}
+
+.BatchCount {
+  display: grid;
+  gap: 2px;
+}
+
+.BatchCount dt {
+  font: var(--t-overline);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--fg-1);
+}
+
+.BatchCount dd {
+  order: -1;
+  margin: 0;
+  font: var(--t-h2);
+  font-variant-numeric: tabular-nums;
+}
+
+.BatchCount.is-zero dd {
+  color: var(--fg-1);
+}
+
+.BatchReport-reasons {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0 var(--gutter) var(--sp-4);
+  list-style: none;
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+.BatchReport-list {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.BatchReport.is-long .BatchReport-list {
+  flex: 1;
+}
+
+.BatchRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--sp-3);
+  height: var(--row-h);
+  padding: 0 var(--gutter);
+}
+
+.BatchRow:focus-visible {
+  outline-offset: -2px;
+}
+
+.BatchRow > .Icon {
+  color: var(--fg-1);
+}
+
+.BatchRow.is-done > .Icon {
+  color: var(--ok);
+}
+
+.BatchRow.is-failed > .Icon {
+  color: var(--danger);
+}
+
+.BatchRow-text {
+  display: grid;
+  min-width: 0;
+}
+
+.BatchRow-main,
+.BatchRow-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.BatchRow-main {
+  font: var(--t-body);
+}
+
+.BatchRow-sub {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+/* TidyRow: before and after, changed parts in --fg-0 (struck through in the before line). */
+.TidyRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-2) var(--sp-3) var(--gutter);
+  cursor: pointer;
+  transition: background-color var(--dur-xs) var(--ease-standard);
+}
+
+.TidyRow + .TidyRow {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.TidyRow:hover {
+  background: var(--hover);
+}
+
+.TidyRow.is-checked {
+  background: var(--aqua-dim);
+}
+
+.TidyRow .Checkbox {
+  margin-top: 1px;
+}
+
+.TidyRow-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.TidyRow-line {
+  font: var(--t-body);
+  color: var(--fg-1);
+  overflow-wrap: anywhere;
+}
+
+.TidyRow-line .is-changed {
+  color: var(--fg-0);
+}
+
+.TidyRow-line.is-before .is-changed {
+  text-decoration: line-through;
+  text-decoration-color: var(--fg-1);
+}
+
+.TidyRow-line .Icon {
+  display: inline-block;
+  margin-right: var(--sp-1);
+  vertical-align: -2px;
+  color: var(--fg-1);
+}
+
+.TidyRow-reason {
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+}
+
+.TidyRow-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2) 0 0;
+  font: var(--t-caption);
+  color: var(--fg-1);
+  white-space: nowrap;
+}
+
+.TidyRow-confidence.is-high .Icon {
+  color: var(--ok);
+}
+
+.TidyRow-confidence.is-low .Icon {
+  color: var(--warn);
+}
+
+/* SelectModeBar: replaces the screen header on the phone, sits above the list on the desktop. */
+.SelectModeBar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 56px;
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--bg-1);
+}
+
+/* Where the bar takes the header's place, it takes the focus Select had (Select is hidden then):
+   where Select mode starts, as a heading is where a screen starts. No Tab stop, nothing to press,
+   so no ring; the ring belongs to its controls. */
+.SelectModeBar:focus-visible {
+  outline: none;
+}
+
+/* The count gives way first when the text is large: it ellipsizes, the buttons never squeeze. */
+.SelectModeBar-count {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0 var(--sp-1);
+  font: var(--t-body-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.SelectModeBar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: auto;
+}
+
+@container shell (min-width: 1080px) {
+  .SelectModeBar {
+    margin: 0 var(--gutter);
+    border-radius: var(--r-md);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+}
+
+/* OnboardingStep: EmptyState styling, a control area, Skip and Next at the bottom. */
+.OnboardingStep {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 100%;
+}
+
+.OnboardingStep-body {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  padding: var(--sp-9) var(--gutter) var(--sp-6);
+  text-align: center;
+}
+
+.OnboardingStep-icon {
+  margin-bottom: var(--sp-2);
+  color: var(--fg-1);
+}
+
+.OnboardingStep-icon.is-brand {
+  color: var(--aqua);
+}
+
+.OnboardingStep-body .t-overline {
+  color: var(--fg-1);
+}
+
+.OnboardingStep-body h2 {
+  margin: 0;
+  font: var(--t-h2);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.OnboardingStep-body p {
+  margin: 0;
+  font: var(--t-body-sm);
+  color: var(--fg-1);
+  text-wrap: pretty;
+}
+
+.OnboardingStep-control {
+  display: grid;
+  gap: var(--sp-3);
+  justify-items: center;
+  width: 100%;
+  margin-top: var(--sp-4);
+}
+
+.OnboardingStep-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--sp-4) var(--gutter) calc(var(--sp-4) + var(--inset-bottom, 0px));
+}

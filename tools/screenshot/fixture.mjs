@@ -4,12 +4,15 @@
 import { readFileSync } from "node:fs";
 import { PNG } from "pngjs";
 
-/** The made-up 50-track, 5-playlist library in fixture-library.json. */
+/**
+ * The made-up 50-track, 5-playlist library in fixture-library.json: the core's fixture library (the
+ * one the app's Test library switch installs), written by `soundhood-tools harness-json`.
+ */
 export function loadFixture() {
   return JSON.parse(readFileSync(new URL("./fixture-library.json", import.meta.url), "utf8"));
 }
 
-/** Library-relative path of a fixture track, e.g. "Evening/Night Ferry - Amber Lanes.m4a". */
+/** Library-relative path of a fixture track, e.g. "Evenings/Static Garden - Sola Brakke.opus". */
 export function relPathOf(track) {
   return track.folder ? `${track.folder}/${track.file}` : track.file;
 }
@@ -25,7 +28,7 @@ export function scanResult(fixture, root) {
     .map((t) => ({
       path: `${root}/${relPathOf(t)}`,
       name: t.file,
-      playlist: t.folder || "(root)",
+      playlist: t.folder ? t.folder.split("/")[0] : "(root)",
       title: t.title,
       artist: t.artist,
       duration_secs: t.duration_secs,

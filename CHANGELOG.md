@@ -9,21 +9,75 @@ phase's number, and only Phase 7 sets 1.0.0 ([DEV](docs/DEV.md#versions-and-rele
 
 | Version | Phase | Tagged |
 |---|---|---|
+| 0.3.0 | Phase 1: design system and PC/phone parity | not tagged yet |
 | 0.2.1 | fix after Phase 0 | v0.2.1, 2026-11-06 (local) |
 | 0.2.0 | Phase 0: foundation | v0.2.0, 2026-10-28 (local) |
 | 0.1.0 | the app before the rebuild | never tagged |
 
 ## [Unreleased]
 
+## [0.3.0] - Phase 1: design system and PC/phone parity
+
+The whole interface is rebuilt on one design system, the same on the PC and the phone: one set of
+parts, colours, type and icons, laid out by the size of the window only. How the app writes to your
+files does not change.
+
 ### Added
 
+- A design system: colours, type sizes, spacing and motion as tokens (`app/src/design/tokens.css`,
+  the only file with raw colours), the Inter typeface bundled with its licence, one icon set drawn for
+  Soundhood, and every part the screens are made of, each photographed on its own test page at four
+  sizes and with reduced motion, more contrast and 130 % text. [DESIGN](docs/DESIGN.md) specifies them.
+- A new app icon on every platform: an aqua hood over three equaliser bars, with a white version for
+  the tray and notifications and Android's themed icons.
+- The PC gets the phone's structure in three panes: a sidebar (resizable, folds to a rail), the list,
+  the queue on the right, and a player bar. Narrower windows switch to a rail, then to the phone
+  layout, by width alone.
+- A real play queue: Play next, Add to queue, drag to reorder, swipe or press Delete to remove, Save
+  as playlist, Clear; Repeat (all, one, off). In the right pane on a wide window, a sheet elsewhere.
+- Search in one field: the whole library in groups (songs, artists, playlists, folders) with chips;
+  with a list open, it filters that list.
+- A menu on every song (Play next, Add to queue, Add to playlist, Go to artist, Edit tags, Delete), the
+  same menu for the playing song under the full player's "more" button, and songs dragged onto a
+  playlist in the sidebar are added to it.
+- The keyboard list in [SHORTCUTS](docs/SHORTCUTS.md), all working on the PC.
+- One Settings panel on both devices (Ctrl+comma on the PC): Library, YouTube with a Downloader
+  switch, Proton Drive on the phone, Appearance with Text size, Tools with Copy log and View log,
+  About, and the hidden Developer group at its bottom.
+- On the PC, Download in the sidebar and Ctrl+V anywhere open "Where should this go?"; a running
+  download shows its progress at the bottom; a failed one shows why, with Copy log and Retry.
+- After a tag edit, a move or a delete, a report that stays until closed, with **Undo this batch**
+  (a whole selection comes back together); playlist changes show a message with **Undo**.
+- First-launch setup in three short steps for a new install (library, online lookups, YouTube helper);
+  an existing install skips it and keeps downloading as before.
+- Checks: a contrast check of every colour pair, a phone-beside-PC screenshot grid, the screenshot
+  suite on the same test library the app's Test library switch installs, and a by-hand network check
+  of the PC app before each release.
 - The repository hygiene lint refuses en and em dashes in tracked text files, as characters or as
   HTML entities (vendored `third_party/` code excepted), and names the file and line. The ones
   already there are gone from the code, the docs and the app's own text: a status line now reads
   "Proton sync failed (see the log)", like the app's other "see the log" lines, and the shuffle
   button's tooltip "Shuffle is on; click to play in order".
 
+### Changed
+
+- A click or a tap plays a song on every device; the PC's double-click to play is gone. Ctrl+click and
+  Shift+click choose songs with a mouse; Select mode chooses them on touch.
+- Song lists show the title and artist from the tags.
+- The status line is gone: results, errors and progress appear where they belong (a message with
+  Undo, the report, an error row, the download's progress, the log).
+- The app's `App.tsx` (3,413 lines) is now a shell, hooks and feature folders; no file is over 600
+  lines.
+
 ### Fixed
+
+- On the PC, choosing another song before the previous one had started could leave the previous
+  song playing while the screen showed the new one.
+- The cover of the last song stayed in memory after playback stopped.
+- Lists no longer redraw four times a second while a song plays.
+- The waiting-link Copy said "Link copied" even when the clipboard refused it.
+- Deleting songs checked the song that was playing when the delete started, not the one playing when
+  it ran.
 
 - Playlist names in another case or Unicode form. On a disk that keeps "Road Trip" and "road trip"
   apart (Linux, some Android storage), adding to or removing from a playlist typed in another case
